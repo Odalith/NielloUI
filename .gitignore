@@ -1,0 +1,20 @@
+# Odin build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.lib
+*.exe
+
+# Prebuilt native backends are downloaded, not committed
+# (tools/fetch-native.sh). Keep the READMEs and placeholders.
+third_party/native/**
+!third_party/native/**/
+!third_party/native/**/README.md
+!third_party/native/**/.gitkeep
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
