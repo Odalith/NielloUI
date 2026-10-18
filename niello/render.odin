@@ -34,11 +34,14 @@ Draw_Cmd :: struct {
 	border_color: Color,
 
 	// Text payload. Borrowed bytes, valid until the next frame_begin.
-	text_ptr:  [^]u8,
-	text_len:  i64,
-	font:      Font_Handle,
-	max_width: f32, // available width; the backend trims with an ellipsis when truncated
-	truncated: bool,
+	text_ptr:    [^]u8,
+	text_len:    i64,
+	font:        Font_Handle, // family; 0 = platform default
+	font_size:   f32, // px in DIP
+	font_weight: u16, // CSS 100-900, matches Font_Weight discriminants
+	font_slant:  u8, // 0=upright, 1=italic, 2=oblique; matches Font_Slant order
+	max_width:   f32, // available width; the backend trims with an ellipsis when truncated
+	truncated:   bool,
 
 	// Push_Opacity payload.
 	opacity: u8,
@@ -119,24 +122,7 @@ emit_node_open :: proc(i: int) -> bool {
 	}
 
 	if nd.has_text {
-		// Paint-time trim signal (§3.12): the backend draws the ellipsis when
-		// the intrinsic width exceeds the resolved width. Text is drawn with
-		// its origin at the rect's top-left; the backend applies the baseline
-		// from its font metrics.
-		truncated := s.wrap == .None && g.lay[i].content.x > g.lay[i].size.x
-		append(
-			&g.draw_cmds,
-			Draw_Cmd{
-				tag = .Text,
-				bounds = r,
-				color = s.text_color,
-				text_ptr = raw_data(nd.text),
-				text_len = i64(len(nd.text)),
-				font = s.font,
-				max_width = g.lay[i].size.x,
-				truncated = truncated,
-			},
-		)
+		emit_text(i, nd, s, r)
 	}
 
 	if s.overlay_color.a > 0 || s.overlay_border_width > 0 {
@@ -153,6 +139,130 @@ emit_node_open :: proc(i: int) -> bool {
 	}
 
 	return scoped
+}
+
+// A merged run of same-style text within one laid-out line.
+@(private)
+Text_Run :: struct {
+	start, end: int, // byte offsets into the node's text
+	width:      f32,
+	font:        Font_Handle,
+	font_size:   f32,
+	font_weight: Font_Weight,
+	font_slant:  Font_Slant,
+	font_color:  Color,
+}
+
+@(private)
+same_run_style :: proc(r: Text_Run, f: Text_Frag) -> bool {
+	return r.font == f.font && r.font_size == f.font_size && r.font_weight == f.font_weight && r.font_slant == f.font_slant && r.font_color == f.font_color
+}
+
+// emit_text lays out the node's text into positioned Text commands: one per
+// line per style-run. Consecutive fragments with identical style merge into a
+// single command, so plain text emits one command per line. Each line is
+// positioned by the node's horizontal align; the backend applies the
+// baseline from each run's font metrics.
+//
+// Paint-time trim (§3.12): when wrap==.None and the line exceeds the resolved
+// width, runs are walked from the left and the straddling run is emitted with
+// truncated=true; the backend draws the ellipsis. The trim is computed as if
+// Start-aligned (ellipsis + Center/End is a rare combo; fitting text still
+// aligns normally).
+@(private)
+emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
+	e := get_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text)
+	max_w := g.lay[i].size.x
+
+	breaks: [dynamic][2]int
+	defer delete(breaks)
+	runs: [dynamic]Text_Run
+	defer delete(runs)
+
+	line_idx := 0
+	for seg in e.segs {
+		if len(seg) == 0 {
+			line_idx += 1
+			continue
+		}
+		if s.wrap == .Word {
+			pack_line_breaks(seg, e.space_w, max_w, &breaks)
+		} else {
+			clear(&breaks)
+			append(&breaks, [2]int{0, len(seg)})
+		}
+		for br in breaks {
+			// Build merged runs: fragments in word order; inter-word gaps
+			// are attributed to the preceding fragment's style (gaps are
+			// invisible, so color is irrelevant; this keeps runs maximal
+			// and the command count low).
+			clear(&runs)
+			line_w := f32(0)
+			for wi in br[0] ..< br[1] {
+				w := &seg[wi]
+				if wi > br[0] {
+					line_w += e.space_w
+					runs[len(runs)-1].end = w.start
+					runs[len(runs)-1].width += e.space_w
+				}
+				for f in w.frags {
+					line_w += f.width
+					if len(runs) > 0 && same_run_style(runs[len(runs)-1], f) && runs[len(runs)-1].end == f.start {
+						runs[len(runs)-1].end = f.end
+						runs[len(runs)-1].width += f.width
+					} else {
+						append(&runs, Text_Run{
+							start = f.start, end = f.end, width = f.width,
+							font = f.font, font_size = f.font_size,
+							font_weight = f.font_weight, font_slant = f.font_slant,
+							font_color = f.font_color,
+						})
+					}
+				}
+			}
+
+			trims := s.wrap == .None && line_w > max_w
+			x0 := align_offset(s.align[0], max_w - line_w)
+			if trims {
+				x0 = 0
+			}
+			y := r.pos.y + f32(line_idx) * e.line_h
+			x := x0
+			for rn in runs {
+				if trims {
+					if x >= max_w {
+						break // past the edge; drop the rest
+					}
+					if x + rn.width > max_w {
+						// Straddling run: the backend trims + draws the ellipsis.
+						append(&g.draw_cmds, Draw_Cmd{
+							tag = .Text,
+							bounds = Rect{{r.pos.x + x, y}, {rn.width, e.line_h}},
+							color = rn.font_color,
+							text_ptr = raw_data(nd.text[rn.start:rn.end]),
+							text_len = i64(rn.end - rn.start),
+							font = rn.font, font_size = rn.font_size,
+							font_weight = u16(rn.font_weight), font_slant = u8(rn.font_slant),
+							max_width = max_w - x, truncated = true,
+						})
+						break
+					}
+				}
+				append(&g.draw_cmds, Draw_Cmd{
+					tag = .Text,
+					bounds = Rect{{r.pos.x + x, y}, {rn.width, e.line_h}},
+					color = rn.font_color,
+					text_ptr = raw_data(nd.text[rn.start:rn.end]),
+					text_len = i64(rn.end - rn.start),
+					font = rn.font, font_size = rn.font_size,
+					font_weight = u16(rn.font_weight), font_slant = u8(rn.font_slant),
+					max_width = max_w, truncated = false,
+				})
+				x += rn.width
+			}
+			line_idx += 1
+		}
+	}
 }
 
 // emit_node_close emits a node's scope closes, in reverse of the opens.

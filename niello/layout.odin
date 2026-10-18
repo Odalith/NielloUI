@@ -83,8 +83,9 @@ floor_of :: proc(c: int, axis: int) -> f32 {
 	s := style_of(g.nodes[c].unit)
 	fl := g.lay[c].min_c[axis]
 	if g.nodes[c].has_text && axis == X_AXIS && s.wrap == .None && s.ellipsis {
-		// Ellipsis text may shrink to the "…" width; paint covers the rest.
-		fl = min(fl, ELLIPSIS_W)
+		// Ellipsis text may shrink to the "…" width in its own style; paint
+		// covers the rest.
+		fl = min(fl, ellipsis_width(s))
 	}
 	return max(s.size[axis].min, fl)
 }
@@ -148,7 +149,7 @@ measure_text_all :: proc() {
 		nd := &g.nodes[i]
 		s := style_of(nd.unit)
 		if nd.has_text {
-			uw, minw := measure_text(s.font, nd.text_hash, nd.text, s.wrap)
+			uw, minw := measure_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, s.wrap)
 			g.lay[i].content = uw
 			g.lay[i].min_c = Vec2{minw, 0}
 		} else if !nd.is_container {
@@ -437,8 +438,8 @@ wrap_text :: proc() {
 		}
 		nd := &g.nodes[w]
 		s := style_of(nd.unit)
-		lines := wrapped_lines(s.font, nd.text_hash, nd.text, g.lay[w].size.x)
-		g.lay[w].content.y = f32(lines) * LINE_H
+		lines, line_h := wrapped_lines(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, g.lay[w].size.x)
+		g.lay[w].content.y = f32(lines) * line_h
 		// Width stays: content.x keeps its unwrapped meaning ("how wide would
 		// this want to be"); size.x is the truth the rest of the frame uses.
 	}

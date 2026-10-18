@@ -34,15 +34,19 @@ Key      :: distinct u64 // stable per-item identity; 0 = sibling ordinal
 // ============ styling ============
 
 Field :: enum u8 {
-	Color, Text_Color, Border_Color,
-	Text, Font, Text_Wrap, Ellipsis,
+	Color, Font_Color, Border_Color,
+	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Ellipsis,
 	Padding, Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
+	Text_Spans,
 }
 // Text_Wrap is layout-invalidating (controls pass-C participation);
 // Align is layout-invalidating (controls child positioning);
-// Ellipsis and Overflow are paint-only (resolved at draw-command emission).
+// Font_Size, Font_Weight and Font_Slant are layout-invalidating (they change
+// text measurement); Text_Spans is layout-invalidating (it changes word
+// widths). Ellipsis and Overflow are paint-only (resolved at draw-command
+// emission).
 Fields :: bit_set[Field]
 
 Layout :: enum u8 {
@@ -100,7 +104,66 @@ Align_Kind :: enum u8 {
 // Skia backend lands; the API contract is "four channels", not the layout.
 Color :: [4]u8
 
-Font_Handle :: distinct u32
+Font_Handle :: distinct u32 // identifies a font FAMILY; 0 = platform default
+
+// Weight uses CSS 100-900 discriminants so the backend casts straight to
+// SkFontStyle. The zero value is not a valid weight; default_style sets
+// .Regular explicitly.
+Font_Weight :: enum u16 {
+	Thin     = 100,
+	Light    = 300,
+	Regular  = 400,
+	Medium   = 500,
+	SemiBold = 600,
+	Bold     = 700,
+	Black    = 900,
+}
+
+Font_Slant :: enum u8 {
+	Upright,
+	Italic,
+	Oblique,
+}
+
+// A style override applied to a byte range of the unit's resolved text.
+// Byte offsets ([start, end)) — Odin strings and the backend both speak
+// bytes, so there is no conversion layer. Boundaries should fall on UTF-8
+// boundaries (the splitter snaps defensively); out-of-range clamps, empty
+// spans are ignored, and on overlap the later span in the array wins.
+Text_Span :: struct {
+	start, end: int,
+	font:        Maybe(Font_Handle),
+	font_size:   Maybe(f32),
+	font_weight: Maybe(Font_Weight),
+	font_slant:  Maybe(Font_Slant),
+	font_color:  Maybe(Color),
+}
+
+// span_bytes converts rune-index ranges to byte offsets for Text_Span.
+// Out-of-range indices clamp; reversed ranges yield an empty range.
+span_bytes :: proc(s: string, rune_start, rune_end: int) -> (byte_start, byte_end: int) {
+	if rune_start >= rune_end {
+		return 0, 0
+	}
+	byte_start, byte_end = len(s), len(s)
+	ri := 0
+	for _, bi in s {
+		if ri == rune_start {
+			byte_start = bi
+		}
+		if ri == rune_end {
+			byte_end = bi
+			return byte_start, byte_end
+		}
+		ri += 1
+	}
+	// rune_end at or past the last rune: byte_end stays len(s).
+	// rune_start past the end: empty range at the end.
+	if ri <= rune_start {
+		return len(s), len(s)
+	}
+	return byte_start, byte_end
+}
 
 Text_Wrap :: enum u8 {
 	None, // default: no auto-wrap; explicit \n still breaks lines
@@ -114,9 +177,13 @@ Overflow :: enum u8 {
 // Note: scrolling is the `scroll` field, not a third mode here.
 
 Style :: struct {
-	color, text_color, border_color: Color,
+	color, font_color, border_color: Color,
 	text:          string,
-	font:          Font_Handle,
+	font:          Font_Handle, // family; 0 = platform default
+	font_size:     f32,          // px in DIP
+	font_weight:   Font_Weight,
+	font_slant:    Font_Slant,
+	text_spans:    []Text_Span, // rich-text overrides; nil = plain
 	padding:       [4]u16,
 	gap:           u16,
 	border_width:  u16, // paint-only; drawn inset within the rect
@@ -141,14 +208,17 @@ Style :: struct {
 
 default_style :: proc() -> Style {
 	return Style{
-		layout   = .Left_To_Right,
-		size     = {fit(), fit()},
-		align    = {.Start, .Start},
-		wrap     = .None,
-		ellipsis = true,
-		overflow = .Spill,
-		scroll   = .None,
-		opacity  = 255, // opaque; colors default to transparent black (paint TBD)
+		layout      = .Left_To_Right,
+		size        = {fit(), fit()},
+		align       = {.Start, .Start},
+		wrap        = .None,
+		ellipsis    = true,
+		overflow    = .Spill,
+		scroll      = .None,
+		opacity     = 255, // opaque; colors default to transparent black (paint TBD)
+		font_size   = 16,
+		font_weight = .Regular,
+		font_slant  = .Upright,
 	}
 }
 
@@ -158,10 +228,14 @@ default_style :: proc() -> Style {
 // type: size = Size{...}, padding = [4]u16{...}.
 Style_Decl :: struct {
 	color:         Maybe(Color),
-	text_color:    Maybe(Color),
+	font_color:    Maybe(Color),
 	border_color:  Maybe(Color),
 	text:          Maybe(string),
 	font:          Maybe(Font_Handle),
+	font_size:     Maybe(f32),
+	font_weight:   Maybe(Font_Weight),
+	font_slant:    Maybe(Font_Slant),
+	text_spans:    Maybe([]Text_Span),
 	padding:       Maybe([4]u16),
 	gap:           Maybe(u16),
 	border_width:  Maybe(u16),
@@ -193,6 +267,9 @@ With :: struct {
 	                             // immutable until frame_end. Contents are hashed at
 	                             // declare time for the declaration hash; the pointer
 	                             // is kept for the render backend.
+	text_spans: Maybe([]Text_Span), // per-instance rich-text overrides; wins
+	                                // over Style.text_spans. Copied at declare
+	                                // time (small), so no borrow contract.
 	disabled: bool,
 	variant:  Unit,          // persistent per-instance overlay (e.g. selected)
 	anchor:   Maybe([2]f32), // overlay positioning hint
@@ -281,10 +358,14 @@ set_any :: proc(u: Unit, f: Field, v: any) {
 	s := &g.units[int(u)].style
 	switch f {
 	case .Color:         s.color         = must(v, Color)
-	case .Text_Color:    s.text_color    = must(v, Color)
+	case .Font_Color:    s.font_color    = must(v, Color)
 	case .Border_Color:  s.border_color  = must(v, Color)
 	case .Text:          s.text          = must(v, string)
 	case .Font:          s.font          = must(v, Font_Handle)
+	case .Font_Size:     s.font_size     = must(v, f32)
+	case .Font_Weight:   s.font_weight   = must(v, Font_Weight)
+	case .Font_Slant:    s.font_slant    = must(v, Font_Slant)
+	case .Text_Spans:    s.text_spans    = must(v, []Text_Span)
 	case .Text_Wrap:     s.wrap          = must(v, Text_Wrap)
 	case .Ellipsis:      s.ellipsis      = must(v, bool)
 	case .Padding:       s.padding       = must(v, [4]u16)
@@ -314,10 +395,14 @@ set :: proc(u: Unit, f: Field, v: $T) {
 set_many :: proc(u: Unit, decl: Style_Decl) {
 	s := &g.units[int(u)].style
 	apply_opt(&s.color, decl.color)
-	apply_opt(&s.text_color, decl.text_color)
+	apply_opt(&s.font_color, decl.font_color)
 	apply_opt(&s.border_color, decl.border_color)
 	apply_opt(&s.text, decl.text)
 	apply_opt(&s.font, decl.font)
+	apply_opt(&s.font_size, decl.font_size)
+	apply_opt(&s.font_weight, decl.font_weight)
+	apply_opt(&s.font_slant, decl.font_slant)
+	apply_opt(&s.text_spans, decl.text_spans)
 	apply_opt(&s.padding, decl.padding)
 	apply_opt(&s.gap, decl.gap)
 	apply_opt(&s.border_width, decl.border_width)
@@ -433,6 +518,18 @@ rect :: proc(i: Instance) -> (r: Rect, ok: bool) {
 	r, ok = g.instances[i]
 	return r, ok
 }
+
+// ============ text measurement backend ============
+// Hooks the app sets to replace the mock metrics with real shaping.
+// niello/sdl provides adapters over the nui_* FFI; the app wires them:
+//
+//   niello.measure_word_hook  = sdl.hook_measure_word
+//   niello.line_height_hook = sdl.hook_line_height
+//
+// nil = mock metrics (proportional to size, see text.odin). Hooks fire only
+// on word-cache miss.
+measure_word_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> f32
+line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> f32
 
 // ============ not yet implemented (roadmap, in doc order) ============
 // Each is a subsystem, not a stub: declaring them now would promise behavior

@@ -14,7 +14,7 @@ import niello "../"
 // Draw_Cmd's memory layout IS the FFI ABI (skiasdl/nui.h mirrors it as
 // UiDrawCmd with a _Static_assert). This fires at compile time if the struct
 // ever drifts, so the two sides cannot silently disagree.
-#assert(size_of(niello.Draw_Cmd) == 64, "niello.Draw_Cmd must stay 64 bytes: it is the FFI ABI")
+#assert(size_of(niello.Draw_Cmd) == 72, "niello.Draw_Cmd must stay 72 bytes: it is the FFI ABI")
 #assert(size_of(niello.Rect) == 16, "niello.Rect must stay 16 bytes: it is the FFI ABI")
 
 // System libraries the native backend needs on every platform.
@@ -49,9 +49,27 @@ foreign native {
 		content_scale: f32, // device pixels per DIP point
 	) ---
 
-	// Text. The app wires measure_word/line_height into niello's word cache;
-	// they fire on the C++ side through SkShaper, only on cache miss.
-	register_font :: proc(handle: u32, path: cstring) ---
-	measure_word  :: proc(font: u32, text: [^]u8, len: i64) -> f32 ---
-	line_height   :: proc(font: u32) -> f32 ---
+	// Fonts. Families are registered once, cold; the backend caches
+	// (family, weight, slant, size) -> SkFont internally. Family 0 is the
+	// platform default and needs no registration.
+	register_font        :: proc(family: u32, path: cstring) --- // bundled file
+	register_font_family :: proc(family: u32, name: cstring) --- // system family via the font manager
+
+	// Text measurement through SkShaper. weight is 100-900 (Font_Weight),
+	// slant is 0=upright, 1=italic, 2=oblique (Font_Slant order).
+	measure_word :: proc(family: u32, weight: i32, slant: i32, size_px: f32, text: [^]u8, len: i64) -> f32 ---
+	line_height  :: proc(family: u32, weight: i32, slant: i32, size_px: f32) -> f32 ---
+}
+
+// hook_measure_word / hook_line_height adapt the C measurement procs to
+// niello's backend-hook signature. The app wires them once at startup:
+//
+//   niello.measure_word_hook = sdl.hook_measure_word
+//   niello.line_height_hook  = sdl.hook_line_height
+hook_measure_word :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32, text: string) -> f32 {
+	return measure_word(u32(font), i32(weight), i32(slant), size, raw_data(text), i64(len(text)))
+}
+
+hook_line_height :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32) -> f32 {
+	return line_height(u32(font), i32(weight), i32(slant), size)
 }

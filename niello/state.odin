@@ -101,10 +101,14 @@ apply_opt :: proc(dst: ^$T, src: Maybe(T)) {
 explicit_fields :: proc(d: Style_Decl) -> Fields {
 	f: Fields
 	if d.color         != nil { f += {.Color} }
-	if d.text_color    != nil { f += {.Text_Color} }
+	if d.font_color    != nil { f += {.Font_Color} }
 	if d.border_color  != nil { f += {.Border_Color} }
 	if d.text          != nil { f += {.Text} }
 	if d.font          != nil { f += {.Font} }
+	if d.font_size     != nil { f += {.Font_Size} }
+	if d.font_weight   != nil { f += {.Font_Weight} }
+	if d.font_slant    != nil { f += {.Font_Slant} }
+	if d.text_spans    != nil { f += {.Text_Spans} }
 	if d.padding       != nil { f += {.Padding} }
 	if d.gap           != nil { f += {.Gap} }
 	if d.border_width  != nil { f += {.Border_Width} }

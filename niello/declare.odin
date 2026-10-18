@@ -15,6 +15,10 @@ Frame_Node :: struct {
 	text:            string, // resolved at declare time (see resolve_text)
 	text_hash:       u64,    // str_hash(text); the text cache keys on this
 	                        // instead of re-hashing every frame
+	spans:           []Text_Span, // resolved at declare time (see resolve_spans);
+	                              // copied, so no borrow contract
+	spans_hash:     u64,    // hash of spans; 0 when nil. The text cache keys
+	                        // on this alongside the font tuple.
 	has_text:        bool,
 	is_container:    bool,
 	culled:          bool,
@@ -33,6 +37,34 @@ resolve_text :: proc(with: With, s: ^Style) -> string {
 		return t
 	}
 	return s.text
+}
+
+// resolve_spans: per-frame With.text_spans wins over the unit's style spans.
+// The result is copied (spans are small) so the caller keeps no borrow
+// contract, and hashed once for the text cache key.
+@(private)
+resolve_spans :: proc(with: With, s: ^Style) -> (spans: []Text_Span, hash: u64) {
+	src := s.text_spans
+	if w, ok := with.text_spans.?; ok {
+		src = w
+	}
+	if len(src) == 0 {
+		return nil, 0
+	}
+	spans = make([]Text_Span, len(src))
+	copy(spans, src)
+	hash = 14695981039346656037 // FNV-1a offset basis
+	for sp in spans {
+		hash = hash_mix(hash, u64(sp.start))
+		hash = hash_mix(hash, u64(sp.end))
+		hash = hash_mix(hash, u64(sp.font.? or_else Font_Handle(0)))
+		hash = hash_mix(hash, u64(transmute(u32)(sp.font_size.? or_else 0)))
+		hash = hash_mix(hash, u64(sp.font_weight.? or_else .Regular))
+		hash = hash_mix(hash, u64(sp.font_slant.? or_else .Upright))
+		fc := sp.font_color.? or_else Color{0, 0, 0, 0}
+		hash = hash_mix(hash, u64(fc[0]) | u64(fc[1]) << 8 | u64(fc[2]) << 16 | u64(fc[3]) << 24)
+	}
+	return spans, hash
 }
 
 // declare appends one node; parents always precede children in the array.
@@ -65,11 +97,14 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instan
 	text := resolve_text(with, style_of(unit))
 	has_text := len(text) > 0
 	text_hash := u64(0)
+	spans: []Text_Span
+	spans_hash := u64(0)
 	if has_text {
 		// Hash once here; the text cache keys on (font, text_hash) instead
 		// of re-hashing the bytes on every lookup, every frame (Clay hashes
 		// contents for frame-arena-copied text — same requirement, paid once).
 		text_hash = str_hash(text)
+		spans, spans_hash = resolve_spans(with, style_of(unit))
 	}
 	append(
 		&g.nodes,
@@ -80,6 +115,8 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instan
 			with = with,
 			text = text,
 			text_hash = text_hash,
+			spans = spans,
+			spans_hash = spans_hash,
 			has_text = has_text,
 			is_container = is_container,
 			culled = parent_culled,
