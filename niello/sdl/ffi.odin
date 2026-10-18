@@ -1,6 +1,6 @@
 // niello/sdl — SDL3 app glue + FFI bindings to the native render backend.
 //
-// The native side (see skiasdl/nui.h) is a static library exposing a small C
+// The native side (see ../../native/nui.h) is a static library exposing a small C
 // API: nui_init / nui_resize / nui_set_refresh_rate / nui_render /
 // nui_register_font / nui_measure_word / nui_line_height / nui_destroy.
 //
