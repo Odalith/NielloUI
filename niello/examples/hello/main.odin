@@ -1,55 +1,73 @@
-// examples/hello — the smallest complete ui program.
+// niello/examples/hello — the smallest complete NielloUI app.
 //
-// Mint units once (cold), declare them every frame (hot), read back rects.
-// Only the public API (see public.odin) is used.
+// Opens a real window via niello/sdl/app: units are minted once (cold) and
+// declared every frame (hot). Only the public API is used.
 //
-// Run from the repo root:
+// Build (needs the native backend for your platform — see
+// third_party/native/README.md):
 //
-//	odin run examples/hello
+//	odin run niello/examples/hello -extra-linker-flags:"-L..."
 package main
 
 import niello "../.."
-import "core:fmt"
+import niello_sdl "../../sdl"
 
-main :: proc() {
-	// ---- cold: mint units once; each owns its style ----
-	window: niello.Unit
+// Cold units, minted once. Each owns its style.
+window:     niello.Unit
+toolbar:    niello.Unit
+title:      niello.Unit
+card:       niello.Unit
+card_label: niello.Unit
+
+mint_units :: proc() {
 	niello.mint(&window, niello.NO_UNIT, {
-		size   = niello.Size{niello.fixed(800), niello.fixed(600)},
-		layout = .Top_To_Bottom,
+		layout  = .Top_To_Bottom,
+		color   = niello.Color{30, 32, 40, 255},
+		padding = [4]u16{24, 24, 24, 24},
+		gap     = 16,
 	})
-	toolbar: niello.Unit
 	niello.mint(&toolbar, niello.NO_UNIT, {
 		layout = .Left_To_Right,
 		size   = niello.Size{niello.grow(), niello.fixed(48)},
 		gap    = 12,
 	})
-	title: niello.Unit
-	niello.mint(&title, niello.NO_UNIT, {size = niello.Size{niello.fit(), niello.fit()}})
+	niello.mint(&title, niello.NO_UNIT, {
+		font_size  = 28,
+		font_color = niello.Color{240, 240, 245, 255},
+	})
+	niello.mint(&card, niello.NO_UNIT, {
+		layout        = .Top_To_Bottom,
+		size          = niello.Size{niello.grow(), niello.fixed(140)},
+		color         = niello.Color{46, 50, 62, 255},
+		corner_radius = 10,
+		padding       = [4]u16{20, 20, 20, 20},
+		gap           = 8,
+	})
+	niello.mint(&card_label, niello.NO_UNIT, {
+		font_size  = 16,
+		font_color = niello.Color{200, 200, 212, 255},
+	})
+}
 
-	// ---- hot: three frames ----
-	for frame in 0 ..< 3 {
-		niello.frame_begin(niello.Input{viewport = {800, 600}}, 1.0 / 60.0)
-
-		title_inst: niello.Instance
-		if _, ok := niello.begin(window); ok {
-			if _, ok := niello.begin(toolbar); ok {
-				// Keyed: the same unit shown twice gets distinct identities.
-				title_inst = niello.show(title, niello.key("title"), {text = "Hello, ui"})
-				_ = niello.show(title, niello.key("subtitle"), {text = "frame demo"})
-			}
+// Hot: declare the UI every frame. The engine diffs and re-renders only
+// what changed.
+declare :: proc() {
+	if _, ok := niello.begin(window); ok {
+		if _, ok := niello.begin(toolbar); ok {
+			niello.show(title, niello.key("title"), {text = "Hello, NielloUI"})
 		}
-
-		// Mutate between frames; the engine finds the change next frame.
-		if frame == 1 {
-			niello.set(toolbar, .Gap, u16(24))
+		if _, ok := niello.begin(card); ok {
+			niello.show(card_label, niello.key("body"), {
+				text = "A real window, rendered by Skia through Dawn.",
+			})
+			niello.show(card_label, niello.key("hint"), {
+				text = "Close the window to quit.",
+			})
 		}
-
-		res := niello.frame_end()
-		r, _ := niello.rect(title_inst)
-		fmt.printf(
-			"frame %d: changed=%v damage=%d title=(%.0f,%.0f %.0fx%.0f)\n",
-			frame, res.changed, len(res.damage), r.pos.x, r.pos.y, r.size.x, r.size.y,
-		)
 	}
+}
+
+main :: proc() {
+	mint_units()
+	niello_sdl.run({title = "Hello, NielloUI", width = 800, height = 600}, declare)
 }
