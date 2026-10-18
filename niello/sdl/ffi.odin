@@ -22,11 +22,11 @@ import niello "../"
 // third_party/native/<platform>/lib — see tools/fetch-native.sh — and is
 // found via -extra-linker-flags:"-L<path>".
 foreign import native {
-	"nui_render",
-	"SDL3",
-	"vulkan",
-	"freetype",
-	"fontconfig",
+	"system:nui_render",
+	"system:SDL3",
+	"system:vulkan",
+	"system:freetype",
+	"system:fontconfig",
 }
 
 @(default_calling_convention = "c", link_prefix = "nui_")
