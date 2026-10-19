@@ -56,10 +56,27 @@ static_assert(sizeof(UiDrawCmd) == 72, "UiDrawCmd must match Odin Draw_Cmd (72 b
 static_assert(sizeof(UiRect) == 16, "UiRect must match Odin Rect (16 bytes)");
 #endif
 
-// Lifecycle. sdl_window is the borrowed SDL_Window* (opaque here); the backend
-// reads its native handle via SDL_GetWindowProperties. The Odin side owns the
+// Native window handles, queried by the Odin side via SDL_GetWindowProperties
+// and passed in. The C++ side never touches SDL: no headers, no lib.
+typedef struct UiNativeHandles {
+    const char* driver;   // "wayland", "x11", "windows", "cocoa"
+    // Wayland
+    const void* wl_display;
+    const void* wl_surface;
+    // X11
+    const void* x11_display;
+    uint64_t    x11_window;
+    // Windows
+    const void* win32_hwnd;
+    const void* win32_hinstance;
+    // macOS
+    const void* cocoa_layer;
+} UiNativeHandles;
+
+// Lifecycle. handles carries the platform window handles (see above);
+// width_px/height_px is the initial swapchain size. The Odin side owns the
 // window and the event loop. Returns 0 on success.
-int32_t nui_init(const void* sdl_window);
+int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px);
 
 // Swapchain reconfiguration. Called from the Odin event callback on
 // WINDOW_PIXEL_SIZE_CHANGED. Keeps the Mailbox-during-resize behavior; on

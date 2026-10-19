@@ -5,11 +5,10 @@
 #ifndef NUI_UTIL_H
 #define NUI_UTIL_H
 
-#include <SDL3/SDL.h>
-
 #include "gpu/graphite/dawn/DawnBackendContext.h"
+#include "nui.h"
 
-wgpu::Surface CreateDawnSurface(wgpu::Instance instance, SDL_Window* window);
+wgpu::Surface CreateDawnSurface(wgpu::Instance instance, const UiNativeHandles* handles);
 
 skgpu::graphite::DawnBackendContext GetDawnContext();
 

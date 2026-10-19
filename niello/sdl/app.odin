@@ -63,6 +63,33 @@ content_scale :: proc() -> f32 {
 	return 1
 }
 
+// native_handles_for_window queries the platform window handles via
+// SDL_GetWindowProperties. The C++ backend takes these instead of the
+// SDL_Window, so it never links or includes SDL.
+@(private)
+native_handles_for_window :: proc(window: ^sdl.Window) -> Native_Handles {
+	handles := Native_Handles{}
+	props := sdl.GetWindowProperties(window)
+	if props == 0 {
+		return handles
+	}
+	driver := sdl.GetCurrentVideoDriver()
+	handles.driver = driver
+	if driver == "wayland" {
+		handles.wl_display = sdl.GetPointerProperty(props, sdl.PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nil)
+		handles.wl_surface = sdl.GetPointerProperty(props, sdl.PROP_WINDOW_WAYLAND_SURFACE_POINTER, nil)
+	} else if driver == "x11" {
+		handles.x11_display = sdl.GetPointerProperty(props, sdl.PROP_WINDOW_X11_DISPLAY_POINTER, nil)
+		handles.x11_window = u64(sdl.GetNumberProperty(props, sdl.PROP_WINDOW_X11_WINDOW_NUMBER, 0))
+	} else if driver == "windows" {
+		handles.win32_hwnd = sdl.GetPointerProperty(props, sdl.PROP_WINDOW_WIN32_HWND_POINTER, nil)
+		handles.win32_hinstance = sdl.GetPointerProperty(props, sdl.PROP_WINDOW_WIN32_INSTANCE_POINTER, nil)
+	} else if driver == "cocoa" {
+		handles.cocoa_layer = sdl.GetPointerProperty(props, sdl.PROP_WINDOW_COCOA_WINDOW_POINTER, nil)
+	}
+	return handles
+}
+
 @(private)
 sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.AppResult {
 	context = runtime.default_context()
@@ -88,9 +115,14 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 	}
 
 	// Wire text measurement to the native backend (Skia), then init it.
+	// The C++ side takes raw platform handles, not the SDL_Window: query
+	// them here so the native lib never touches SDL.
 	niello.measure_word_hook = hook_measure_word
 	niello.line_height_hook = hook_line_height
-	if init(g_window) != 0 {
+	handles := native_handles_for_window(g_window)
+	px_w, px_h: i32
+	sdl.GetWindowSizeInPixels(g_window, &px_w, &px_h)
+	if init(&handles, u32(px_w), u32(px_h)) != 0 {
 		fmt.println("nui_init failed")
 		return .FAILURE
 	}

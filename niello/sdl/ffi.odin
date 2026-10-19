@@ -11,11 +11,12 @@ package sdl
 import "core:c"
 import niello "../"
 
-// Draw_Cmd's memory layout IS the FFI ABI (skiasdl/nui.h mirrors it as
-// UiDrawCmd with a _Static_assert). This fires at compile time if the struct
+// Draw_Cmd's memory layout IS the FFI ABI (../../native/nui.h mirrors it as
+// UiDrawCmd with a static_assert). This fires at compile time if the struct
 // ever drifts, so the two sides cannot silently disagree.
 #assert(size_of(niello.Draw_Cmd) == 72, "niello.Draw_Cmd must stay 72 bytes: it is the FFI ABI")
 #assert(size_of(niello.Rect) == 16, "niello.Rect must stay 16 bytes: it is the FFI ABI")
+#assert(size_of(Native_Handles) == size_of(rawptr) * 8, "Native_Handles must match UiNativeHandles")
 
 // System libraries the native backend needs on every platform.
 // The static lib itself (nui_render) comes from
@@ -29,12 +30,26 @@ foreign import native {
 	"system:fontconfig",
 }
 
+// Native window handles for nui_init. Mirrors UiNativeHandles in
+// ../../native/nui.h (field order is the ABI). The Odin side queries these
+// via SDL_GetWindowProperties; the C++ side never touches SDL.
+Native_Handles :: struct {
+	driver:         cstring, // "wayland", "x11", "windows", "cocoa"
+	wl_display:    rawptr,
+	wl_surface:    rawptr,
+	x11_display:   rawptr,
+	x11_window:    u64,
+	win32_hwnd:      rawptr,
+	win32_hinstance: rawptr,
+	cocoa_layer:   rawptr,
+}
+
 @(default_calling_convention = "c", link_prefix = "nui_")
 foreign native {
-	// Lifecycle. sdl_window is the borrowed ^sdl.Window, passed through as an
-	// opaque pointer; the backend reads its native handle via
-	// SDL_GetWindowProperties. Returns 0 on success.
-	init             :: proc(sdl_window: rawptr) -> c.int ---
+	// Lifecycle. handles carries the platform window handles (see above);
+	// width_px/height_px is the initial swapchain size. The Odin side owns
+	// the window and the event loop. Returns 0 on success.
+	init             :: proc(handles: ^Native_Handles, width_px, height_px: u32) -> c.int ---
 	resize           :: proc(width_px, height_px: u32) ---
 	set_refresh_rate :: proc(hz: f32) ---
 	destroy          :: proc() ---

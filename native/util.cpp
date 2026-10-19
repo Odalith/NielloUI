@@ -5,7 +5,7 @@
 #include <print>
 #include <cassert>
 #include <fstream>
-#include <SDL3/SDL.h>
+#include <cstring>
 
 #include "util.h"
 #include "include/core/SkCanvas.h"
@@ -30,23 +30,22 @@
 #include "dawn/dawn_proc.h"
 
 
-wgpu::Surface CreateDawnSurface(wgpu::Instance instance, SDL_Window* window) {
-    SDL_PropertiesID props = SDL_GetWindowProperties(window);
+wgpu::Surface CreateDawnSurface(wgpu::Instance instance, const UiNativeHandles* handles) {
+    if (!handles || !handles->driver) return nullptr;
 
 #if defined(__linux__)
-    const char* driver = SDL_GetCurrentVideoDriver();
-    if (driver && strcmp(driver, "wayland") == 0) {
+    if (strcmp(handles->driver, "wayland") == 0) {
         wgpu::SurfaceSourceWaylandSurface waylandDesc{};
-        waylandDesc.display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nullptr);
-        waylandDesc.surface = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, nullptr);
+        waylandDesc.display = handles->wl_display;
+        waylandDesc.surface = handles->wl_surface;
 
         wgpu::SurfaceDescriptor surfaceDesc{};
         surfaceDesc.nextInChain = &waylandDesc;
         return instance.CreateSurface(&surfaceDesc);
     } else { // X11
         wgpu::SurfaceSourceXlibWindow x11Desc{};
-        x11Desc.display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
-        x11Desc.window = static_cast<uint64_t>(SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
+        x11Desc.display = handles->x11_display;
+        x11Desc.window = handles->x11_window;
 
         wgpu::SurfaceDescriptor surfaceDesc{};
         surfaceDesc.nextInChain = &x11Desc;
@@ -55,14 +54,14 @@ wgpu::Surface CreateDawnSurface(wgpu::Instance instance, SDL_Window* window) {
 #elif defined(_WIN32)
     wgpu::SurfaceSourceWindowsHWND winDesc{};
     winDesc.hinstance = GetModuleHandle(nullptr);
-    winDesc.hwnd = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+    winDesc.hwnd = handles->win32_hwnd;
 
     wgpu::SurfaceDescriptor surfaceDesc{};
     surfaceDesc.nextInChain = &winDesc;
     return instance.CreateSurface(&surfaceDesc);
 #elif defined(__APPLE__)
     wgpu::SurfaceSourceMetalLayer metalDesc{};
-    metalDesc.layer = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+    metalDesc.layer = handles->cocoa_layer;
 
     wgpu::SurfaceDescriptor surfaceDesc{};
     surfaceDesc.nextInChain = &metalDesc;

@@ -30,7 +30,8 @@ find_package(Freetype REQUIRED)
 find_package(Fontconfig REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Vulkan REQUIRED)
-find_package(SDL3 REQUIRED)
+# NOTE: no SDL3 here. The C++ backend takes platform window handles from the
+# Odin side (UiNativeHandles); SDL lives entirely in Odin.
 
 target_include_directories(nui_render PRIVATE
         ${SKIA_DIR}
@@ -53,6 +54,5 @@ target_link_libraries(nui_render PRIVATE
         Freetype::Freetype
         Fontconfig::Fontconfig
         Threads::Threads
-        SDL3::SDL3
         ${CMAKE_DL_LIBS}
 )

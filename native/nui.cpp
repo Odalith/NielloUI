@@ -1,10 +1,9 @@
 // nui.cpp — NielloUI native render backend (static lib).
 //
 // Owns: the Dawn instance/device, the Skia Graphite context + recorder, the
-// swapchain surface, and Draw_Cmd replay. SDL appears only as a borrowed
-// window handle (SDL_GetWindowProperties for the native surface handle, plus
-// SDL_GetWindowSizeInPixels); the event loop, window lifecycle, input, and
-// frame pacing policy all live on the Odin side.
+// swapchain surface, and Draw_Cmd replay. No SDL on this side: the Odin side
+// passes platform window handles (UiNativeHandles) at init. The event loop,
+// window lifecycle, input, and frame pacing policy all live in Odin.
 
 #include "nui.h"
 #include "util.h"
@@ -19,9 +18,6 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-
-// SDL_Window + SDL_GetWindowProperties only. No SDL_Init, no event loop.
-#include <SDL3/SDL.h>
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
@@ -88,7 +84,6 @@ struct App {
     std::unique_ptr<skgpu::graphite::Context> context;
     std::unique_ptr<skgpu::graphite::Recorder> recorder;
 
-    SDL_Window* window = nullptr; // borrowed; owned by the Odin side
     wgpu::Surface surface;
     wgpu::SurfaceConfiguration surfaceConfig{};
 
@@ -336,9 +331,9 @@ void RenderAndPresent(const UiDrawCmd* cmds, int32_t n_cmds,
                       float content_scale) {
     App& app = g_app;
 
-    int w = 0, h = 0;
-    SDL_GetWindowSizeInPixels(app.window, &w, &h);
-    if (w <= 0 || h <= 0) return;
+    // Use the configured swapchain size (tracked in surfaceConfig); the
+    // window handle lives on the Odin side now.
+    if (app.surfaceConfig.width == 0 || app.surfaceConfig.height == 0) return;
 
     // 1. Acquire the current swapchain texture.
     wgpu::SurfaceTexture surfaceTexture;
@@ -410,11 +405,10 @@ void ResizeSurface(wgpu::PresentMode mode, uint32_t width_px, uint32_t height_px
 
 // ---- public C API ----------------------------------------------------------
 
-int32_t nui_init(const void* sdl_window) {
+int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px) {
     App& app = g_app;
-    app.window = (SDL_Window*)sdl_window;
-    if (!app.window) {
-        printf("nui_init: null window\n");
+    if (!handles || !handles->driver) {
+        printf("nui_init: null handles\n");
         return -1;
     }
 
@@ -434,15 +428,12 @@ int32_t nui_init(const void* sdl_window) {
         return -1;
     }
 
-    // 3. Dawn surface for the borrowed SDL window.
-    app.surface = CreateDawnSurface(app.backendContext.fInstance, app.window);
+    // 3. Dawn surface from the platform handles (no SDL on this side).
+    app.surface = CreateDawnSurface(app.backendContext.fInstance, handles);
     if (!app.surface) {
         printf("nui_init: could not create Dawn surface\n");
         return -1;
     }
-
-    int w = 0, h = 0;
-    SDL_GetWindowSizeInPixels(app.window, &w, &h);
 
     wgpu::SurfaceCapabilities capabilities;
     app.surface.GetCapabilities(app.backendContext.fDevice.GetAdapter(), &capabilities);
@@ -458,8 +449,8 @@ int32_t nui_init(const void* sdl_window) {
         ? capabilities.formats[0]
         : wgpu::TextureFormat::BGRA8Unorm;
     app.surfaceConfig.usage = wgpu::TextureUsage::RenderAttachment;
-    app.surfaceConfig.width = (uint32_t)w;
-    app.surfaceConfig.height = (uint32_t)h;
+    app.surfaceConfig.width = width_px;
+    app.surfaceConfig.height = height_px;
     app.surfaceConfig.presentMode = app.presentMode;
     app.surface.Configure(&app.surfaceConfig);
 
