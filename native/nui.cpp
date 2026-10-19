@@ -105,6 +105,12 @@ struct App {
     bool isMailboxModeAvailable = false;
     wgpu::PresentMode presentMode = wgpu::PresentMode::Fifo;
     std::chrono::steady_clock::time_point lastResizeTime{};
+    // Throttle for swapchain reconfiguration: during a fast drag, resize
+    // events can arrive faster than the driver can recycle swapchain images
+    // (FD exhaustion -> VK_ERROR_OUT_OF_DEVICE_MEMORY). We reconfigure at
+    // most every 16ms; the pending size is picked up on the next tick.
+    std::chrono::steady_clock::time_point lastReconfigureTime{};
+    uint32_t pendingWidth = 0, pendingHeight = 0; // latest size seen while throttled
 
     // Last frame, for the immediate resize render. Borrowed pointers: valid
     // until the next frame_begin, and nui_resize only fires between frames
@@ -482,7 +488,24 @@ int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t hei
 void nui_resize(uint32_t width_px, uint32_t height_px) {
     App& app = g_app;
     if (!app.context) return;
-    app.lastResizeTime = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    app.lastResizeTime = now;
+
+    // Throttle: don't reconfigure the swapchain more than ~60x/sec. Rapid
+    // configures during a drag exhaust FDs (each new swapchain exports
+    // DMA-BUFs) faster than the driver recycles them. Stash the latest size;
+    // it gets applied on the next tick or when the drag ends.
+    auto sinceReconfigure = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - app.lastReconfigureTime).count();
+    if (sinceReconfigure < 16) {
+        app.pendingWidth = width_px;
+        app.pendingHeight = height_px;
+        return;
+    }
+    app.lastReconfigureTime = now;
+    app.pendingWidth = 0;
+    app.pendingHeight = 0;
+
     if (app.isMailboxModeAvailable &&
         (!app.isUserResizing || app.presentMode == wgpu::PresentMode::Fifo)) {
         app.isUserResizing = true;
@@ -524,10 +547,24 @@ void nui_render(const UiDrawCmd* cmds, int32_t n_cmds,
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - app.lastResizeTime).count();
         if (elapsed > 150) {
-            // Drag ended: back to power-efficient, tear-free Fifo.
+            // Drag ended: apply any throttled pending size first, then back
+            // to power-efficient, tear-free Fifo.
             app.isUserResizing = false;
-            ResizeSurface(wgpu::PresentMode::Fifo, app.surfaceConfig.width,
-                          app.surfaceConfig.height, /*immediate_render=*/false);
+            uint32_t finalW = app.pendingWidth ? app.pendingWidth : app.surfaceConfig.width;
+            uint32_t finalH = app.pendingHeight ? app.pendingHeight : app.surfaceConfig.height;
+            app.pendingWidth = 0;
+            app.pendingHeight = 0;
+            ResizeSurface(wgpu::PresentMode::Fifo, finalW, finalH,
+                          /*immediate_render=*/false);
+        } else if (app.pendingWidth && app.pendingHeight) {
+            // Still dragging but throttled: apply the pending size now that
+            // enough time has passed (keeps the surface close to the pointer).
+            uint32_t pw = app.pendingWidth, ph = app.pendingHeight;
+            app.pendingWidth = 0;
+            app.pendingHeight = 0;
+            app.lastReconfigureTime = std::chrono::steady_clock::now();
+            ResizeSurface(wgpu::PresentMode::Mailbox, pw, ph,
+                          /*immediate_render=*/true);
         }
     }
 
@@ -613,4 +650,5 @@ void nui_destroy(void) {
     app.backendContext = {};
     app.cachedCmds = nullptr;
     app.cachedCount = 0;
+    app.window = nullptr;
 }
