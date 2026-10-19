@@ -13,7 +13,6 @@
 #include <chrono>
 #include <climits>
 #include <cstdio>
-#include <cstring>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -576,5 +575,4 @@ void nui_destroy(void) {
     app.backendContext = {};
     app.cachedCmds = nullptr;
     app.cachedCount = 0;
-    app.window = nullptr;
 }

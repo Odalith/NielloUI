@@ -8,7 +8,7 @@
 #include "gpu/graphite/dawn/DawnBackendContext.h"
 #include "nui.h"
 
-wgpu::Surface CreateDawnSurface(wgpu::Instance instance, const UiNativeHandles* handles);
+wgpu::Surface CreateDawnSurface(const wgpu::Instance& instance, const UiNativeHandles* handles);
 
 skgpu::graphite::DawnBackendContext GetDawnContext();
 

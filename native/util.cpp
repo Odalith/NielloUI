@@ -1,36 +1,21 @@
 #include <iostream>
-#include <vulkan/vulkan.h>
 #include <memory>
-#include <expected>
-#include <print>
 #include <cassert>
 #include <fstream>
 #include <cstring>
 
 #include "util.h"
 #include "include/core/SkCanvas.h"
-#include "include/core/SkColor.h"
-#include "include/core/SkPaint.h"
-#include "include/core/SkSurface.h"
-#include "include/core/SkRRect.h"
-#include "include/core/SkData.h"
 #include "include/core/SkColorSpace.h"
-#include "include/gpu/graphite/BackendTexture.h"
 #include "include/gpu/graphite/Context.h"
-#include "include/gpu/graphite/ContextOptions.h"
-#include "include/gpu/graphite/Recorder.h"
-#include "include/gpu/graphite/Recording.h"
 #include "include/gpu/graphite/Surface.h"
-#include "include/encode/SkJpegEncoder.h"
-#include "include/gpu/graphite/GraphiteTypes.h"
 #include "include/gpu/graphite/dawn/DawnBackendContext.h"
-#include "include/gpu/graphite/dawn/DawnUtils.h"
 #include "webgpu/webgpu_cpp.h"
 #include "dawn/native/DawnNative.h"
 #include "dawn/dawn_proc.h"
 
 
-wgpu::Surface CreateDawnSurface(wgpu::Instance instance, const UiNativeHandles* handles) {
+wgpu::Surface CreateDawnSurface(const wgpu::Instance& instance, const UiNativeHandles* handles) {
     if (!handles || !handles->driver) return nullptr;
 
 #if defined(__linux__)

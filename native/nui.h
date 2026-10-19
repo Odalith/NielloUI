@@ -61,16 +61,16 @@ static_assert(sizeof(UiRect) == 16, "UiRect must match Odin Rect (16 bytes)");
 typedef struct UiNativeHandles {
     const char* driver;   // "wayland", "x11", "windows", "cocoa"
     // Wayland
-    const void* wl_display;
-    const void* wl_surface;
+    void* wl_display;
+    void* wl_surface;
     // X11
-    const void* x11_display;
+    void* x11_display;
     uint64_t    x11_window;
     // Windows
-    const void* win32_hwnd;
-    const void* win32_hinstance;
+    void* win32_hwnd;
+    void* win32_hinstance;
     // macOS
-    const void* cocoa_layer;
+    void* cocoa_layer;
 } UiNativeHandles;
 
 // Lifecycle. handles carries the platform window handles (see above);
