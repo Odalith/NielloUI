@@ -61,16 +61,16 @@ static_assert(sizeof(UiRect) == 16, "UiRect must match Odin Rect (16 bytes)");
 typedef struct UiNativeHandles {
     const char* driver;   // "wayland", "x11", "windows", "cocoa"
     // Wayland
-    void* wl_display;
-    void* wl_surface;
+    const void* wl_display;
+    const void* wl_surface;
     // X11
-    void* x11_display;
+    const void* x11_display;
     uint64_t    x11_window;
     // Windows
-    void* win32_hwnd;
-    void* win32_hinstance;
+    const void* win32_hwnd;
+    const void* win32_hinstance;
     // macOS
-    void* cocoa_layer;
+    const void* cocoa_layer;
 } UiNativeHandles;
 
 // Lifecycle. handles carries the platform window handles (see above);
@@ -105,6 +105,11 @@ void  nui_register_font_family(uint32_t family, const char* name); // system fam
 float nui_measure_word(uint32_t family, int32_t weight, int32_t slant, float size_px,
                        const uint8_t* text, int64_t len);
 float nui_line_height(uint32_t family, int32_t weight, int32_t slant, float size_px);
+
+// Wayland configure-cycle pump. See nui.cpp for the full explanation.
+// Call on idle frames (when skipping render) to unblock pending resizes.
+// No-op on non-Wayland platforms.
+void nui_wayland_pump(void);
 
 // Teardown. Does NOT destroy the SDL window (Odin owns it).
 void nui_destroy(void);

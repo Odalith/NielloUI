@@ -28,6 +28,7 @@ foreign import native {
 	"system:vulkan",
 	"system:freetype",
 	"system:fontconfig",
+	"system:wayland-client",
 }
 
 // Native window handles for nui_init. Mirrors UiNativeHandles in
@@ -52,6 +53,7 @@ foreign native {
 	init             :: proc(handles: ^Native_Handles, width_px, height_px: u32) -> c.int ---
 	resize           :: proc(width_px, height_px: u32) ---
 	set_refresh_rate :: proc(hz: f32) ---
+	wayland_pump     :: proc() ---
 	destroy          :: proc() ---
 
 	// Per frame. cmds/damage borrow the caller's memory and are valid until

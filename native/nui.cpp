@@ -8,11 +8,16 @@
 #include "nui.h"
 #include "util.h"
 
+#if defined(__linux__)
+#include <wayland-client.h>
+#endif
+
 #include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <climits>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -85,6 +90,13 @@ struct App {
 
     wgpu::Surface surface;
     wgpu::SurfaceConfiguration surfaceConfig{};
+
+#if defined(__linux__)
+    // Wayland handles for the empty-commit pump (see nui_wayland_pump).
+    // Stored from UiNativeHandles at init; null on X11.
+    const void* wlDisplay = nullptr;
+    const void* wlSurface = nullptr;
+#endif
 
     // Resize-debounce pacing (was driven by SDL_AppIterate).
     uint64_t targetFrameTimeNs = 1'000'000'000 / 60;
@@ -434,6 +446,14 @@ int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t hei
         return -1;
     }
 
+#if defined(__linux__)
+    // Stash Wayland handles for the empty-commit pump.
+    if (handles->driver && strcmp(handles->driver, "wayland") == 0) {
+        app.wlDisplay = handles->wl_display;
+        app.wlSurface = handles->wl_surface;
+    }
+#endif
+
     wgpu::SurfaceCapabilities capabilities;
     app.surface.GetCapabilities(app.backendContext.fDevice.GetAdapter(), &capabilities);
     for (size_t i = 0; i < capabilities.presentModeCount; ++i) {
@@ -558,6 +578,24 @@ float nui_line_height(uint32_t family, int32_t weight, int32_t slant, float size
     return -metrics.fAscent + metrics.fDescent + metrics.fLeading;
 }
 
+// Empty Wayland commit to unblock the configure cycle. On Wayland, the
+// compositor sends xdg_toplevel.configure and waits for the client to ack +
+// commit before sending the next one. SDL won't ack until its wl_surface.frame
+// callback fires. If we're damage-driven idle (no Present), the cycle stalls
+// and SDL never sees the resize. This commits with no new buffer — legal per
+// protocol — carrying SDL's frame request so the compositor sends `done`,
+// SDL acks, and the WINDOW_PIXEL_SIZE_CHANGED event flows. Couple syscalls,
+// no GPU work. No-op on X11/other platforms.
+void nui_wayland_pump(void) {
+#if defined(__linux__)
+    App& app = g_app;
+    if (app.wlDisplay && app.wlSurface) {
+        wl_surface_commit(static_cast<wl_surface*>(const_cast<void*>(app.wlSurface)));
+        wl_display_flush(static_cast<wl_display*>(const_cast<void*>(app.wlDisplay)));
+    }
+#endif
+}
+
 void nui_destroy(void) {
     App& app = g_app;
     // Finish GPU work, then tear down. The SDL window is NOT destroyed here:
@@ -575,4 +613,5 @@ void nui_destroy(void) {
     app.backendContext = {};
     app.cachedCmds = nullptr;
     app.cachedCount = 0;
+    app.window = nullptr;
 }

@@ -172,9 +172,12 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 			g_content_scale,
 		)
 	} else {
-		// Idle: sleep until something can change the UI. next_wake_ms is
-		// ∞ in this build (no timers/animations), so input is the only
-		// wake source — SDL still pumps events while we delay.
+		// Idle: pump the Wayland configure cycle (unblocks a pending resize
+		// with an empty commit; no-op elsewhere), then sleep until something
+		// can change the UI. next_wake_ms is ∞ in this build
+		// (no timers/animations), so input is the only wake source — SDL
+		// still pumps events while we delay.
+		wayland_pump()
 		sdl.Delay(8)
 	}
 
@@ -193,7 +196,8 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 		g_mouse = {event.motion.x, event.motion.y}
 	case .WINDOW_PIXEL_SIZE_CHANGED:
 		// Device pixels changed (resize or DPI move): re-query the scale
-		// and let the backend rebuild its surface.
+		// and let the backend rebuild its surface. app_iterate also polls
+		// the size, so this is a backup — keep the polled state in sync.
 		g_content_scale = content_scale()
 		resize(u32(event.window.data1), u32(event.window.data2))
 	case .WINDOW_DISPLAY_CHANGED:

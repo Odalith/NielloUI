@@ -33,12 +33,20 @@ find_package(Vulkan REQUIRED)
 # NOTE: no SDL3 here. The C++ backend takes platform window handles from the
 # Odin side (UiNativeHandles); SDL lives entirely in Odin.
 
+# Wayland client lib for the empty-commit configure pump (nui_wayland_pump).
+# Linux only; harmless elsewhere.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(WAYLAND REQUIRED wayland-client)
+endif()
+
 target_include_directories(nui_render PRIVATE
         ${SKIA_DIR}
         ${SKIA_DIR}/include
         ${SKIA_DIR}/out/Release/gen
         ${SKIA_DIR}/third_party/externals/dawn/include
         ${SKIA_DIR}/out/Release/gen/third_party/dawn/include
+        ${WAYLAND_INCLUDE_DIRS}
 )
 
 target_link_directories(nui_render PRIVATE
@@ -54,5 +62,6 @@ target_link_libraries(nui_render PRIVATE
         Freetype::Freetype
         Fontconfig::Fontconfig
         Threads::Threads
+        ${WAYLAND_LIBRARIES}
         ${CMAKE_DL_LIBS}
 )
