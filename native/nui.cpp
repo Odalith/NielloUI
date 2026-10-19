@@ -391,7 +391,7 @@ void ResizeSurface(wgpu::PresentMode mode, uint32_t width_px, uint32_t height_px
     // Immediately render and commit a frame to satisfy Wayland's configure
     // cycle. Full repaint: any cached damage is stale after a resize.
     // (Kept from the testbed: needed for smooth window resizing.)
-#if defined(SDL_PLATFORM_LINUX)
+#if defined(__linux__)
     if (immediate_render && app.cachedCount > 0 && app.cachedCmds) {
         RenderAndPresent(app.cachedCmds, app.cachedCount, nullptr, 0, app.cachedScale);
     }
@@ -475,6 +475,10 @@ void nui_resize(uint32_t width_px, uint32_t height_px) {
 
 void nui_set_refresh_rate(float hz) {
     if (hz > 0) g_app.targetFrameTimeNs = (uint64_t)(1e9 / hz);
+}
+
+int32_t nui_is_resizing(void) {
+    return g_app.isUserResizing ? 1 : 0;
 }
 
 void nui_render(const UiDrawCmd* cmds, int32_t n_cmds,

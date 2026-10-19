@@ -52,6 +52,7 @@ foreign native {
 	init             :: proc(handles: ^Native_Handles, width_px, height_px: u32) -> c.int ---
 	resize           :: proc(width_px, height_px: u32) ---
 	set_refresh_rate :: proc(hz: f32) ---
+	is_resizing      :: proc() -> c.int ---
 	destroy          :: proc() ---
 
 	// Per frame. cmds/damage borrow the caller's memory and are valid until

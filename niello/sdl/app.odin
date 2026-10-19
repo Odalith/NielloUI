@@ -163,13 +163,20 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 	g_declare()
 	result := niello.frame_end()
 
-	if result.changed {
+	// While resizing, always render: the backend's pacing and its
+	// Mailbox -> Fifo debounce only run inside nui_render.
+	resizing := is_resizing() != 0
+	if result.changed || resizing {
 		cmds := niello.draw_list()
 		damage := result.damage
+		n_damage := i32(len(damage))
+		if resizing {
+			n_damage = 0 // full repaint: the swapchain was just recreated
+		}
 		render(
-			raw_data(cmds), i32(len(cmds)),
-			raw_data(damage), i32(len(damage)),
-			g_content_scale,
+		raw_data(cmds), i32(len(cmds)),
+		raw_data(damage), n_damage,
+		g_content_scale,
 		)
 	} else {
 		// Idle: sleep until something can change the UI. next_wake_ms is

@@ -88,6 +88,11 @@ void nui_resize(uint32_t width_px, uint32_t height_px);
 // startup and on display changes; it drives the resize-debounce pacing.
 void nui_set_refresh_rate(float hz);
 
+// Nonzero while an interactive resize is in progress (Mailbox + pacing active).
+// The host must keep calling nui_render every iteration while this is true,
+// even if the UI is otherwise idle, so the debounce can restore Fifo.
+int32_t nui_is_resizing(void);
+
 // Render one frame: pacing sleep, Draw_Cmd replay onto a Skia Graphite canvas,
 // present. cmds/damage borrow the caller's memory (valid until the next
 // frame_begin); the backend replays them synchronously and caches the pointers
