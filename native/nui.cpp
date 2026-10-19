@@ -613,5 +613,4 @@ void nui_destroy(void) {
     app.backendContext = {};
     app.cachedCmds = nullptr;
     app.cachedCount = 0;
-    app.window = nullptr;
 }
