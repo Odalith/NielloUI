@@ -13,6 +13,8 @@
 #include <chrono>
 #include <climits>
 #include <cstdio>
+#include <cstdlib>
+#include <memory>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -86,21 +88,15 @@ struct App {
     wgpu::Surface surface;
     wgpu::SurfaceConfiguration surfaceConfig{};
 
-    // Resize-debounce pacing (was driven by SDL_AppIterate).
+    // All GPU work is completed before cache retirement or surface reconfiguration.
+    wgpu::Texture cacheTexture;
+    sk_sp<SkSurface> cacheSurface;
+    bool cacheValid = false;
+    bool suspended = false;
     uint64_t targetFrameTimeNs = 1'000'000'000 / 60;
     uint64_t nextFrameTimeNs = 0;
-    bool isUserResizing = false;
-    bool isMailboxModeAvailable = false;
-    wgpu::PresentMode presentMode = wgpu::PresentMode::Fifo;
-    std::chrono::steady_clock::time_point lastResizeTime{};
-
-    // Last frame, for the immediate resize render. Borrowed pointers: valid
-    // until the next frame_begin, and nui_resize only fires between frames
-    // (event callbacks run between app-iterate calls), so replaying them here
-    // is sound.
-    const UiDrawCmd* cachedCmds = nullptr;
-    int32_t cachedCount = 0;
-    float cachedScale = 1.0f;
+    uint64_t replays = 0, copies = 0, configurations = 0, acquireFailures = 0;
+    bool trace = std::getenv("NUI_TRACE") != nullptr;
 
     // Font registry. Families are registered cold (once); the (family,
     // weight, slant, size) -> SkFont cache below is filled on demand.
@@ -325,79 +321,111 @@ void ReplayCommands(SkCanvas* canvas, const UiDrawCmd* cmds, int32_t n,
 
 // ---- frame -----------------------------------------------------------------
 
-void RenderAndPresent(const UiDrawCmd* cmds, int32_t n_cmds,
-                      const UiRect* damage, int32_t n_damage,
-                      float content_scale) {
+// Wait for direct Dawn copies too: Graphite's CPU synchronization alone does
+// not cover work submitted after its last submission. The callback owns its
+// result storage even if WaitAny fails before invoking it.
+bool DrainQueue() {
     App& app = g_app;
-
-    // Use the configured swapchain size (tracked in surfaceConfig); the
-    // window handle lives on the Odin side now.
-    if (app.surfaceConfig.width == 0 || app.surfaceConfig.height == 0) return;
-
-    // 1. Acquire the current swapchain texture.
-    wgpu::SurfaceTexture surfaceTexture;
-    app.surface.GetCurrentTexture(&surfaceTexture);
-    if (surfaceTexture.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal &&
-        surfaceTexture.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) {
-        return;
-    }
-
-    // 2. Wrap it for Skia Graphite.
-    skgpu::graphite::BackendTexture backendTex =
-        skgpu::graphite::BackendTextures::MakeDawn(surfaceTexture.texture.Get());
-    sk_sp<SkSurface> skSurface = SkSurfaces::WrapBackendTexture(
-        app.recorder.get(), backendTex, SkColorSpace::MakeSRGB(), nullptr);
-    if (!skSurface) {
-        printf("nui: could not wrap backend texture into SkSurface\n");
-        return;
-    }
-
-    // 3. Replay the draw commands.
-    SkCanvas* canvas = skSurface->getCanvas();
-    canvas->clear(SkColors::kWhite);
-    ReplayCommands(canvas, cmds, n_cmds, damage, n_damage, content_scale);
-
-    // 4. Submit and present.
-    std::unique_ptr<skgpu::graphite::Recording> recording = app.recorder->snap();
-    if (recording) {
-        skgpu::graphite::InsertRecordingInfo info;
-        info.fRecording = recording.get();
-        app.context->insertRecording(info);
-        app.context->submit(skgpu::graphite::SyncToCpu::kNo);
-    }
-    app.surface.Present();
+    auto success = std::make_shared<bool>(false);
+    auto future = app.backendContext.fQueue.OnSubmittedWorkDone(
+        wgpu::CallbackMode::WaitAnyOnly,
+        [success](wgpu::QueueWorkDoneStatus status, wgpu::StringView) {
+            *success = status == wgpu::QueueWorkDoneStatus::Success;
+        });
+    auto status = app.backendContext.fInstance.WaitAny(future, UINT64_MAX);
+    return status == wgpu::WaitStatus::Success && *success;
 }
 
-void ResizeSurface(wgpu::PresentMode mode, uint32_t width_px, uint32_t height_px,
-                   bool immediate_render) {
-    App& app = g_app;
-    if (width_px == 0 || height_px == 0) return;
-    if (app.presentMode == mode && app.surfaceConfig.width == width_px &&
-        app.surfaceConfig.height == height_px) {
+void Trace() {
+    auto& a = g_app;
+    if (a.trace) fprintf(stderr,
+        "nui: replays=%llu copies=%llu configurations=%llu acquire_failures=%llu size=%ux%u valid=%d\n",
+        (unsigned long long)a.replays, (unsigned long long)a.copies,
+        (unsigned long long)a.configurations, (unsigned long long)a.acquireFailures,
+        a.surfaceConfig.width, a.surfaceConfig.height, a.cacheValid);
+}
+
+void Pace() {
+    auto& a = g_app;
+    auto now = NowNs();
+    if (now < a.nextFrameTimeNs)
+        std::this_thread::sleep_for(std::chrono::nanoseconds(a.nextFrameTimeNs - now));
+    a.nextFrameTimeNs = NowNs() + a.targetFrameTimeNs;
+}
+
+bool EnsureCache() {
+    auto& a = g_app;
+    if (a.cacheSurface) return true;
+    wgpu::TextureDescriptor desc{};
+    desc.label = "Niello owned frame cache";
+    desc.size = {a.surfaceConfig.width, a.surfaceConfig.height, 1};
+    desc.format = a.surfaceConfig.format;
+    desc.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc |
+                 wgpu::TextureUsage::TextureBinding;
+    a.cacheTexture = a.backendContext.fDevice.CreateTexture(&desc);
+    if (!a.cacheTexture) return false;
+    auto backend = skgpu::graphite::BackendTextures::MakeDawn(a.cacheTexture.Get());
+    a.cacheSurface = SkSurfaces::WrapBackendTexture(
+        a.recorder.get(), backend, SkColorSpace::MakeSRGB(), nullptr);
+    return bool(a.cacheSurface);
+}
+
+bool PresentCache() {
+    auto& a = g_app;
+    if (a.suspended || !a.cacheValid || !a.cacheSurface ||
+        a.cacheTexture.GetWidth() != a.surfaceConfig.width ||
+        a.cacheTexture.GetHeight() != a.surfaceConfig.height ||
+        a.cacheTexture.GetFormat() != a.surfaceConfig.format) return false;
+    wgpu::SurfaceTexture acquired;
+    a.surface.GetCurrentTexture(&acquired);
+    if ((acquired.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal &&
+         acquired.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) ||
+        !acquired.texture) {
+        ++a.acquireFailures;
+        Trace();
+        return false;
+    }
+    if (acquired.texture.GetWidth() != a.surfaceConfig.width ||
+        acquired.texture.GetHeight() != a.surfaceConfig.height ||
+        acquired.texture.GetFormat() != a.surfaceConfig.format) return false;
+    auto encoder = a.backendContext.fDevice.CreateCommandEncoder();
+    if (!encoder) return false;
+    wgpu::TexelCopyTextureInfo src{}, dst{};
+    src.texture = a.cacheTexture;
+    dst.texture = acquired.texture;
+    wgpu::Extent3D size{a.surfaceConfig.width, a.surfaceConfig.height, 1};
+    encoder.CopyTextureToTexture(&src, &dst, &size);
+    auto commands = encoder.Finish();
+    if (!commands) return false;
+    // Graphite submits on this very queue before this copy; queue order makes
+    // the complete repaint visible. Bound outstanding work before returning.
+    a.backendContext.fQueue.Submit(1, &commands);
+    if (!DrainQueue()) { a.cacheValid = false; return false; }
+    if (a.surface.Present() != wgpu::Status::Success) return false;
+    ++a.copies;
+    if (a.copies % 60 == 0) Trace();
+    return true;
+}
+
+void ResizeSurface(uint32_t width, uint32_t height) {
+    auto& a = g_app;
+    a.suspended = width == 0 || height == 0;
+    if (a.suspended) { a.cacheValid = false; return; }
+    if (a.surfaceConfig.width == width && a.surfaceConfig.height == height) return;
+    a.cacheValid = false;
+    if (!a.context->submit(skgpu::graphite::SyncToCpu::kYes) || !DrainQueue()) {
+        a.suspended = true;
+        fprintf(stderr, "nui: GPU synchronization failed during resize; presentation suspended\n");
         return;
     }
-
-    // Flush current GPU work before destroying/recreating swapchain textures.
-    if (app.context) {
-        app.context->submit(skgpu::graphite::SyncToCpu::kNo);
-    }
-
-    app.presentMode = mode;
-    app.surfaceConfig.presentMode = mode;
-    app.surfaceConfig.width = width_px;
-    app.surfaceConfig.height = height_px;
-    app.surface.Configure(&app.surfaceConfig);
-
-    // Immediately render and commit a frame to satisfy Wayland's configure
-    // cycle. Full repaint: any cached damage is stale after a resize.
-    // (Kept from the testbed: needed for smooth window resizing.)
-#if defined(__linux__)
-    if (immediate_render && app.cachedCount > 0 && app.cachedCmds) {
-        RenderAndPresent(app.cachedCmds, app.cachedCount, nullptr, 0, app.cachedScale);
-    }
-#else
-    (void)immediate_render;
-#endif
+    // Release Graphite's wrapper before its externally owned Dawn texture.
+    a.cacheSurface.reset();
+    a.cacheTexture = nullptr;
+    a.surfaceConfig.width = width;
+    a.surfaceConfig.height = height;
+    a.surface.Configure(&a.surfaceConfig);
+    ++a.configurations;
+    Trace();
 }
 
 } // namespace
@@ -419,11 +447,13 @@ int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t hei
     app.context = skgpu::graphite::ContextFactory::MakeDawn(app.backendContext, options);
     if (!app.context) {
         printf("nui_init: could not make Graphite context\n");
+        nui_destroy();
         return -1;
     }
     app.recorder = app.context->makeRecorder();
     if (!app.recorder) {
         printf("nui_init: could not make recorder\n");
+        nui_destroy();
         return -1;
     }
 
@@ -431,27 +461,33 @@ int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t hei
     app.surface = CreateDawnSurface(app.backendContext.fInstance, handles);
     if (!app.surface) {
         printf("nui_init: could not create Dawn surface\n");
+        nui_destroy();
         return -1;
     }
 
     wgpu::SurfaceCapabilities capabilities;
-    app.surface.GetCapabilities(app.backendContext.fDevice.GetAdapter(), &capabilities);
-    for (size_t i = 0; i < capabilities.presentModeCount; ++i) {
-        if (capabilities.presentModes[i] == wgpu::PresentMode::Mailbox) {
-            app.isMailboxModeAvailable = true;
-            break;
-        }
+    if (!app.surface.GetCapabilities(app.backendContext.fDevice.GetAdapter(), &capabilities)) {
+        fprintf(stderr, "nui_init: surface capability query failed\n");
+        nui_destroy();
+        return -1;
+    }
+    if (!(capabilities.usages & wgpu::TextureUsage::CopyDst) || capabilities.formatCount == 0) {
+        fprintf(stderr, "nui_init: B1 requires a surface supporting CopyDst and a texture format\n");
+        nui_destroy();
+        return -1;
     }
 
     app.surfaceConfig.device = app.backendContext.fDevice;
-    app.surfaceConfig.format = capabilities.formatCount > 0
-        ? capabilities.formats[0]
-        : wgpu::TextureFormat::BGRA8Unorm;
-    app.surfaceConfig.usage = wgpu::TextureUsage::RenderAttachment;
+    app.surfaceConfig.format = capabilities.formats[0];
+    app.surfaceConfig.usage = wgpu::TextureUsage::CopyDst;
     app.surfaceConfig.width = width_px;
     app.surfaceConfig.height = height_px;
-    app.surfaceConfig.presentMode = app.presentMode;
-    app.surface.Configure(&app.surfaceConfig);
+    app.surfaceConfig.presentMode = wgpu::PresentMode::Fifo;
+    app.suspended = width_px == 0 || height_px == 0;
+    if (!app.suspended) {
+        app.surface.Configure(&app.surfaceConfig);
+        ++app.configurations;
+    }
 
     // Refresh rate defaults to 60 Hz; the Odin side overrides it via
     // nui_set_refresh_rate at startup and on display changes.
@@ -462,65 +498,42 @@ int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t hei
 void nui_resize(uint32_t width_px, uint32_t height_px) {
     App& app = g_app;
     if (!app.context) return;
-    app.lastResizeTime = std::chrono::steady_clock::now();
-    if (app.isMailboxModeAvailable &&
-        (!app.isUserResizing || app.presentMode == wgpu::PresentMode::Fifo)) {
-        app.isUserResizing = true;
-        app.nextFrameTimeNs = NowNs();
-        ResizeSurface(wgpu::PresentMode::Mailbox, width_px, height_px, true);
-    } else {
-        ResizeSurface(app.presentMode, width_px, height_px, true);
-    }
+    ResizeSurface(width_px, height_px);
 }
 
 void nui_set_refresh_rate(float hz) {
-    if (hz > 0) g_app.targetFrameTimeNs = (uint64_t)(1e9 / hz);
+    if (hz > 0 && hz < 300) g_app.targetFrameTimeNs = (uint64_t)(1e9 / hz);
 }
 
-int32_t nui_is_resizing(void) {
-    return g_app.isUserResizing ? 1 : 0;
+int32_t nui_is_resizing(void) { return 0; } // Fifo throughout; no debounce.
+
+int32_t nui_present_cached(void) {
+    if (!g_app.context) return 0;
+    Pace();
+    if (g_app.suspended) return 0;
+    return PresentCache() ? 1 : 0;
 }
 
-void nui_render(const UiDrawCmd* cmds, int32_t n_cmds,
-                const UiRect* damage, int32_t n_damage,
-                float content_scale) {
-    App& app = g_app;
-    if (!app.context) return;
-
-    // Frame pacing while the user is dragging a resize (was SDL_AppIterate).
-    if (app.isUserResizing) {
-        uint64_t now = NowNs();
-        if (now < app.nextFrameTimeNs) {
-            uint64_t waitNs = app.nextFrameTimeNs - now;
-            if (waitNs > 1'000'000) {
-                std::this_thread::sleep_for(
-                    std::chrono::nanoseconds(waitNs - 500'000));
-            }
-            while (NowNs() < app.nextFrameTimeNs) { /* spin the last slice */ }
-        }
-        now = NowNs();
-        if (app.nextFrameTimeNs == 0 || now > app.nextFrameTimeNs + app.targetFrameTimeNs) {
-            app.nextFrameTimeNs = now + app.targetFrameTimeNs;
-        } else {
-            app.nextFrameTimeNs += app.targetFrameTimeNs;
-        }
-
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - app.lastResizeTime).count();
-        if (elapsed > 150) {
-            // Drag ended: back to power-efficient, tear-free Fifo.
-            app.isUserResizing = false;
-            ResizeSurface(wgpu::PresentMode::Fifo, app.surfaceConfig.width,
-                          app.surfaceConfig.height, /*immediate_render=*/false);
-        }
-    }
-
-    RenderAndPresent(cmds, n_cmds, damage, n_damage, content_scale);
-
-    // Cache for the immediate resize render (see App).
-    app.cachedCmds = cmds;
-    app.cachedCount = n_cmds;
-    app.cachedScale = content_scale;
+int32_t nui_render(const UiDrawCmd* cmds, int32_t n_cmds,
+                const UiRect* damage, int32_t n_damage, float content_scale) {
+    auto& a = g_app;
+    (void)damage; (void)n_damage; // Full clear requires full replay.
+    if (!a.context) return 0;
+    Pace();
+    if (a.suspended) return 0;
+    a.cacheValid = false;
+    if (!EnsureCache()) return 0;
+    auto canvas = a.cacheSurface->getCanvas();
+    canvas->clear(SkColors::kBlack);
+    ReplayCommands(canvas, cmds, n_cmds, nullptr, 0, content_scale);
+    ++a.replays;
+    auto recording = a.recorder->snap();
+    if (!recording) return 0;
+    skgpu::graphite::InsertRecordingInfo info;
+    info.fRecording = recording.get();
+    if (!a.context->insertRecording(info) || !a.context->submit()) return 0;
+    a.cacheValid = true;
+    return PresentCache() ? 1 : 0;
 }
 
 void nui_register_font(uint32_t family, const char* path) {
@@ -569,6 +582,11 @@ void nui_destroy(void) {
     if (app.context) {
         app.context->submit(skgpu::graphite::SyncToCpu::kYes);
     }
+    if (app.backendContext.fQueue) DrainQueue();
+    Trace();
+    app.cacheValid = false;
+    app.cacheSurface.reset();
+    app.cacheTexture = nullptr;
     app.families.clear();
     app.font_cache.clear();
     app.recorder.reset();
@@ -577,6 +595,5 @@ void nui_destroy(void) {
     app.surfaceConfig.device = nullptr; // drop the device ref before shutdown
     app.surfaceConfig = {};
     app.backendContext = {};
-    app.cachedCmds = nullptr;
-    app.cachedCount = 0;
+    app = App{};
 }

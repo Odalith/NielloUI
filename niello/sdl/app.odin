@@ -50,6 +50,15 @@ g_last_ns:  u64
 @(private)
 g_content_scale: f32 = 1
 
+@(private)
+g_wayland: bool
+@(private)
+g_pending_size: bool
+@(private)
+g_pixel_width, g_pixel_height: i32
+@(private)
+g_force_render: bool = true
+
 // content_scale computes device pixels per DIP point for the window.
 @(private)
 content_scale :: proc() -> f32 {
@@ -127,6 +136,8 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 		return .FAILURE
 	}
 
+	g_wayland = handles.driver == "wayland"
+	g_pixel_width, g_pixel_height = px_w, px_h
 	g_content_scale = content_scale()
 	g_last_ns = sdl.GetTicksNS()
 
@@ -146,6 +157,18 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 	context = runtime.default_context()
 
+	// Events only retain the latest size; layout follows the single reconfiguration.
+	if g_pending_size {
+		resize(u32(max(g_pixel_width, 0)), u32(max(g_pixel_height, 0)))
+		g_content_scale = content_scale()
+		g_pending_size = false
+		g_force_render = true
+	}
+	if g_pixel_width <= 0 || g_pixel_height <= 0 || .MINIMIZED in sdl.GetWindowFlags(g_window) {
+		sdl.Delay(8)
+		return .CONTINUE
+	}
+
 	// dt in seconds for animations (none in this build, but the slot is here).
 	now_ns := sdl.GetTicksNS()
 	dt := f32(now_ns - g_last_ns) / 1e9
@@ -163,25 +186,15 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 	g_declare()
 	result := niello.frame_end()
 
-	// While resizing, always render: the backend's pacing and its
-	// Mailbox -> Fifo debounce only run inside nui_render.
-	resizing := is_resizing() != 0
-	if result.changed || resizing {
+	if result.changed || g_force_render {
 		cmds := niello.draw_list()
-		damage := result.damage
-		n_damage := i32(len(damage))
-		if resizing {
-			n_damage = 0 // full repaint: the swapchain was just recreated
+		g_force_render = render(raw_data(cmds), i32(len(cmds)), nil, 0, g_content_scale) == 0
+	} else if g_wayland {
+		if present_cached() == 0 {
+			// Retry through a complete current frame after a failed update/acquire.
+			g_force_render = true
 		}
-		render(
-		raw_data(cmds), i32(len(cmds)),
-		raw_data(damage), n_damage,
-		g_content_scale,
-		)
 	} else {
-		// Idle: sleep until something can change the UI. next_wake_ms is
-		// ∞ in this build (no timers/animations), so input is the only
-		// wake source — SDL still pumps events while we delay.
 		sdl.Delay(8)
 	}
 
@@ -199,11 +212,14 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 		// Mouse is in DIP points, matching the viewport niello sees.
 		g_mouse = {event.motion.x, event.motion.y}
 	case .WINDOW_PIXEL_SIZE_CHANGED:
-		// Device pixels changed (resize or DPI move): re-query the scale
-		// and let the backend rebuild its surface.
-		g_content_scale = content_scale()
-		resize(u32(event.window.data1), u32(event.window.data2))
+		g_pixel_width, g_pixel_height = event.window.data1, event.window.data2
+		g_pending_size = true
+	case .WINDOW_DISPLAY_SCALE_CHANGED, .WINDOW_RESTORED, .WINDOW_EXPOSED:
+		sdl.GetWindowSizeInPixels(g_window, &g_pixel_width, &g_pixel_height)
+		g_pending_size = true
 	case .WINDOW_DISPLAY_CHANGED:
+		sdl.GetWindowSizeInPixels(g_window, &g_pixel_width, &g_pixel_height)
+		g_pending_size = true
 		display := sdl.GetDisplayForWindow(g_window)
 		if display != 0 {
 			mode := sdl.GetCurrentDisplayMode(display)

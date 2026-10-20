@@ -1,7 +1,7 @@
 // niello/sdl — SDL3 app glue + FFI bindings to the native render backend.
 //
 // The native side (see ../../native/nui.h) is a static library exposing a small C
-// API: nui_init / nui_resize / nui_set_refresh_rate / nui_render /
+// API: nui_init / nui_resize / nui_set_refresh_rate / nui_render / nui_present_cached /
 // nui_register_font / nui_measure_word / nui_line_height / nui_destroy.
 //
 // This package type-checks standalone; linking needs the prebuilt native
@@ -55,15 +55,14 @@ foreign native {
 	is_resizing      :: proc() -> c.int ---
 	destroy          :: proc() ---
 
-	// Per frame. cmds/damage borrow the caller's memory and are valid until
-	// the next niello.frame_begin (the backend replays them synchronously,
-	// and caches the pointers for the Wayland immediate resize render).
-	// damage may be nil when n_damage == 0.
+	present_cached   :: proc() -> c.int ---
+
+	// Fully rebuild the owned pixel cache. Borrowed commands are never retained.
 	render :: proc(
 		cmds: [^]niello.Draw_Cmd, n_cmds: i32,
 		damage: [^]niello.Rect, n_damage: i32,
 		content_scale: f32, // device pixels per DIP point
-	) ---
+	) -> c.int ---
 
 	// Fonts. Families are registered once, cold; the backend caches
 	// (family, weight, slant, size) -> SkFont internally. Family 0 is the

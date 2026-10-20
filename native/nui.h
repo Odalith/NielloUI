@@ -78,29 +78,19 @@ typedef struct UiNativeHandles {
 // window and the event loop. Returns 0 on success.
 int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px);
 
-// Swapchain reconfiguration. Called from the Odin event callback on
-// WINDOW_PIXEL_SIZE_CHANGED. Keeps the Mailbox-during-resize behavior; on
-// Linux immediately replays the last frame so the Wayland configure cycle
-// stays smooth.
+// Reconfigure once per host iteration, before layout/render. Zero size suspends.
+// A size change invalidates the owned pixel cache. Fifo is used throughout.
 void nui_resize(uint32_t width_px, uint32_t height_px);
-
-// Display refresh rate in Hz (0 = keep current). The Odin side calls this at
-// startup and on display changes; it drives the resize-debounce pacing.
 void nui_set_refresh_rate(float hz);
+int32_t nui_is_resizing(void); // retained ABI; always zero
 
-// Nonzero while an interactive resize is in progress (Mailbox + pacing active).
-// The host must keep calling nui_render every iteration while this is true,
-// even if the UI is otherwise idle, so the debounce can restore Fifo.
-int32_t nui_is_resizing(void);
-
-// Render one frame: pacing sleep, Draw_Cmd replay onto a Skia Graphite canvas,
-// present. cmds/damage borrow the caller's memory (valid until the next
-// frame_begin); the backend replays them synchronously and caches the pointers
-// for the resize immediate-render. damage may be NULL when n_damage == 0.
-// content_scale is device pixels per DIP point.
-void nui_render(const UiDrawCmd* cmds, int32_t n_cmds,
-                const UiRect* damage, int32_t n_damage,
-                float content_scale);
+// Fully repaint the owned GPU texture, then copy/present it. No pointers are
+// retained. Damage is currently ignored because repaint clears the whole image.
+// content_scale is device pixels per DIP. Returns 1 on successful presentation.
+int32_t nui_render(const UiDrawCmd* cmds, int32_t n_cmds,
+                const UiRect* damage, int32_t n_damage, float content_scale);
+// Paced copy/present only; returns 0 if unavailable or unsuccessful. No replay.
+int32_t nui_present_cached(void);
 
 // Fonts. Families are registered once, cold; the backend caches
 // (family, weight, slant, size) -> SkFont internally. Family 0 is the
