@@ -337,3 +337,81 @@ test_cross_fit_not_clamped_when_scrollable :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, found, "expected a Text command")
 }
+
+// ---- damage on content change (§5: "changed → new rect" — changed means
+// the committed content, not just the rect). Both tests pin behavior the
+// old rect-only diff missed: they fail if damage ever goes back to
+// comparing positions alone.
+
+dmg_root, dmg_box, dmg_lbl: niello.Unit
+dmg_text: string
+
+declare_dmg_tree :: proc() {
+	if _, ok := niello.begin(dmg_root); ok {
+		niello.show(dmg_box)
+		niello.show(dmg_lbl, 0, niello.With{text = dmg_text})
+	}
+}
+
+dmg_frame :: proc() -> niello.Frame_Result {
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	declare_dmg_tree()
+	return niello.frame_end()
+}
+
+@(test)
+test_damage_on_style_change :: proc(t: ^testing.T) {
+	niello.test_reset()
+	niello.mint(
+		&dmg_root,
+		niello.NO_UNIT,
+		{size = niello.Size{niello.fixed(400), niello.fixed(300)}},
+	)
+	niello.mint(
+		&dmg_box,
+		niello.NO_UNIT,
+		{size = niello.Size{niello.fixed(100), niello.fixed(50)}, color = [4]u8{200, 0, 0, 255}},
+	)
+	dmg_text = ""
+
+	dmg_frame()
+	res := dmg_frame()
+	testing.expect(t, !res.changed, "identical frame stays clean")
+
+	// A set() restyle moves nothing — and must still damage the frame.
+	niello.set(dmg_box, .Color, niello.Color{0, 0, 200, 255})
+	res = dmg_frame()
+	testing.expect(t, res.changed, "style change damages the frame")
+	testing.expect(t, len(res.damage) > 0, "style change produces damage rects")
+
+	res = dmg_frame()
+	testing.expect(t, !res.changed, "frame is clean again after the restyle")
+}
+
+@(test)
+test_damage_on_text_change_same_size :: proc(t: ^testing.T) {
+	niello.test_reset()
+	niello.mint(
+		&dmg_root,
+		niello.NO_UNIT,
+		{size = niello.Size{niello.fixed(400), niello.fixed(300)}},
+	)
+	niello.mint(
+		&dmg_box,
+		niello.NO_UNIT,
+		{size = niello.Size{niello.fixed(100), niello.fixed(50)}},
+	)
+	niello.mint(&dmg_lbl, niello.NO_UNIT, {size = niello.Size{niello.fit(), niello.fit()}})
+
+	dmg_text = "AAAA" // 4 chars x 8px under mock metrics
+	dmg_frame()
+	res := dmg_frame()
+	testing.expect(t, !res.changed, "identical text stays clean")
+
+	dmg_text = "BBBB" // same width, same rect — only the bytes changed
+	res = dmg_frame()
+	testing.expect(t, res.changed, "same-size text change damages the frame")
+
+	res = dmg_frame()
+	testing.expect(t, !res.changed, "frame is clean again after the text change")
+}

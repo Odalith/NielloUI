@@ -66,7 +66,7 @@ stack_align_offset :: proc(s: ^Style, child_size, inner: Vec2) -> Vec2 {
 // NOTE: resolve_root was called but never defined in the design doc.
 // Definition: roots fill the viewport unless FIXED/PERCENT say otherwise.
 resolve_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
-	sz := g.units[int(g.nodes[r].unit)].style.size[axis]
+	sz := node_style(r).size[axis]
 	v := viewport_extent
 	switch sz.kind {
 	case .Fixed:
@@ -80,7 +80,7 @@ resolve_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 }
 
 floor_of :: proc(c: int, axis: int) -> f32 {
-	s := style_of(g.nodes[c].unit)
+	s := node_style(c)
 	// min_c is the true shrink floor: measure_text already folded the
 	// ellipsis policy into it (no-wrap ellipsis text floors at the "…"
 	// width), so this is a plain read plus the user's explicit Sizing min.
@@ -88,7 +88,7 @@ floor_of :: proc(c: int, axis: int) -> f32 {
 }
 
 ceil_of :: proc(c: int, axis: int) -> f32 {
-	return style_of(g.nodes[c].unit).size[axis].max
+	return node_style(c).size[axis].max
 }
 
 set_size :: proc(c: int, axis: int, v: f32, tight: bool) {
@@ -144,7 +144,7 @@ measure_text_all :: proc() {
 	}
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
-		s := style_of(nd.unit)
+		s := node_style(i)
 		if nd.has_text {
 			uw, minw := measure_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, s.wrap)
 			g.lay[i].content = uw
@@ -167,7 +167,7 @@ measure_text_all :: proc() {
 // text node whose unwrapped text is 240px still takes 200px). Everything else
 // contributes its intrinsic content / shrink floor.
 accum_size :: proc(c: int, axis: int) -> f32 {
-	sz := style_of(g.nodes[c].unit).size[axis]
+	sz := node_style(c).size[axis]
 	if sz.kind == .Fixed {
 		return sz.value
 	}
@@ -175,7 +175,7 @@ accum_size :: proc(c: int, axis: int) -> f32 {
 }
 
 accum_min :: proc(c: int, axis: int) -> f32 {
-	sz := style_of(g.nodes[c].unit).size[axis]
+	sz := node_style(c).size[axis]
 	if sz.kind == .Fixed {
 		return sz.value
 	}
@@ -194,7 +194,7 @@ accumulate :: proc(axis: int) {
 		if !nd.is_container {
 			continue
 		}
-		s := style_of(nd.unit)
+		s := node_style(i)
 		pad := padding_sum(s, axis)
 		gap := f32(s.gap)
 		if s.layout == .Stack {
@@ -235,7 +235,7 @@ accumulate :: proc(axis: int) {
 // Passes B/E: top-down distribution (forward walk)
 
 resolve_cross :: proc(c: int, axis: int, inner: f32) {
-	sz := style_of(g.nodes[c].unit).size[axis]
+	sz := node_style(c).size[axis]
 	switch sz.kind {
 	case .Fixed:
 		set_size(c, axis, clamp(sz.value, sz.min, sz.max), true)
@@ -252,7 +252,7 @@ resolve_cross :: proc(c: int, axis: int, inner: f32) {
 		// parent scrollable on this axis is exempt — the child's natural
 		// size IS the scroll extent there.
 		v := g.lay[c].content[axis]
-		if p := g.nodes[c].parent; p < 0 || !scrollable_axis(style_of(g.nodes[p].unit), axis) {
+		if p := g.nodes[c].parent; p < 0 || !scrollable_axis(node_style(p), axis) {
 			v = min(v, inner)
 		}
 		v = max(v, floor_of(c, axis))
@@ -330,7 +330,7 @@ waterfill_take :: proc(cands: []int, axis: int, deficit: f32) {
 }
 
 distribute_main :: proc(i: int, axis: int, inner: f32) {
-	s := style_of(g.nodes[i].unit)
+	s := node_style(i)
 	// Reused across containers (cleared per use); the waterfill swap-removes
 	// inside the slice, which is fine because nothing survives the clear.
 	growers := &g.scratch_a
@@ -350,7 +350,7 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	parent_fit := s.size[axis].kind == .Fit && g.nodes[i].parent >= 0
 	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
 		nchild += 1
-		sz := style_of(g.nodes[c].unit).size[axis]
+		sz := node_style(c).size[axis]
 		switch sz.kind {
 		case .Fixed:
 			v := clamp(sz.value, sz.min, sz.max)
@@ -414,7 +414,7 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 		if !nd.is_container {
 			continue
 		}
-		s := style_of(nd.unit)
+		s := node_style(i)
 		inner := g.lay[i].size[axis] - padding_sum(s, axis)
 		if inner < 0 {
 			inner = 0
@@ -443,7 +443,7 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 	if axis == X_AXIS {
 		for i in 0 ..< n {
 			nd := &g.nodes[i]
-			if nd.has_text && style_of(nd.unit).wrap == .Word {
+			if nd.has_text && node_style(i).wrap == .Word {
 				append(&g.wrap_list, i)
 			}
 		}
@@ -459,7 +459,7 @@ wrap_text :: proc() {
 			continue // fits: single line, already correct
 		}
 		nd := &g.nodes[w]
-		s := style_of(nd.unit)
+		s := node_style(w)
 		lines, line_h := wrapped_lines(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, g.lay[w].size.x)
 		g.lay[w].content.y = f32(lines) * line_h
 		// Width stays: content.x keeps its unwrapped meaning ("how wide would
@@ -470,6 +470,55 @@ wrap_text :: proc() {
 
 // ---------------------------------------------------------------------------
 // Pass F: positioning, instance rects, damage, overflow
+
+// content_hash fingerprints everything about a node that reaches the draw
+// list: the resolved style's value fields plus the declare-time text and
+// span hashes. The string/slice fields are covered by those hashes rather
+// than by their headers. Cursor and Scroll_Chain are deliberately
+// excluded: neither is visual (cursor is host state; scroll_chain steers
+// dispatch), so changing them must not repaint.
+@(private)
+content_hash :: proc(i: int) -> u64 {
+	s := node_style(i)
+	nd := &g.nodes[i]
+	h := u64(14695981039346656037)
+	mixc :: proc(h: u64, c: Color) -> u64 {
+		return hash_mix(h, u64(c[0]) | u64(c[1]) << 8 | u64(c[2]) << 16 | u64(c[3]) << 24)
+	}
+	h = mixc(h, s.color)
+	h = mixc(h, s.font_color)
+	h = mixc(h, s.border_color)
+	h = hash_mix(h, u64(s.font))
+	h = hash_mix(h, u64(transmute(u32)(s.font_size)))
+	h = hash_mix(h, u64(s.font_weight))
+	h = hash_mix(h, u64(s.font_slant))
+	h = hash_mix(h, nd.text_hash)
+	h = hash_mix(h, nd.spans_hash)
+	for v in s.padding {
+		h = hash_mix(h, u64(v))
+	}
+	h = hash_mix(h, u64(s.gap))
+	h = hash_mix(h, u64(s.border_width))
+	h = hash_mix(h, u64(s.corner_radius))
+	h = hash_mix(h, u64(s.opacity))
+	h = hash_mix(h, u64(s.layout))
+	for a in 0 ..< 2 {
+		sz := s.size[a]
+		h = hash_mix(h, u64(sz.kind))
+		h = hash_mix(h, u64(transmute(u32)(sz.value)))
+		h = hash_mix(h, u64(transmute(u32)(sz.min)))
+		h = hash_mix(h, u64(transmute(u32)(sz.max)))
+		h = hash_mix(h, u64(s.align[a]))
+	}
+	h = hash_mix(h, u64(s.scroll))
+	h = hash_mix(h, u64(s.wrap))
+	h = hash_mix(h, u64(s.ellipsis ? 1 : 0))
+	h = hash_mix(h, u64(s.overflow))
+	h = mixc(h, s.overlay_color)
+	h = mixc(h, s.overlay_border_color)
+	h = hash_mix(h, u64(s.overlay_border_width))
+	return h
+}
 
 rect_union :: proc(a, b: Rect) -> Rect {
 	min_p := Vec2{min(a.pos.x, b.pos.x), min(a.pos.y, b.pos.y)}
@@ -491,7 +540,7 @@ position_and_damage :: proc() {
 		if !nd.is_container {
 			continue
 		}
-		s := style_of(nd.unit)
+		s := node_style(i)
 		scroll := Vec2{0, 0} // mock: no live scroll offsets yet
 		base := g.lay[i].pos
 		pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
@@ -541,28 +590,55 @@ position_and_damage :: proc() {
 			max(0, max_end.y - (origin.y + inner.y)),
 		}
 	}
+	// Accumulated ancestor clips for the next frame's hit test (input.odin's
+	// pick reads them alongside these positions): a node's pick clip is its
+	// parent's, intersected with the parent's rect when the parent clips —
+	// the same predicate emit uses for Push_Clip (Overflow.Clip, or any
+	// scrolling). Positions are final here, parents before children.
+	resize(&g.pick_clip, n)
+	for i in 0 ..< n {
+		p := g.nodes[i].parent
+		if p < 0 {
+			g.pick_clip[i] = Rect{{-1e18, -1e18}, {2e18, 2e18}}
+			continue
+		}
+		clip := g.pick_clip[p]
+		ps := node_style(p)
+		if ps.overflow == .Clip || scrollable_axis(ps, X_AXIS) || scrollable_axis(ps, Y_AXIS) {
+			clip = rect_intersect(clip, Rect{g.lay[p].pos, g.lay[p].size})
+		}
+		g.pick_clip[i] = clip
+	}
 	// Commit rects + damage: old ∪ new, expanded by overflow (children painting
-	// outside their bounds must be covered).
+	// outside their bounds must be covered). §5's rule is "changed → new
+	// rect": changed means the committed CONTENT changed, not just the
+	// rect — a same-size text edit or a set() restyle damages too, via the
+	// per-instance content hash.
 	if g.instances == nil {
 		g.instances = make(map[Instance]Rect)
+	}
+	if g.inst_hash == nil {
+		g.inst_hash = make(map[Instance]u64)
 	}
 	for i in 0 ..< n {
 		id := g.nodes[i].identity
 		new := Rect{g.lay[i].pos, g.lay[i].size}
+		h := content_hash(i)
 		old, ok := g.instances[id]
+		old_h := g.inst_hash[id] // 0 when absent; real hashes are never 0 here
 		if !ok {
 			r := new
 			r.size.x += g.lay[i].overfl.x
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
-			g.instances[id] = new
-		} else if old != new {
+		} else if old != new || old_h != h {
 			r := rect_union(old, new)
 			r.size.x += g.lay[i].overfl.x
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
-			g.instances[id] = new
 		}
+		g.instances[id] = new
+		g.inst_hash[id] = h
 	}
 	// NOTE: destroyed instances (in the map but not declared this frame) should
 	// have their old rects appended to damage. Left for the recycle pass.

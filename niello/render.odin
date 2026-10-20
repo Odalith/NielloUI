@@ -93,7 +93,7 @@ draw_list :: proc() -> []Draw_Cmd {
 @(private)
 emit_node_open :: proc(i: int) -> bool {
 	nd := &g.nodes[i]
-	s := style_of(nd.unit)
+	s := node_style(i)
 	r := Rect{g.lay[i].pos, g.lay[i].size}
 
 	scoped := false
@@ -268,7 +268,7 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 // emit_node_close emits a node's scope closes, in reverse of the opens.
 @(private)
 emit_node_close :: proc(i: int) {
-	s := style_of(g.nodes[i].unit)
+	s := node_style(i)
 	r := Rect{g.lay[i].pos, g.lay[i].size}
 	if s.overflow == .Clip || scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
 		append(&g.draw_cmds, Draw_Cmd{tag = .Pop_Clip, bounds = r})

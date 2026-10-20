@@ -46,6 +46,26 @@ g_window:   ^sdl.Window
 @(private)
 g_mouse:    niello.Vec2
 @(private)
+g_mouse_valid: bool // cursor is over the window; set by motion/button/wheel, cleared on leave
+@(private)
+g_window_focused: bool = true // assumed until SDL says otherwise
+@(private)
+g_buttons_down:     niello.Buttons
+@(private)
+g_buttons_pressed:  niello.Buttons // edges latched since the last frame
+@(private)
+g_buttons_released: niello.Buttons
+@(private)
+g_wheel: niello.Vec2 // accumulated since the last frame
+@(private)
+g_keys:      [16]niello.Key_Event
+@(private)
+g_key_count: int
+@(private)
+g_cursors: [niello.Cursor_Kind]^sdl.Cursor // lazily created system cursors
+@(private)
+g_cursor_applied: niello.Cursor_Kind = .Arrow
+@(private)
 g_last_ns:  u64
 @(private)
 g_content_scale: f32 = 1
@@ -178,13 +198,31 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 	pt_w, pt_h: i32
 	sdl.GetWindowSize(g_window, &pt_w, &pt_h)
 	input := niello.Input{
-		viewport = {f32(pt_w), f32(pt_h)},
-		mouse    = g_mouse,
+		viewport         = {f32(pt_w), f32(pt_h)},
+		mouse            = g_mouse,
+		mouse_valid      = g_mouse_valid,
+		buttons_down     = g_buttons_down,
+		buttons_pressed  = g_buttons_pressed,
+		buttons_released = g_buttons_released,
+		wheel            = g_wheel,
+		keys             = g_keys,
+		key_count        = g_key_count,
+		window_focused   = g_window_focused,
 	}
+	// Edges and accumulations are per-frame: this frame_begin consumes them.
+	g_buttons_pressed = {}
+	g_buttons_released = {}
+	g_wheel = {}
+	g_key_count = 0
 
 	niello.frame_begin(input, dt)
 	g_declare()
 	result := niello.frame_end()
+
+	if result.cursor != g_cursor_applied {
+		apply_cursor(result.cursor)
+		g_cursor_applied = result.cursor
+	}
 
 	if result.changed || g_force_render {
 		cmds := niello.draw_list()
@@ -211,6 +249,51 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 	case .MOUSE_MOTION:
 		// Mouse is in DIP points, matching the viewport niello sees.
 		g_mouse = {event.motion.x, event.motion.y}
+		g_mouse_valid = true
+	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+		if b, ok := mouse_button(event.button.button); ok {
+			// Button events carry the position too; keep it fresh even
+			// when no motion event preceded the click.
+			g_mouse = {event.button.x, event.button.y}
+			g_mouse_valid = true
+			if event.button.down {
+				g_buttons_down += {b}
+				g_buttons_pressed += {b}
+			} else {
+				g_buttons_down -= {b}
+				g_buttons_released += {b}
+			}
+		}
+	case .MOUSE_WHEEL:
+		x, y := event.wheel.x, event.wheel.y
+		if event.wheel.direction == .FLIPPED {
+			x, y = -x, -y
+		}
+		g_wheel += {x, y}
+		g_mouse = {event.wheel.mouse_x, event.wheel.mouse_y}
+		g_mouse_valid = true
+	case .KEY_DOWN, .KEY_UP:
+		// Collected now, consumed by the focus pass later. Overflow past
+		// the ring is dropped: 16 key events in one frame is a flood, and
+		// the oldest are the ones that matter.
+		if g_key_count < len(g_keys) {
+			g_keys[g_key_count] = niello.Key_Event{
+				scancode = u32(event.key.scancode),
+				keycode  = u32(event.key.key),
+				mods     = transmute(u16)(event.key.mod),
+				down     = event.key.down,
+				repeat   = event.key.repeat,
+			}
+			g_key_count += 1
+		}
+	case .WINDOW_MOUSE_ENTER:
+		g_mouse_valid = true
+	case .WINDOW_MOUSE_LEAVE:
+		g_mouse_valid = false
+	case .WINDOW_FOCUS_GAINED:
+		g_window_focused = true
+	case .WINDOW_FOCUS_LOST:
+		g_window_focused = false
 	case .WINDOW_PIXEL_SIZE_CHANGED:
 		g_pixel_width, g_pixel_height = event.window.data1, event.window.data2
 		g_pending_size = true
@@ -236,6 +319,63 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 app_quit :: proc "c" (appstate: rawptr, result: sdl.AppResult) {
 	context = runtime.default_context()
 	destroy()
+}
+
+// mouse_button maps SDL's button index (1/2/3) to niello's button enum.
+@(private)
+mouse_button :: proc(sdl_button: u8) -> (niello.Mouse_Button, bool) {
+	switch sdl_button {
+	case 1:
+		return .Left, true
+	case 2:
+		return .Middle, true
+	case 3:
+		return .Right, true
+	}
+	return .Left, false
+}
+
+@(private)
+system_cursor :: proc(kind: niello.Cursor_Kind) -> sdl.SystemCursor {
+	switch kind {
+	case .Arrow:
+		return .DEFAULT
+	case .Text:
+		return .TEXT
+	case .Pointer:
+		return .POINTER
+	case .Crosshair:
+		return .CROSSHAIR
+	case .Wait:
+		return .WAIT
+	case .Move:
+		return .MOVE
+	case .Resize_NS:
+		return .NS_RESIZE
+	case .Resize_EW:
+		return .EW_RESIZE
+	case .Resize_NWSE:
+		return .NWSE_RESIZE
+	case .Resize_NESW:
+		return .NESW_RESIZE
+	case .Not_Allowed:
+		return .NOT_ALLOWED
+	}
+	return .DEFAULT
+}
+
+// apply_cursor shows the given cursor, creating its SDL system cursor on
+// first use. A failed creation leaves the current cursor alone.
+@(private)
+apply_cursor :: proc(kind: niello.Cursor_Kind) {
+	cur := g_cursors[kind]
+	if cur == nil {
+		cur = sdl.CreateSystemCursor(system_cursor(kind))
+		g_cursors[kind] = cur
+	}
+	if cur != nil {
+		_ = sdl.SetCursor(cur)
+	}
 }
 
 // run opens the window and enters SDL's callback-driven main loop. It does
