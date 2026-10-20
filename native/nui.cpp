@@ -432,6 +432,38 @@ void ResizeSurface(uint32_t width, uint32_t height) {
 
 // ---- public C API ----------------------------------------------------------
 
+
+// Surface format pick: deterministic, never capabilities order (that order
+// is driver/compositor enumeration accident and carries no contract).
+//
+// The cache SkSurface declares an sRGB colorspace, so Skia performs the
+// gamma encode itself and the texture must store the encoded bytes raw. An
+// -Srgb texture format makes the hardware encode a second time on write,
+// which washes the image out (seen on X11, whose Dawn offers
+// BGRA8UnormSrgb first; Wayland happened to offer a working format first).
+// Following WebGPU's canvas model, the surface format is therefore always
+// the plain Unorm variant: BGRA8Unorm where offered, RGBA8Unorm otherwise.
+// If neither is offered the backend cannot guarantee correct color, so init
+// fails loudly instead of silently degrading.
+wgpu::TextureFormat PickSurfaceFormat(const wgpu::SurfaceCapabilities& caps) {
+    bool have_bgra = false, have_rgba = false;
+    for (size_t i = 0; i < caps.formatCount; i++) {
+        have_bgra |= caps.formats[i] == wgpu::TextureFormat::BGRA8Unorm;
+        have_rgba |= caps.formats[i] == wgpu::TextureFormat::RGBA8Unorm;
+    }
+    if (have_bgra) return wgpu::TextureFormat::BGRA8Unorm;
+    if (have_rgba) return wgpu::TextureFormat::RGBA8Unorm;
+    return wgpu::TextureFormat::Undefined;
+}
+
+const char* FormatName(wgpu::TextureFormat f) {
+    switch (f) {
+        case wgpu::TextureFormat::BGRA8Unorm: return "BGRA8Unorm";
+        case wgpu::TextureFormat::RGBA8Unorm: return "RGBA8Unorm";
+        default:                              return "other";
+    }
+}
+
 int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px) {
     App& app = g_app;
     if (!handles || !handles->driver) {
@@ -478,7 +510,13 @@ int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t hei
     }
 
     app.surfaceConfig.device = app.backendContext.fDevice;
-    app.surfaceConfig.format = capabilities.formats[0];
+    app.surfaceConfig.format = PickSurfaceFormat(capabilities);
+    if (app.surfaceConfig.format == wgpu::TextureFormat::Undefined) {
+        fprintf(stderr, "nui_init: surface offers no BGRA8Unorm/RGBA8Unorm format (required for correct color)\n");
+        nui_destroy();
+        return -1;
+    }
+    printf("nui: surface format %s\n", FormatName(app.surfaceConfig.format));
     app.surfaceConfig.usage = wgpu::TextureUsage::CopyDst;
     app.surfaceConfig.width = width_px;
     app.surfaceConfig.height = height_px;
