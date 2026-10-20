@@ -253,7 +253,16 @@ void DrawTextCmd(SkCanvas* canvas, const UiDrawCmd& c) {
             size_t lo = 0, hi = len;
             while (lo < hi) {
                 size_t mid = lo + (hi - lo + 1) / 2;
-                if (font->measureText(text, mid, SkTextEncoding::kUTF8) <= avail) lo = mid;
+                // Probe only on a UTF-8 character boundary. A byte prefix
+                // that splits a multi-byte sequence is not a valid string,
+                // and measureText is not required to survive one — a
+                // truncated label containing an em dash crashed here when
+                // the descending search probed inside the sequence. The
+                // search itself still runs in byte space; the final
+                // walk-back below lands exactly on the probed boundary.
+                size_t probe = mid;
+                while (probe > 0 && (text[probe] & 0xC0) == 0x80) probe--;
+                if (font->measureText(text, probe, SkTextEncoding::kUTF8) <= avail) lo = mid;
                 else hi = mid - 1;
             }
             while (lo > 0 && (text[lo] & 0xC0) == 0x80) lo--; // don't split UTF-8
