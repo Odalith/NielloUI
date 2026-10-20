@@ -337,7 +337,11 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	shrinkables := &g.scratch_b
 	clear(growers)
 	clear(shrinkables)
-	fixed_sum := f32(0)
+	// Committed space: EVERY child's starting size, growers included. The
+	// waterfill adds the leftover ON TOP of a grower's content size, so
+	// leaving growers out of the sum hands them their content twice — the
+	// final total overshoots by the sum of the growers' content sizes.
+	committed := f32(0)
 	nchild := 0
 	// A root is never "fit" here: resolve_root gives it a definite size from
 	// the viewport whatever its style kind says, so its GROW children grow.
@@ -351,15 +355,15 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 		case .Fixed:
 			v := clamp(sz.value, sz.min, sz.max)
 			set_size(c, axis, v, true)
-			fixed_sum += v
+			committed += v
 		case .Percent:
 			v := clamp(sz.value * inner, sz.min, sz.max)
 			set_size(c, axis, v, true)
-			fixed_sum += v
+			committed += v
 		case .Fit:
 			v := clamp(g.lay[c].content[axis], sz.min, sz.max)
 			set_size(c, axis, v, false)
-			fixed_sum += v
+			committed += v
 			append(shrinkables, c)
 		case .Grow:
 			if parent_fit {
@@ -368,11 +372,12 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 				// Documented fallback: behave as FIT.
 				v := clamp(g.lay[c].content[axis], sz.min, sz.max)
 				set_size(c, axis, v, false)
-				fixed_sum += v
+				committed += v
 				append(shrinkables, c)
 			} else {
 				v := clamp(g.lay[c].content[axis], sz.min, sz.max)
 				set_size(c, axis, v, false)
+				committed += v
 				append(growers, c)
 				append(shrinkables, c)
 			}
@@ -382,7 +387,7 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	if nchild > 0 {
 		gaps = f32(nchild-1) * f32(s.gap)
 	}
-	remaining := inner - fixed_sum - gaps
+	remaining := inner - committed - gaps
 	if parent_fit {
 		return // parent sized to content; nothing to distribute
 	}

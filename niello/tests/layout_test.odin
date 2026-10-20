@@ -745,7 +745,9 @@ test_grow_under_fit_root_column :: proc(t: ^testing.T) {
 	toolbar: niello.Unit
 	niello.mint(&toolbar, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(48)}})
 	card: niello.Unit
-	niello.mint(&card, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.grow()}})
+	niello.mint(&card, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.grow(), niello.grow()}})
+	filler: niello.Unit
+	niello.mint(&filler, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(40)}})
 
 	icard: niello.Instance
 	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
@@ -754,6 +756,7 @@ test_grow_under_fit_root_column :: proc(t: ^testing.T) {
 		}
 		if c, ok3 := niello.begin(card); ok3 {
 			icard = c
+			_ = niello.show(filler) // content-bearing card: grow must land exact, not content + leftover
 		}
 	}
 	niello.frame_end()
@@ -785,4 +788,40 @@ test_grow_under_fit_root_row :: proc(t: ^testing.T) {
 	rb, _ := niello.rect(ib)
 	testing.expect(t, abs(rb.size.x-350) < EPS, fmt.tprintf("B width grows: %v", rb.size.x))
 	testing.expect(t, abs(rb.size.y-300) < EPS, fmt.tprintf("B height grows: %v", rb.size.y))
+}
+
+@(test)
+test_grow_with_content_split :: proc(t: ^testing.T) {
+	niello.test_reset()
+	// Two GROW containers with real content split the TRUE leftover:
+	// contents 30 + 50 in a 300-tall root leave 220, so each grows by 110.
+	root: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.fixed(400), niello.fixed(300)}})
+	a: niello.Unit
+	niello.mint(&a, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.grow(), niello.grow()}})
+	b: niello.Unit
+	niello.mint(&b, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.grow(), niello.grow()}})
+	fa: niello.Unit
+	niello.mint(&fa, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(30)}})
+	fb: niello.Unit
+	niello.mint(&fb, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(50)}})
+
+	ia, ib: niello.Instance
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		if x, ok2 := niello.begin(a); ok2 {
+			ia = x
+			_ = niello.show(fa)
+		}
+		if y, ok3 := niello.begin(b); ok3 {
+			ib = y
+			_ = niello.show(fb)
+		}
+	}
+	niello.frame_end()
+
+	ra, _ := niello.rect(ia)
+	rb, _ := niello.rect(ib)
+	testing.expect(t, abs(ra.size.y-140) < EPS, fmt.tprintf("A height: %v", ra.size.y))
+	testing.expect(t, abs(rb.size.y-160) < EPS, fmt.tprintf("B height: %v", rb.size.y))
 }
