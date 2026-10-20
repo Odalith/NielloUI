@@ -81,13 +81,10 @@ resolve_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 
 floor_of :: proc(c: int, axis: int) -> f32 {
 	s := style_of(g.nodes[c].unit)
-	fl := g.lay[c].min_c[axis]
-	if g.nodes[c].has_text && axis == X_AXIS && s.wrap == .None && s.ellipsis {
-		// Ellipsis text may shrink to the "…" width in its own style; paint
-		// covers the rest.
-		fl = min(fl, ellipsis_width(s))
-	}
-	return max(s.size[axis].min, fl)
+	// min_c is the true shrink floor: measure_text already folded the
+	// ellipsis policy into it (no-wrap ellipsis text floors at the "…"
+	// width), so this is a plain read plus the user's explicit Sizing min.
+	return max(s.size[axis].min, g.lay[c].min_c[axis])
 }
 
 ceil_of :: proc(c: int, axis: int) -> f32 {
@@ -182,6 +179,8 @@ accum_min :: proc(c: int, axis: int) -> f32 {
 	if sz.kind == .Fixed {
 		return sz.value
 	}
+	// min_c is already the effective floor (measure_text folds the ellipsis
+	// policy into it at measurement time), so accumulation is a plain read.
 	return g.lay[c].min_c[axis]
 }
 
@@ -243,7 +242,21 @@ resolve_cross :: proc(c: int, axis: int, inner: f32) {
 	case .Percent:
 		set_size(c, axis, clamp(sz.value * inner, sz.min, sz.max), true)
 	case .Fit:
-		set_size(c, axis, clamp(g.lay[c].content[axis], sz.min, sz.max), false)
+		// FIT grants content, bounded by the space the parent offers — the
+		// cross-axis mirror of the main axis's waterfill bound. Without the
+		// offer bound a FIT child keeps its full intrinsic size however
+		// narrow the parent is, and (for text) the ellipsis never engages.
+		// The shrink floor still wins over the offer: content that cannot
+		// shrink further resolves at its floor and pass F records the excess
+		// as overflow, exactly like waterfill_take's surviving deficit. A
+		// parent scrollable on this axis is exempt — the child's natural
+		// size IS the scroll extent there.
+		v := g.lay[c].content[axis]
+		if p := g.nodes[c].parent; p < 0 || !scrollable_axis(style_of(g.nodes[p].unit), axis) {
+			v = min(v, inner)
+		}
+		v = max(v, floor_of(c, axis))
+		set_size(c, axis, clamp(v, sz.min, sz.max), false)
 	case .Grow:
 		set_size(c, axis, clamp(inner, sz.min, sz.max), true)
 	}

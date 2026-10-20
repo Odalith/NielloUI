@@ -67,9 +67,21 @@ frag_line_height :: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Sla
 }
 
 // ellipsis_width is the waterfill shrink floor for ellipsis text (§3.12):
-// the width of "…" in the node's own style.
+// the width of "…" in the node's own style. A pure function of the style,
+// cached per style — layout consults it on hot paths (the
+// measure_text fold) and the backend hooks must fire only on cache miss.
 ellipsis_width :: proc(s: ^Style) -> f32 {
-	return measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, "…")
+	key := hash_mix(u64(s.font), u64(transmute(u32)s.font_size))
+	key = hash_mix(key, u64(s.font_weight))
+	key = hash_mix(key, u64(s.font_slant))
+	if g.ellipsis_widths == nil {
+		g.ellipsis_widths = make(map[u64]f32)
+	} else if w, ok := g.ellipsis_widths[key]; ok {
+		return w
+	}
+	w := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, "…")
+	g.ellipsis_widths[key] = w
+	return w
 }
 
 // style_at resolves the effective style at byte offset `at`: the base unit
@@ -204,7 +216,11 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 }
 
 // measure_text returns the unwrapped size and the shrink floor (min_w).
-// wrap==.Word -> min_w is the widest word; wrap==.None -> the full width.
+// wrap==.Word -> min_w is the widest word; wrap==.None -> the full width,
+// folded to the ellipsis width when ellipsis is on. The fold lives HERE, in
+// the cached measurement, so min_c is the true shrink floor at every level
+// of the tree (a container accumulating a text child's raw full-line floor
+// would make the text untruncatable inside any container).
 measure_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64, text: string, wrap: Text_Wrap) -> (unwrapped: Vec2, min_w: f32) {
 	e := get_text(s, spans, spans_hash, text_hash, text)
 	unwrapped = Vec2{0, 0}
@@ -226,6 +242,9 @@ measure_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: 
 		}
 	}
 	unwrapped.y = f32(max(len(e.segs), 1)) * e.line_h
+	if wrap == .None && s.ellipsis {
+		min_w = min(min_w, ellipsis_width(s))
+	}
 	return unwrapped, min_w
 }
 

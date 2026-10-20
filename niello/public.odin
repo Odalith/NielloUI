@@ -482,6 +482,11 @@ end :: proc(i: Instance, open: bool) {
 }
 
 frame_begin :: proc(input: Input, dt: f32) {
+	// resolve_spans copies per declare; free them before dropping the nodes,
+	// or every frame using text_spans leaks.
+	for nd in g.nodes {
+		delete(nd.spans)
+	}
 	clear(&g.nodes)
 	clear(&g.stack)
 	clear(&g.child_counts)

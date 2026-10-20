@@ -240,3 +240,100 @@ test_draw_cmd_visible :: proc(t: ^testing.T) {
 	testing.expect(t, niello.draw_cmd_visible(push, far), "stack commands are never culled")
 	testing.expect(t, niello.draw_cmd_visible(push, empty), "stack commands replay even with empty damage")
 }
+
+@(test)
+test_draw_list_truncation_in_column :: proc(t: ^testing.T) {
+	niello.test_reset()
+
+	root: niello.Unit
+	// Top_To_Bottom root: the label's width is the CROSS axis here (in a row
+	// it would be the main axis, where the waterfill already shrinks it).
+	niello.mint(&root, niello.NO_UNIT, {
+		layout = .Top_To_Bottom,
+		size   = niello.Size{niello.fixed(60), niello.fixed(300)},
+	})
+	lbl: niello.Unit
+	niello.mint(&lbl, niello.NO_UNIT, {}) // FIT text, wrap .None, ellipsis on
+
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(lbl, 0, niello.With{text = "Hello world"}) // 88px intrinsic
+	}
+	niello.frame_end()
+
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			found = true
+			testing.expect(t, c.truncated, "cross-axis FIT text truncates to the column width")
+			testing.expect(t, c.max_width == 60, "max_width is the column's inner width")
+		}
+	}
+	testing.expect(t, found, "expected a Text command")
+}
+
+@(test)
+test_draw_list_truncation_nested_fit :: proc(t: ^testing.T) {
+	niello.test_reset()
+
+	root: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {
+		layout = .Top_To_Bottom,
+		size   = niello.Size{niello.fixed(60), niello.fixed(300)},
+	})
+	card: niello.Unit
+	// FIT-width column inside the fixed column: the offer bound must
+	// propagate — card clamps to 60, then the label truncates inside it.
+	niello.mint(&card, niello.NO_UNIT, {layout = .Top_To_Bottom})
+	lbl: niello.Unit
+	niello.mint(&lbl, niello.NO_UNIT, {})
+
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	if _, ok := niello.begin(root); ok {
+		if _, ok := niello.begin(card); ok {
+			niello.show(lbl, 0, niello.With{text = "Hello world"})
+		}
+	}
+	niello.frame_end()
+
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			found = true
+			testing.expect(t, c.truncated, "label inside a FIT card truncates when the card is clamped")
+			testing.expect(t, c.max_width == 60, "max_width is the clamped card's inner width")
+		}
+	}
+	testing.expect(t, found, "expected a Text command")
+}
+
+@(test)
+test_cross_fit_not_clamped_when_scrollable :: proc(t: ^testing.T) {
+	niello.test_reset()
+
+	root: niello.Unit
+	// Horizontally scrollable column: on the scroll axis a FIT child's
+	// natural size IS the scroll extent, so no offer bound applies.
+	niello.mint(&root, niello.NO_UNIT, {
+		layout = .Top_To_Bottom,
+		size   = niello.Size{niello.fixed(60), niello.fixed(300)},
+		scroll = .Horizontal,
+	})
+	lbl: niello.Unit
+	niello.mint(&lbl, niello.NO_UNIT, {})
+
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(lbl, 0, niello.With{text = "Hello world"})
+	}
+	niello.frame_end()
+
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			found = true
+			testing.expect(t, !c.truncated, "scrollable axis: FIT text keeps its natural width")
+		}
+	}
+	testing.expect(t, found, "expected a Text command")
+}

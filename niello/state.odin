@@ -71,6 +71,7 @@ Globals :: struct {
 	layout_gen: u32,
 	frame_index: u64,
 	text_cache: map[u64]Text_Entry,
+	ellipsis_widths: map[u64]f32,
 
 	// Test-only hook: force the next begin() to report open=false.
 	test_force_cull: bool,
@@ -80,7 +81,41 @@ Globals :: struct {
 g: Globals
 
 // test_reset clears everything, including cold units. Each test starts clean.
+// Every heap-owning container is freed first: g = Globals{} would orphan all
+// backing arrays, and the leak checker reports each one.
 test_reset :: proc() {
+	// Free the text cache first (each Text_Entry owns segs -> words -> frags).
+	for _, entry in g.text_cache {
+		for seg in entry.segs {
+			for word in seg {
+				delete(word.frags)
+			}
+			delete(seg)
+		}
+		delete(entry.segs)
+	}
+	delete(g.text_cache)
+	delete(g.ellipsis_widths)
+	// Per-declare span copies (resolve_spans) live on the frame nodes.
+	for nd in g.nodes {
+		delete(nd.spans)
+	}
+	delete(g.units)
+	delete(g.touched)
+	delete(g.nodes)
+	delete(g.stack)
+	delete(g.child_counts)
+	delete(g.lay)
+	delete(g.first_child)
+	delete(g.next_sibling)
+	delete(g.wrap_list)
+	delete(g.subtree_end)
+	delete(g.scratch_a)
+	delete(g.scratch_b)
+	delete(g.scratch_ints)
+	delete(g.draw_cmds)
+	delete(g.instances)
+	delete(g.damage)
 	g = Globals{}
 	append(&g.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
 }
