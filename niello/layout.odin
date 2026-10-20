@@ -339,7 +339,11 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	clear(shrinkables)
 	fixed_sum := f32(0)
 	nchild := 0
-	parent_fit := s.size[axis].kind == .Fit
+	// A root is never "fit" here: resolve_root gives it a definite size from
+	// the viewport whatever its style kind says, so its GROW children grow.
+	// Only a non-root FIT container is truly content-sized — the circular
+	// case the GROW-in-FIT fallback below exists for.
+	parent_fit := s.size[axis].kind == .Fit && g.nodes[i].parent >= 0
 	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
 		nchild += 1
 		sz := style_of(g.nodes[c].unit).size[axis]

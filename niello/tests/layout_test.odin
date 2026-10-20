@@ -727,3 +727,62 @@ test_borders_and_overlays :: proc(t: ^testing.T) {
 		"dirty tracks Overlay_Border_Width",
 	)
 }
+
+@(test)
+test_grow_under_fit_root_column :: proc(t: ^testing.T) {
+	niello.test_reset()
+	// The hello shape: the root unit has NO size (FIT style), but a root
+	// resolves against the viewport, so it is NOT content-sized — GROW
+	// children must grow. (Regression: parent_fit read the style kind, so
+	// the root's FIT style triggered the GROW-in-FIT fallback and the card
+	// below only grew horizontally, via the cross axis.)
+	root: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {
+		layout  = .Top_To_Bottom,
+		padding = [4]u16{24, 24, 24, 24},
+		gap     = 16,
+	})
+	toolbar: niello.Unit
+	niello.mint(&toolbar, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(48)}})
+	card: niello.Unit
+	niello.mint(&card, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.grow()}})
+
+	icard: niello.Instance
+	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	if _, ok := niello.begin(root); ok {
+		if _, ok2 := niello.begin(toolbar); ok2 {
+		}
+		if c, ok3 := niello.begin(card); ok3 {
+			icard = c
+		}
+	}
+	niello.frame_end()
+
+	rc, _ := niello.rect(icard)
+	// Inner box: 800-48 x 600-48; card height = 552 - 48 (toolbar) - 16 (gap).
+	testing.expect(t, abs(rc.size.x-752) < EPS, fmt.tprintf("card width grows: %v", rc.size.x))
+	testing.expect(t, abs(rc.size.y-488) < EPS, fmt.tprintf("card height grows: %v", rc.size.y))
+}
+
+@(test)
+test_grow_under_fit_root_row :: proc(t: ^testing.T) {
+	niello.test_reset()
+	root: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {layout = .Left_To_Right})
+	a: niello.Unit
+	niello.mint(&a, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.grow()}})
+	b: niello.Unit
+	niello.mint(&b, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.grow()}})
+
+	ib: niello.Instance
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		_ = niello.show(a)
+		ib = niello.show(b)
+	}
+	niello.frame_end()
+
+	rb, _ := niello.rect(ib)
+	testing.expect(t, abs(rb.size.x-350) < EPS, fmt.tprintf("B width grows: %v", rb.size.x))
+	testing.expect(t, abs(rb.size.y-300) < EPS, fmt.tprintf("B height grows: %v", rb.size.y))
+}
