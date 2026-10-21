@@ -297,7 +297,10 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 		g.scroll_off = make(map[Instance]Vec2)
 	}
 	for axis in 0 ..< 2 {
-		rem := wheel[axis] * WHEEL_UNIT_PX
+		// Sign: the host reports the scroll-UP direction as positive
+		// (the SDL convention), so a positive delta DECREASES the
+		// offset — the offset delta is the negation.
+		rem := -wheel[axis] * WHEEL_UNIT_PX
 		if rem == 0 {
 			continue
 		}

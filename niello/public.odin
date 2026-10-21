@@ -381,10 +381,13 @@ Input :: struct {
 	buttons_released: Buttons,
 
 	wheel: Vec2, // accumulated scroll delta since the last frame, in wheel
-	             // units (fractional on smooth wheels/trackpads). Positive
-	             // y scrolls down (the offset grows), positive x right —
-	             // the SDL convention; hosts negate natural-scroll deltas
-	             // before accumulating (the SDL glue does, on FLIPPED).
+	             // units (fractional on smooth wheels/trackpads). Sign is
+	             // the SDL convention: positive y is the scroll-UP
+	             // direction (the view moves toward the top; offsets
+	             // decrease), positive x the scroll-left direction. Hosts
+	             // deliver it as SDL reports it — the glue passes events
+	             // through, negating only FLIPPED ones, whose deltas
+	             // arrive pre-inverted.
 
 	keys:      [16]Key_Event, // events since the last frame, oldest first
 	key_count: int,

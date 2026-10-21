@@ -123,14 +123,14 @@ test_wheel_scrolls_container :: proc(t: ^testing.T) {
 	testing.expect(t, abs(r0.pos.y) < EPS, "row 0 starts at the top")
 
 	// One wheel unit = WHEEL_UNIT_PX (48) of offset, rendered this frame.
-	wheel_frame(declare_flat_tree, OUTER_PT, {0, 1})
+	wheel_frame(declare_flat_tree, OUTER_PT, {0, -1})
 	off := niello.scroll_offset(sc_outer_i)
-	testing.expect(t, off == niello.Vec2{0, 48}, "one notch scrolls 48px")
+	testing.expect(t, off == niello.Vec2{0, 48}, "one notch down scrolls 48px")
 	r1, _ := niello.rect(sc_first_row_i)
 	testing.expect(t, abs(r1.pos.y - (-48)) < EPS, "content moved up by the offset")
 
 	// Fractional (trackpad) deltas scale linearly, both directions.
-	wheel_frame(declare_flat_tree, OUTER_PT, {0, -0.5})
+	wheel_frame(declare_flat_tree, OUTER_PT, {0, 0.5})
 	off = niello.scroll_offset(sc_outer_i)
 	testing.expect(t, off == niello.Vec2{0, 24}, "half a notch back up")
 }
@@ -142,13 +142,13 @@ test_wheel_clamps_to_range :: proc(t: ^testing.T) {
 	mint_flat_tree()
 
 	plain_frame(declare_flat_tree, OUTER_PT)
-	wheel_frame(declare_flat_tree, OUTER_PT, {0, 10})
+	wheel_frame(declare_flat_tree, OUTER_PT, {0, -10})
 	off := niello.scroll_offset(sc_outer_i)
 	testing.expect(t, off == niello.Vec2{0, 80}, "clamped at the scroll range end (180-100)")
 	r, _ := niello.rect(sc_first_row_i)
 	testing.expect(t, abs(r.pos.y - (-80)) < EPS, "content rests at the clamp")
 
-	wheel_frame(declare_flat_tree, OUTER_PT, {0, -10})
+	wheel_frame(declare_flat_tree, OUTER_PT, {0, 10})
 	off = niello.scroll_offset(sc_outer_i)
 	testing.expect(t, off == niello.Vec2{0, 0}, "clamped back at the top")
 }
@@ -161,14 +161,14 @@ test_wheel_chains_to_ancestor :: proc(t: ^testing.T) {
 	mint_nested_tree(true)
 
 	plain_frame(declare_nested_tree, INNER_PT)
-	wheel_frame(declare_nested_tree, INNER_PT, {0, 1})
+	wheel_frame(declare_nested_tree, INNER_PT, {0, -1})
 	testing.expect(t, niello.scroll_offset(sc_inner_i) == niello.Vec2{0, 48},
 		"inner takes the first notch whole")
 	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 0},
 		"nothing left to chain yet")
 
 	// Inner has 12px of range left; the other 36 chain to the outer.
-	wheel_frame(declare_nested_tree, INNER_PT, {0, 1})
+	wheel_frame(declare_nested_tree, INNER_PT, {0, -1})
 	testing.expect(t, niello.scroll_offset(sc_inner_i) == niello.Vec2{0, 60},
 		"inner clamps at its own range end")
 	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 36},
@@ -185,8 +185,8 @@ test_wheel_chain_opt_out_drops_leftover :: proc(t: ^testing.T) {
 	mint_nested_tree(false) // inner: scroll_chain = false
 
 	plain_frame(declare_nested_tree, INNER_PT)
-	wheel_frame(declare_nested_tree, INNER_PT, {0, 1})
-	wheel_frame(declare_nested_tree, INNER_PT, {0, 1})
+	wheel_frame(declare_nested_tree, INNER_PT, {0, -1})
+	wheel_frame(declare_nested_tree, INNER_PT, {0, -1})
 	testing.expect(t, niello.scroll_offset(sc_inner_i) == niello.Vec2{0, 60},
 		"inner still scrolls to its own end")
 	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 0},
@@ -201,7 +201,7 @@ test_wheel_disabled_absorbs :: proc(t: ^testing.T) {
 	mint_nested_tree(true)
 
 	plain_frame(declare_nested_tree, INNER_PT)
-	wheel_frame(declare_nested_tree, INNER_PT, {0, 1})
+	wheel_frame(declare_nested_tree, INNER_PT, {0, -1})
 	testing.expect(t, niello.scroll_offset(sc_inner_i) == niello.Vec2{0, 0},
 		"disabled scroller does not scroll")
 	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 0},
@@ -217,7 +217,7 @@ test_scroll_damage_covers_moved_children :: proc(t: ^testing.T) {
 
 	plain_frame(declare_flat_tree, OUTER_PT)
 	old, _ := niello.rect(sc_mid_row_i)
-	fr := wheel_frame(declare_flat_tree, OUTER_PT, {0, 1})
+	fr := wheel_frame(declare_flat_tree, OUTER_PT, {0, -1})
 	new, _ := niello.rect(sc_mid_row_i)
 	testing.expect(t, abs(new.pos.y - (old.pos.y - 48)) < EPS, "the row moved with the scroll")
 
@@ -272,7 +272,7 @@ test_wheel_horizontal :: proc(t: ^testing.T) {
 	})
 
 	plain_frame(declare_strip_tree, STRIP_PT)
-	wheel_frame(declare_strip_tree, STRIP_PT, {1, 0})
+	wheel_frame(declare_strip_tree, STRIP_PT, {-1, 0})
 	testing.expect(t, niello.scroll_offset(sc_strip_i) == niello.Vec2{48, 0},
 		"wheel x scrolls the horizontal strip")
 	r, _ := niello.rect(sc_first_cell_i)
@@ -319,9 +319,9 @@ test_grow_scroller_takes_leftover_not_content :: proc(t: ^testing.T) {
 	testing.expect(t, abs(ov.y - 90) < EPS, "the excess is the scroll range (300 - 210)")
 
 	// And it actually scrolls, clamped to that range.
-	wheel_frame(declare_bound_tree, OUTER_PT, {0, 1})
+	wheel_frame(declare_bound_tree, OUTER_PT, {0, -1})
 	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 48}, "wheel scrolls it")
-	wheel_frame(declare_bound_tree, OUTER_PT, {0, 10})
+	wheel_frame(declare_bound_tree, OUTER_PT, {0, -10})
 	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 90},
 		"clamped at the leftover-derived range")
 }
@@ -350,5 +350,59 @@ declare_strip_tree :: proc() {
 				}
 			}
 		}
+	}
+}
+
+// A main-axis deficit must not crush text leaves: text is vertically
+// incompressible, so its shrink floor is its content height and the
+// scroller absorbs the deficit. (Regression: the scroll demo's header
+// text resolved to height 0 when the list's content overshot the
+// window — the waterfill's fair-share take hit the texts' 0 floor
+// before the list's.)
+sc_crush_root, sc_crush_title, sc_crush_foot: niello.Unit
+sc_crush_title_i, sc_crush_foot_i: niello.Instance
+
+@(test)
+test_text_leaf_not_crushed_by_deficit :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&sc_crush_root, niello.NO_UNIT, {
+		layout = niello.Layout.Top_To_Bottom,
+		size   = niello.Size{niello.fixed(200), niello.fixed(150)},
+	})
+	niello.mint(&sc_crush_title, niello.NO_UNIT, {})
+	niello.mint(&sc_outer, niello.NO_UNIT, {
+		layout = niello.Layout.Top_To_Bottom,
+		size   = niello.Size{niello.grow(), niello.grow()},
+		scroll = niello.Scroll.Vertical,
+	})
+	niello.mint(&sc_row, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(200), niello.fixed(30)},
+	})
+	niello.mint(&sc_crush_foot, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(200), niello.fixed(20)},
+	})
+
+	plain_frame(declare_crush_tree, OUTER_PT)
+	tr, _ := niello.rect(sc_crush_title_i)
+	testing.expect(t, abs(tr.size.y - 16) < EPS,
+		"the text leaf keeps its line height under a deficit")
+	lr, _ := niello.rect(sc_outer_i)
+	testing.expect(t, abs(lr.size.y - 114) < EPS,
+		"the scroller absorbs the whole deficit (180 content -> 150 - 16 header - 20 footer)")
+	fr, _ := niello.rect(sc_crush_foot_i)
+	testing.expect(t, abs(fr.pos.y - 130) < EPS, "the footer stays inside the parent")
+}
+
+declare_crush_tree :: proc() {
+	if _, ok := niello.begin(sc_crush_root); ok {
+		sc_crush_title_i = niello.show(sc_crush_title, 0, {text = "Header"})
+		if oi, ok2 := niello.begin(sc_outer); ok2 {
+			sc_outer_i = oi
+			for k in 0 ..< 6 {
+				niello.show(sc_row, niello.key_int(k))
+			}
+		}
+		sc_crush_foot_i = niello.show(sc_crush_foot)
 	}
 }

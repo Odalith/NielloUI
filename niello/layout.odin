@@ -149,7 +149,14 @@ measure_text_all :: proc() {
 		if nd.has_text {
 			uw, minw := measure_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, s.wrap)
 			g.lay[i].content = uw
-			g.lay[i].min_c = Vec2{minw, 0}
+			// The Y floor is the content height: text is vertically
+			// incompressible (there is no vertical trimming), so a
+			// main-axis deficit must never take a text leaf below its
+			// lines — with a 0 floor the waterfill's fair-share take
+			// crushed header text to nothing before touching the big
+			// shrinkable it should have taken from. The X mirror of
+			// this is the ellipsis fold inside measure_text.
+			g.lay[i].min_c = Vec2{minw, uw.y}
 		} else if !nd.is_container {
 			// Plain leaf: FIXED axes contribute their value as content so FIT
 			// parents can accumulate them; everything else contributes 0.
