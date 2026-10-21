@@ -9,6 +9,7 @@
 // each is a subsystem on the roadmap, not an oversight.
 package niello
 
+import "core:strings"
 import "core:sync"
 
 // ============ math ============
@@ -423,6 +424,12 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	if base != NO_UNIT {
 		assert(int(base) < len(g.units), "niello.mint: base is not a minted unit")
 		rec.style = g.units[int(base)].style
+		// The base copy is a snapshot: clone the reference-typed
+		// fields so the new unit owns its copies (see store_spans).
+		rec.style.text_spans = clone_spans(rec.style.text_spans)
+		if len(rec.style.text) > 0 {
+			rec.style.text = strings.clone(rec.style.text)
+		}
 	}
 	append(&g.units, rec)
 	out^ = u
@@ -485,9 +492,67 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 }
 
 @(private)
+// clone_spans copies a spans slice into engine-owned storage (nil
+// stays nil).
+clone_spans :: proc(src: []Text_Span) -> []Text_Span {
+	if src == nil {
+		return nil
+	}
+	out := make([]Text_Span, len(src))
+	copy(out, src)
+	return out
+}
+
+// store_spans / store_text write a reference-typed field into a
+// unit-owned style slot, freeing the previously owned copy. A Style
+// is an owned-values store, but a string or slice is a borrow of the
+// caller's memory: storing the header leaves the unit pointing into
+// a frame that may already be dead. (This bit in production shape:
+// apps mint inside an init proc that returns, and at -o:none the
+// literal temporaries are reused at once, so every span silently
+// vanished; -o:speed's layout luck masked it, and the test suite
+// runs -o:speed.) Every write of Text / Text_Spans into a unit's
+// persistent style goes through these.
+store_spans :: proc(dst: ^[]Text_Span, src: []Text_Span) {
+	if dst^ != nil {
+		delete(dst^)
+	}
+	dst^ = clone_spans(src)
+}
+
+store_text :: proc(dst: ^string, src: string) {
+	if len(dst^) > 0 {
+		delete(dst^)
+	}
+	dst^ = strings.clone(src)
+}
+
+// copy_field_owned is copy_field for unit-bound writes: the two
+// reference-typed fields clone (see store_spans), everything else
+// copies as usual. Frame-lived destinations (the eff merge in
+// resolve_styles) keep plain copy_field — aliasing is safe there.
+copy_field_owned :: proc(dst, src: ^Style, f: Field) {
+	#partial switch f {
+	case .Text:
+		store_text(&dst.text, src.text)
+	case .Text_Spans:
+		store_spans(&dst.text_spans, src.text_spans)
+	case:
+		copy_field(dst, src, f)
+	}
+}
+
 set_any :: proc(u: Unit, f: Field, v: any) {
 	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
-	style_set_any(&g.units[int(u)].style, f, v)
+	rec := &g.units[int(u)]
+	#partial switch f {
+	case .Text:
+		store_text(&rec.style.text, must(v, string))
+	case .Text_Spans:
+		store_spans(&rec.style.text_spans, must(v, []Text_Span))
+	case:
+		style_set_any(&rec.style, f, v)
+	}
 	touch(u, Fields{f})
 }
 
@@ -503,12 +568,16 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.color, decl.color)
 	apply_opt(&s.font_color, decl.font_color)
 	apply_opt(&s.border_color, decl.border_color)
-	apply_opt(&s.text, decl.text)
+	if v, ok := decl.text.?; ok {
+		store_text(&s.text, v)
+	}
 	apply_opt(&s.font, decl.font)
 	apply_opt(&s.font_size, decl.font_size)
 	apply_opt(&s.font_weight, decl.font_weight)
 	apply_opt(&s.font_slant, decl.font_slant)
-	apply_opt(&s.text_spans, decl.text_spans)
+	if v, ok := decl.text_spans.?; ok {
+		store_spans(&s.text_spans, v)
+	}
 	apply_opt(&s.padding, decl.padding)
 	apply_opt(&s.gap, decl.gap)
 	apply_opt(&s.border_width, decl.border_width)
@@ -1057,7 +1126,7 @@ propagate :: proc(proto: Unit, fields: Fields) {
 			if field_equal(&rec.style, src, f) {
 				continue
 			}
-			copy_field(&rec.style, src, f)
+			copy_field_owned(&rec.style, src, f)
 			wrote += Fields{f}
 		}
 		if wrote != {} {
