@@ -75,6 +75,7 @@ finish :: proc(declare: proc()) -> niello.Frame_Result {
 @(test)
 test_input_hover :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 
 	// Frame 1 builds the tree (dispatch saw an empty one: nothing hovered).
@@ -104,6 +105,7 @@ test_input_hover :: proc(t: ^testing.T) {
 @(test)
 test_input_click :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
@@ -135,6 +137,7 @@ test_input_click :: proc(t: ^testing.T) {
 @(test)
 test_input_click_bubbles_from_label :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 	niello.frame_begin(idle_input(LBL_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
@@ -158,6 +161,7 @@ test_input_click_bubbles_from_label :: proc(t: ^testing.T) {
 @(test)
 test_input_press_capture :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
@@ -203,6 +207,7 @@ test_input_press_capture :: proc(t: ^testing.T) {
 @(test)
 test_input_hover_duration :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 	niello.frame_begin(idle_input(BTN_PT), 0.25)
 	finish(declare_input_tree)
@@ -248,6 +253,7 @@ test_input_hover_duration :: proc(t: ^testing.T) {
 @(test)
 test_input_focus_loss_drops_press :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
@@ -285,6 +291,7 @@ test_input_focus_loss_drops_press :: proc(t: ^testing.T) {
 @(test)
 test_input_unfocused_hover_and_click :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 
 	// The window never has focus in this test: hover works, and the
@@ -316,6 +323,7 @@ test_input_unfocused_hover_and_click :: proc(t: ^testing.T) {
 @(test)
 test_input_cursor_through_label :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
@@ -338,6 +346,7 @@ test_input_cursor_through_label :: proc(t: ^testing.T) {
 @(test)
 test_input_rounded_corners :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	in_btn_radius = 20
 	mint_input_tree()
 	defer in_btn_radius = 0
@@ -391,6 +400,7 @@ declare_abs_tree :: proc() {
 @(test)
 test_input_disabled_absorbs :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	niello.mint(
 		&abs_root,
 		niello.NO_UNIT,
@@ -470,6 +480,7 @@ ov_btn_color :: proc() -> niello.Color {
 @(test)
 test_input_overlay_precedence :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	niello.mint(
 		&ov_root,
 		niello.NO_UNIT,
@@ -559,6 +570,7 @@ declare_dc_tree :: proc() {
 @(test)
 test_input_cursor_disabled_overlay :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	niello.mint(
 		&dc_root,
 		niello.NO_UNIT,

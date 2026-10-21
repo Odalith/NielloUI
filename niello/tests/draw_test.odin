@@ -8,6 +8,7 @@ import "core:testing"
 @(test)
 test_draw_list_rect_and_text :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	root: niello.Unit
 	niello.mint(
@@ -65,6 +66,7 @@ test_draw_list_rect_and_text :: proc(t: ^testing.T) {
 @(test)
 test_draw_list_truncation :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(400), niello.fixed(300)}})
@@ -92,6 +94,7 @@ test_draw_list_truncation :: proc(t: ^testing.T) {
 @(test)
 test_draw_list_clip_and_opacity :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(400), niello.fixed(300)}})
@@ -184,6 +187,7 @@ test_draw_list_clip_and_opacity :: proc(t: ^testing.T) {
 @(test)
 test_draw_list_overlay :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(400), niello.fixed(300)}})
@@ -244,6 +248,7 @@ test_draw_cmd_visible :: proc(t: ^testing.T) {
 @(test)
 test_draw_list_truncation_in_column :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	root: niello.Unit
 	// Top_To_Bottom root: the label's width is the CROSS axis here (in a row
@@ -275,6 +280,7 @@ test_draw_list_truncation_in_column :: proc(t: ^testing.T) {
 @(test)
 test_draw_list_truncation_nested_fit :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {
@@ -310,6 +316,7 @@ test_draw_list_truncation_nested_fit :: proc(t: ^testing.T) {
 @(test)
 test_cross_fit_not_clamped_when_scrollable :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	root: niello.Unit
 	// Horizontally scrollable column: on the scroll axis a FIT child's
@@ -362,6 +369,7 @@ dmg_frame :: proc() -> niello.Frame_Result {
 @(test)
 test_damage_on_style_change :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	niello.mint(
 		&dmg_root,
 		niello.NO_UNIT,
@@ -391,6 +399,7 @@ test_damage_on_style_change :: proc(t: ^testing.T) {
 @(test)
 test_damage_on_text_change_same_size :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	niello.mint(
 		&dmg_root,
 		niello.NO_UNIT,

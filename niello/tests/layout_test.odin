@@ -33,6 +33,7 @@ expect_rect :: proc(t: ^testing.T, inst: niello.Instance, want: niello.Rect, loc
 @(test)
 test_toolbar_layout :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	window: niello.Unit
 	niello.mint(&window, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	toolbar: niello.Unit
@@ -71,6 +72,7 @@ test_toolbar_layout :: proc(t: ^testing.T) {
 @(test)
 test_waterfill_ceilings :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	row: niello.Unit
@@ -112,6 +114,7 @@ test_waterfill_ceilings :: proc(t: ^testing.T) {
 @(test)
 test_shrink_to_floors :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	row: niello.Unit
@@ -143,6 +146,7 @@ test_shrink_to_floors :: proc(t: ^testing.T) {
 @(test)
 test_grow_in_fit_fallback :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	row: niello.Unit
@@ -176,6 +180,7 @@ test_grow_in_fit_fallback :: proc(t: ^testing.T) {
 @(test)
 test_word_wrap :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	card: niello.Unit
@@ -206,6 +211,7 @@ test_word_wrap :: proc(t: ^testing.T) {
 @(test)
 test_no_wrap_default :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	label: niello.Unit
@@ -236,6 +242,7 @@ test_no_wrap_default :: proc(t: ^testing.T) {
 @(test)
 test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	row: niello.Unit
@@ -261,6 +268,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 
 	// Without ellipsis the floor is the full width: it holds, row overflows.
 	niello.test_reset()
+	defer niello.test_teardown()
 	root2: niello.Unit
 	niello.mint(&root2, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	row2: niello.Unit
@@ -294,6 +302,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 @(test)
 test_stack_excluded_from_waterfill :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	st: niello.Unit
@@ -326,6 +335,7 @@ test_stack_excluded_from_waterfill :: proc(t: ^testing.T) {
 @(test)
 test_percent_sizing :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Left_To_Right})
 	a: niello.Unit
@@ -348,6 +358,7 @@ test_percent_sizing :: proc(t: ^testing.T) {
 @(test)
 test_damage_tracks_changes :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	title: niello.Unit
@@ -381,6 +392,7 @@ test_damage_tracks_changes :: proc(t: ^testing.T) {
 @(test)
 test_identity_stable_across_frames :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(800), niello.fixed(600)}, layout = .Top_To_Bottom})
 	item: niello.Unit
@@ -414,6 +426,7 @@ test_identity_stable_across_frames :: proc(t: ^testing.T) {
 @(test)
 test_cull_protocol :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT, {size = niello.Size{niello.fixed(100), niello.fixed(100)}})
 	v: niello.Unit
@@ -445,6 +458,7 @@ test_cull_protocol :: proc(t: ^testing.T) {
 @(test)
 test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	proto: niello.Unit
 	niello.mint(&proto, niello.NO_UNIT, {size = niello.Size{niello.fixed(100), niello.fixed(20)}, gap = 8})
@@ -543,6 +557,7 @@ perf_declare :: proc(
 @(test)
 test_layout_perf :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	window: niello.Unit
 	niello.mint(&window, niello.NO_UNIT, {
@@ -661,6 +676,7 @@ test_layout_perf :: proc(t: ^testing.T) {
 @(test)
 test_borders_and_overlays :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 
 	// Defaults: everything off.
 	u: niello.Unit
@@ -731,6 +747,7 @@ test_borders_and_overlays :: proc(t: ^testing.T) {
 @(test)
 test_grow_under_fit_root_column :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	// The hello shape: the root unit has NO size (FIT style), but a root
 	// resolves against the viewport, so it is NOT content-sized — GROW
 	// children must grow. (Regression: parent_fit read the style kind, so
@@ -770,6 +787,7 @@ test_grow_under_fit_root_column :: proc(t: ^testing.T) {
 @(test)
 test_grow_under_fit_root_row :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root: niello.Unit
 	niello.mint(&root, niello.NO_UNIT, {layout = .Left_To_Right})
 	a: niello.Unit
@@ -793,6 +811,7 @@ test_grow_under_fit_root_row :: proc(t: ^testing.T) {
 @(test)
 test_grow_with_content_split :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	// Two GROW containers with real content split the TRUE leftover:
 	// contents 30 + 50 in a 300-tall root leave 220, so each grows by 110.
 	root: niello.Unit

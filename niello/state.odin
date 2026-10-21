@@ -126,10 +126,31 @@ Globals :: struct {
 @(private)
 g: Globals
 
-// test_reset clears everything, including cold units. Each test starts clean.
-// Every heap-owning container is freed first: g = Globals{} would orphan all
-// backing arrays, and the leak checker reports each one.
+// test_reset clears everything, including cold units, and re-seeds the
+// NO_UNIT sentinel: each test starts from a working empty engine.
+// test_teardown is its exit-side pair: it frees the same containers but
+// leaves NO sentinel behind, so a test ends with zero engine allocations
+// live. Tests open with test_reset() and defer test_teardown(). The
+// pairing is what keeps the runner's per-test tracking allocator honest:
+// engine state is global by design, so without it the NEXT test's reset
+// frees this test's allocations under the wrong tracker and they report
+// as leaks (still live at test end) and bad frees (freed by a tracker
+// that never allocated them).
 test_reset :: proc() {
+	free_globals()
+	g = Globals{}
+	append(&g.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
+}
+
+test_teardown :: proc() {
+	free_globals()
+	g = Globals{}
+}
+
+// free_globals deletes every heap-owning container in g: assigning
+// g = Globals{} alone would orphan all backing arrays.
+@(private)
+free_globals :: proc() {
 	// Free the text cache first (each Text_Entry owns segs -> words -> frags).
 	for _, entry in g.text_cache {
 		for seg in entry.segs {
@@ -173,8 +194,6 @@ test_reset :: proc() {
 	delete(g.pick_clip)
 	delete(g.eff)
 	delete(g.disabled_flags)
-	g = Globals{}
-	append(&g.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
 }
 
 // ---------------------------------------------------------------------------

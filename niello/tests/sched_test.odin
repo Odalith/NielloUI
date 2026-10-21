@@ -17,6 +17,7 @@ sched_frame :: proc(dt: f32) -> niello.Frame_Result {
 @(test)
 test_sched_next_wake_infinite_by_default :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	res := sched_frame(0.05)
 	testing.expect(t, res.next_wake_ms == max(u32),
 		"no deadlines registered: next_wake is infinite")
@@ -28,6 +29,7 @@ test_sched_next_wake_infinite_by_default :: proc(t: ^testing.T) {
 @(test)
 test_sched_deadline_reports_and_fires :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	sched_frame(0.05) // engine time 50ms
 	niello.schedule_wake_in(100) // deadline at engine time 150ms
 	res := sched_frame(0.05) // engine time 100ms
@@ -41,6 +43,7 @@ test_sched_deadline_reports_and_fires :: proc(t: ^testing.T) {
 @(test)
 test_sched_deadline_earliest_wins :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	sched_frame(0.01) // engine time 10ms
 	niello.schedule_wake_in(500)
 	niello.schedule_wake_in(50) // deadline at 60ms beats the 510ms one
@@ -51,6 +54,7 @@ test_sched_deadline_earliest_wins :: proc(t: ^testing.T) {
 @(test)
 test_sched_hover_duration_arms_refresh :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	mint_input_tree()
 
 	// Not hovered: asking for the duration arms nothing.
@@ -90,6 +94,7 @@ counting_wake_hook :: proc() {
 @(test)
 test_wake_hook :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	wake_hook_calls = 0
 	niello.wake() // no hook installed: flags the core, must not crash
 	niello.wake_hook = counting_wake_hook

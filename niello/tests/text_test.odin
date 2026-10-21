@@ -29,6 +29,7 @@ fixed_root :: proc() -> niello.Unit {
 @(test)
 test_font_defaults :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root := fixed_root()
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT)
@@ -49,6 +50,7 @@ test_font_defaults :: proc(t: ^testing.T) {
 @(test)
 test_font_size_changes_measurement :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root := fixed_root()
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT, {font_size = f32(32)})
@@ -68,6 +70,7 @@ test_font_size_changes_measurement :: proc(t: ^testing.T) {
 @(test)
 test_font_setters :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root := fixed_root()
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT)
@@ -119,6 +122,7 @@ test_span_bytes :: proc(t: ^testing.T) {
 @(test)
 test_text_spans_fragment_widths :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root := fixed_root()
 	u: niello.Unit
 	niello.mint(
@@ -150,6 +154,7 @@ test_text_spans_fragment_widths :: proc(t: ^testing.T) {
 @(test)
 test_span_emission :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root := fixed_root()
 	u: niello.Unit
 	red := [4]u8{255, 0, 0, 255}
@@ -192,6 +197,7 @@ test_span_emission :: proc(t: ^testing.T) {
 @(test)
 test_multiline_emission :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	root := fixed_root()
 	lbl: niello.Unit
 	niello.mint(&lbl, niello.NO_UNIT, {size = niello.Size{niello.fixed(40), niello.fit()}, wrap = .Word})
@@ -221,6 +227,7 @@ test_multiline_emission :: proc(t: ^testing.T) {
 @(test)
 test_backend_hooks :: proc(t: ^testing.T) {
 	niello.test_reset()
+	defer niello.test_teardown()
 	defer niello.measure_word_hook = nil
 	defer niello.line_height_hook = nil
 	hook_calls = 0
