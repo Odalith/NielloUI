@@ -9,6 +9,7 @@
 package sdl
 
 import "core:c"
+import "core:strings"
 import niello "../"
 
 // Draw_Cmd's memory layout IS the FFI ABI (../../native/nui.h mirrors it as
@@ -66,9 +67,13 @@ foreign native {
 
 	// Fonts. Families are registered once, cold; the backend caches
 	// (family, weight, slant, size) -> SkFont internally. Family 0 is the
-	// platform default and needs no registration.
-	register_font        :: proc(family: u32, path: cstring) --- // bundled file
-	register_font_family :: proc(family: u32, name: cstring) --- // system family via the font manager
+	// platform default and needs no registration. The user-facing API is
+	// register_font / register_font_family below the foreign block; these
+	// raw bindings stay FFI-shaped (u32 + cstring).
+	@(link_name = "nui_register_font")
+	ffi_register_font        :: proc(family: u32, path: cstring) --- // bundled file
+	@(link_name = "nui_register_font_family")
+	ffi_register_font_family :: proc(family: u32, name: cstring) --- // system family via the font manager
 
 	// Text measurement through SkShaper. weight is 100-900 (Font_Weight),
 	// slant is 0=upright, 1=italic, 2=oblique (Font_Slant order).
@@ -87,4 +92,28 @@ hook_measure_word :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, 
 
 hook_line_height :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32) -> f32 {
 	return line_height(u32(font), i32(weight), i32(slant), size)
+}
+
+// register_font binds a font family id to a font FILE on disk (a bundled
+// .ttf/.otf — one file may hold several faces; the backend picks the best
+// weight/slant match per use). Use the id as Style.font:
+//
+//	Inter: niello.Font_Handle = 1
+//	niello_sdl.register_font(Inter, "assets/Inter.ttf")
+//	niello.mint(&u, niello.NO_UNIT, {font = Inter})
+//
+// Call before run(), or at least before the family is first measured or
+// drawn; registering again replaces the binding. Family 0 is the platform
+// default and needs no registration. An unregistered family — or a file
+// that fails to load (the backend reports it on stderr) — falls back to
+// the default face.
+register_font :: proc(family: niello.Font_Handle, path: string) {
+	ffi_register_font(u32(family), strings.clone_to_cstring(path, context.temp_allocator))
+}
+
+// register_font_family binds a font family id to a SYSTEM font family by
+// name ("Inter", "Segoe UI", ...), resolved through the platform font
+// manager. Same timing and fallback rules as register_font.
+register_font_family :: proc(family: niello.Font_Handle, name: string) {
+	ffi_register_font_family(u32(family), strings.clone_to_cstring(name, context.temp_allocator))
 }
