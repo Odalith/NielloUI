@@ -86,6 +86,8 @@ Globals :: struct {
 	clicked_id:    Instance, // set at a release dispatch, valid for one declare
 	clicked_chain: [dynamic]Instance,
 	focus_id:      Instance, // programmatic keyboard focus (traversal is later)
+	prev_focused:  bool, // last frame's window_focused; the falling edge
+	                     // drops press capture (input.odin)
 	input_dirty:   bool,     // interaction state changed this frame
 	affected:      [dynamic]Instance, // instances whose resolved style may have
 	                                  // changed; frame_end damages their rects

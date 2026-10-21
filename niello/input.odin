@@ -19,8 +19,10 @@
 //   - Disabled absorbs: the first disabled instance on the pick's ancestor
 //     chain truncates it. That instance reports hovered (it can paint its
 //     disabled state) but press/click never fire through it.
-//   - Focus loss or cursor departure ends all interaction at once: no
-//     click completes, nothing stays pressed or hovered.
+//   - Cursor departure ends all interaction at once. Window-focus loss
+//     drops press capture only — no click completes across it — while
+//     hover follows the cursor regardless of focus, and the click that
+//     focuses the window dispatches like any other (click-to-activate).
 //   - Overlay precedence, weakest first, merged field-wise from each
 //     overlay unit's explicit fields: base < variant < focus < hover <
 //     press < disabled.
@@ -75,6 +77,40 @@ note_affected :: proc(id: Instance) {
 // ---------------------------------------------------------------------------
 // The pick
 
+// point_in_node tests the node's painted shape: its committed rect with
+// rounded corners cut out, so hit truth matches paint truth at the
+// corners too. The arc radius clamps to half the smaller dimension,
+// matching how the backend paints an over-large radius. Styles come from
+// last frame's resolution — the same tree the rect came from.
+@(private)
+point_in_node :: proc(i: int, p: Vec2) -> bool {
+	r := Rect{g.lay[i].pos, g.lay[i].size}
+	if !point_in_rect(p, r) {
+		return false
+	}
+	rad := min(f32(node_style(i).corner_radius), min(r.size.x, r.size.y) / 2)
+	if rad <= 0 {
+		return true
+	}
+	l := Vec2{p.x - r.pos.x, p.y - r.pos.y}
+	cx, cy := f32(-1), f32(-1)
+	if l.x < rad {
+		cx = rad
+	} else if l.x >= r.size.x - rad {
+		cx = r.size.x - rad
+	}
+	if l.y < rad {
+		cy = rad
+	} else if l.y >= r.size.y - rad {
+		cy = r.size.y - rad
+	}
+	if cx < 0 || cy < 0 {
+		return true // not in any corner square
+	}
+	d := Vec2{l.x - cx, l.y - cy}
+	return d.x * d.x + d.y * d.y <= rad * rad
+}
+
 // pick_at returns the topmost node index at p in the tree currently in
 // g.nodes (at dispatch time: last frame's committed tree), or -1. Reverse
 // array order is reverse paint order, so the first hit is the visible one.
@@ -86,8 +122,7 @@ pick_at :: proc(p: Vec2) -> int {
 		if g.nodes[i].culled {
 			continue
 		}
-		r := Rect{g.lay[i].pos, g.lay[i].size}
-		if point_in_rect(p, r) && point_in_rect(p, g.pick_clip[i]) {
+		if point_in_node(i, p) && point_in_rect(p, g.pick_clip[i]) {
 			return i
 		}
 	}
@@ -107,8 +142,23 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	clear(&g.clicked_chain)
 	clear(&g.affected)
 
-	if !input.window_focused || !input.mouse_valid {
-		// Focus loss / cursor departure: everything ends at once.
+	// Focus loss drops press capture on the falling edge only, so no
+	// click can complete across an alt-tab. Hover is NOT focus-gated:
+	// it tracks the cursor over unfocused windows too, and the press
+	// that focuses the window dispatches below like any other.
+	if !input.window_focused && g.prev_focused {
+		for b in Mouse_Button {
+			if g.press_ids[b] != 0 {
+				note_affected(g.press_ids[b])
+				g.press_ids[b] = 0
+				clear(&g.press_chains[b])
+			}
+		}
+	}
+	g.prev_focused = input.window_focused
+
+	if !input.mouse_valid {
+		// Cursor departure: everything ends at once.
 		note_affected(g.hover_id)
 		g.hover_id = 0
 		clear(&g.hover_chain)
@@ -298,9 +348,16 @@ copy_field :: proc(dst, src: ^Style, f: Field) {
 	}
 }
 
-// current_cursor resolves the frame's cursor from the hover target's
-// effective style (this frame's tree), .Arrow when nothing is hovered or
-// the target was not redeclared.
+// current_cursor resolves the frame's cursor by walking the hover chain
+// from the target upward: the first instance whose effective style names
+// a non-default cursor speaks for the whole chain, so a label over a
+// button doesn't swallow the button's pointer (this frame's tree).
+// A disabled target is the exception: its base cursor is suppressed — a
+// disabled control must not advertise interactivity — and only an
+// explicit cursor on its disabled overlay unit applies. Disabled is
+// read from THIS frame's resolution (disabled_flags), not from the
+// dispatch, so the cursor agrees with the paint on the very frame a
+// control becomes disabled.
 @(private)
 current_cursor :: proc() -> Cursor_Kind {
 	if g.hover_id == 0 {
@@ -308,7 +365,28 @@ current_cursor :: proc() -> Cursor_Kind {
 	}
 	for i in 0 ..< len(g.nodes) {
 		if g.nodes[i].identity == g.hover_id {
-			return node_style(i).cursor
+			if i < len(g.disabled_flags) && g.disabled_flags[i] {
+				rec := &g.units[int(g.nodes[i].unit)]
+				if rec.disabled != NO_UNIT {
+					drec := &g.units[int(rec.disabled)]
+					if .Cursor in drec.explicit {
+						return node_style(i).cursor
+					}
+				}
+				return .Arrow
+			}
+			break
+		}
+	}
+	for ci := len(g.hover_chain) - 1; ci >= 0; ci -= 1 {
+		id := g.hover_chain[ci]
+		for i in 0 ..< len(g.nodes) {
+			if g.nodes[i].identity == id {
+				if c := node_style(i).cursor; c != .Arrow {
+					return c
+				}
+				break
+			}
 		}
 	}
 	return .Arrow
