@@ -370,7 +370,11 @@ resolve_styles :: proc() {
 			}
 		}
 		foc := g.focus_id != 0 && id == g.focus_id
-		if !hov && !prs && !foc && !dis && nd.with.variant == NO_UNIT {
+		has_tr := false
+		if len(g.transients) > 0 {
+			_, has_tr = g.transients[id]
+		}
+		if !hov && !prs && !foc && !dis && nd.with.variant == NO_UNIT && !has_tr {
 			continue
 		}
 		rec := &g.units[int(nd.unit)]
@@ -380,6 +384,7 @@ resolve_styles :: proc() {
 		if hov { apply_overlay(&eff, rec.hover) }
 		if prs { apply_overlay(&eff, rec.press) }
 		if dis { apply_overlay(&eff, rec.disabled) }
+		if has_tr { apply_transient(&eff, id) } // the pulse rides on top (§3.16)
 		g.eff[i] = eff
 		nd.has_eff = true
 	}
