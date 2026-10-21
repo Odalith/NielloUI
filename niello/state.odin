@@ -66,7 +66,45 @@ Globals :: struct {
 
 	// Persistent instance store: identity -> last committed rect.
 	instances: map[Instance]Rect,
+	// Identity -> hash of the last committed frame's resolved content
+	// (style values + text). Pass F damages an instance whose content hash
+	// changed even when its rect didn't move — §5's "changed → new rect"
+	// covers text edits and set() restyles, not just motion.
+	inst_hash: map[Instance]u64,
 	damage:    [dynamic]Rect,
+
+	// Interaction state (input.odin): written by dispatch at frame_begin,
+	// read by the queries during declare and by overlay resolution at
+	// frame_end. Chains are identity snapshots, root first: an instance is
+	// "in" a chain when it is the target or one of its ancestors, which is
+	// what gives clicked/hovered their bubble-up semantics.
+	hover_id:      Instance, // pick target under the cursor; 0 = none
+	hover_chain:   [dynamic]Instance,
+	hover_clock:   f32, // total dispatch time; durations read against it
+	hover_since:   map[Instance]f32, // per-member chain entry time: an
+	                                  // instance's hover duration is
+	                                  // hover_clock - hover_since[id], and
+	                                  // the entry dies when it leaves the
+	                                  // chain (input.odin maintains both)
+	press_ids:     [Mouse_Button]Instance, // press capture per button; 0 = none
+	press_chains:  [Mouse_Button][dynamic]Instance,
+	clicked_id:    Instance, // set at a release dispatch, valid for one declare
+	clicked_chain: [dynamic]Instance,
+	focus_id:      Instance, // programmatic keyboard focus (traversal is later)
+	prev_focused:  bool, // last frame's window_focused; the falling edge
+	                     // drops press capture (input.odin)
+	input_dirty:   bool,     // interaction state changed this frame
+	affected:      [dynamic]Instance, // instances whose resolved style may have
+	                                  // changed; frame_end damages their rects
+
+	// Per-node side arrays, parallel to nodes. pick_clip is the accumulated
+	// ancestor clip pass F computes; the NEXT frame's pick reads it (with
+	// nodes/lay) before frame_begin clears them. eff holds resolved styles
+	// for nodes with interaction state or a variant; disabled_flags carries
+	// the ancestor-propagated disabled bit from the same resolution pass.
+	pick_clip:      [dynamic]Rect,
+	eff:            [dynamic]Style,
+	disabled_flags: [dynamic]bool,
 
 	layout_gen: u32,
 	frame_index: u64,
@@ -115,7 +153,18 @@ test_reset :: proc() {
 	delete(g.scratch_ints)
 	delete(g.draw_cmds)
 	delete(g.instances)
+	delete(g.inst_hash)
 	delete(g.damage)
+	delete(g.hover_chain)
+	delete(g.hover_since)
+	for b in Mouse_Button {
+		delete(g.press_chains[b])
+	}
+	delete(g.clicked_chain)
+	delete(g.affected)
+	delete(g.pick_clip)
+	delete(g.eff)
+	delete(g.disabled_flags)
 	g = Globals{}
 	append(&g.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
 }
@@ -159,11 +208,16 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	if d.overlay_color        != nil { f += {.Overlay_Color} }
 	if d.overlay_border_color  != nil { f += {.Overlay_Border_Color} }
 	if d.overlay_border_width  != nil { f += {.Overlay_Border_Width} }
+	if d.cursor       != nil { f += {.Cursor} }
+	if d.scroll_chain != nil { f += {.Scroll_Chain} }
 	return f
 }
 
 // touch bumps the global generation and marks the unit's dirty fields,
-// recording the unit for O(touched) clearing at frame_end.
+// recording the unit for O(touched) clearing at frame_end. It also records
+// the fields as explicit: every write through set/set_many is a deliberate
+// choice, and overlay resolution (input.odin) merges exactly the fields an
+// overlay unit explicitly set.
 @(private)
 touch :: proc(u: Unit, f: Fields) {
 	rec := &g.units[int(u)]
@@ -171,6 +225,7 @@ touch :: proc(u: Unit, f: Fields) {
 		append(&g.touched, u)
 	}
 	rec.dirty += f
+	rec.explicit += f
 	g.gen += 1
 }
 

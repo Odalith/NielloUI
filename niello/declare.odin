@@ -22,6 +22,8 @@ Frame_Node :: struct {
 	has_text:        bool,
 	is_container:    bool,
 	culled:          bool,
+	has_eff:         bool, // frame_end resolved an effective style into
+	                       // g.eff[idx] (interaction state or variant present)
 	sibling_ordinal: int,
 }
 

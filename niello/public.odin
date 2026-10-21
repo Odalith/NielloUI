@@ -39,14 +39,17 @@ Field :: enum u8 {
 	Padding, Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
-	Text_Spans,
+	Text_Spans, Cursor, Scroll_Chain,
 }
 // Text_Wrap is layout-invalidating (controls pass-C participation);
 // Align is layout-invalidating (controls child positioning);
 // Font_Size, Font_Weight and Font_Slant are layout-invalidating (they change
 // text measurement); Text_Spans is layout-invalidating (it changes word
 // widths). Ellipsis and Overflow are paint-only (resolved at draw-command
-// emission).
+// emission). Cursor is host-facing (never reaches a draw command; the host
+// reads the hovered instance's resolved cursor from Frame_Result) and
+// Scroll_Chain steers input dispatch (wheel routing); neither affects
+// layout or paint.
 Fields :: bit_set[Field]
 
 Layout :: enum u8 {
@@ -176,6 +179,22 @@ Overflow :: enum u8 {
 }
 // Note: scrolling is the `scroll` field, not a third mode here.
 
+// The cursor the host should show while an instance with this style is the
+// hover target. Mapped to the platform's system cursors by the app glue.
+Cursor_Kind :: enum u8 {
+	Arrow, // zero value: the platform default arrow
+	Text,
+	Pointer,
+	Crosshair,
+	Wait,
+	Move,
+	Resize_NS,
+	Resize_EW,
+	Resize_NWSE,
+	Resize_NESW,
+	Not_Allowed,
+}
+
 Style :: struct {
 	color, font_color, border_color: Color,
 	text:          string,
@@ -204,6 +223,10 @@ Style :: struct {
 	overlay_color:        Color,
 	overlay_border_color: Color,
 	overlay_border_width: u16, // paint-only; drawn inset within the rect
+
+	cursor:       Cursor_Kind, // host-facing; default .Arrow
+	scroll_chain: bool,        // wheel dispatch: hand leftover delta to the next
+	                           // scrollable ancestor; default true
 }
 
 default_style :: proc() -> Style {
@@ -219,6 +242,8 @@ default_style :: proc() -> Style {
 		font_size   = 16,
 		font_weight = .Regular,
 		font_slant  = .Upright,
+		cursor      = .Arrow,
+		scroll_chain = true,
 	}
 }
 
@@ -252,6 +277,9 @@ Style_Decl :: struct {
 	overlay_color:        Maybe(Color),
 	overlay_border_color: Maybe(Color),
 	overlay_border_width: Maybe(u16),
+
+	cursor:       Maybe(Cursor_Kind),
+	scroll_chain: Maybe(bool), // default true
 
 	hover, press, focus, disabled: Unit, // automatic state overlays, declared as data
 	focusable: bool,                     // reserved seam: participates in keyboard focus traversal
@@ -301,12 +329,48 @@ Begin_Flags :: bit_set[Begin_Flag]
 
 // ============ frames ============
 
+Mouse_Button :: enum u8 {
+	Left,
+	Middle,
+	Right,
+}
+
+Buttons :: bit_set[Mouse_Button]
+
+// One keyboard event, in the host's native code spaces. The core collects
+// these now and consumes them in the focus pass later; nothing in v1
+// interprets the values.
+Key_Event :: struct {
+	scancode: u32, // physical key position (SDL scancode values from niello/sdl)
+	keycode:  u32, // logical key (SDL keycode values from niello/sdl)
+	mods:     u16, // modifier bitmask in host space, opaque to the core in v1
+	down:     bool,
+	repeat:   bool, // key-repeat event (down only)
+}
+
 Input :: struct {
 	viewport: Vec2, // window size in DIP; roots fill it unless FIXED/PERCENT.
-	                // (The design doc leaves Input's fields unspecified; the
-	                // mock needs the viewport from somewhere, so it rides here.)
-	mouse: Vec2, // reserved: hit-testing reads last frame until input lands
-	// future: buttons, keys, scroll delta, text input, ...
+
+	mouse:       Vec2, // cursor position in DIP
+	mouse_valid: bool, // false when the cursor is outside the window (or no
+	                   // position has been reported yet): no pick, no hover
+
+	// Button state is the HOST's contract: `down` is the current state,
+	// `pressed`/`released` are edges LATCHED by the host since the last
+	// frame. A press and release that both land inside one frame gap are a
+	// real click — a host that samples only current state would eat it.
+	buttons_down:     Buttons,
+	buttons_pressed:  Buttons,
+	buttons_released: Buttons,
+
+	wheel: Vec2, // accumulated scroll delta since the last frame, in wheel
+	             // units (fractional on smooth wheels/trackpads)
+
+	keys:      [16]Key_Event, // events since the last frame, oldest first
+	key_count: int,
+
+	window_focused: bool, // false ends all interaction at dispatch (decision:
+	                      // focus loss / mouse-leave clears pressed+hovered)
 }
 
 Frame_Result :: struct {
@@ -314,6 +378,9 @@ Frame_Result :: struct {
 	damage:       []Rect, // damaged regions, valid until the next frame_begin
 	next_wake_ms: u32,    // ∞ (max(u32)) here: no timers/animations in this build,
 	                      // so the host sleeps until input or wake()
+	cursor:       Cursor_Kind, // the hovered instance's resolved cursor
+	                           // (.Arrow when nothing is hovered); the host
+	                           // applies it when it changes
 }
 
 // ============ cold path ============
@@ -381,6 +448,8 @@ set_any :: proc(u: Unit, f: Field, v: any) {
 	case .Overlay_Color:        s.overlay_color        = must(v, Color)
 	case .Overlay_Border_Color: s.overlay_border_color = must(v, Color)
 	case .Overlay_Border_Width: s.overlay_border_width = must(v, u16)
+	case .Cursor:       s.cursor       = must(v, Cursor_Kind)
+	case .Scroll_Chain: s.scroll_chain = must(v, bool)
 	}
 	touch(u, Fields{f})
 }
@@ -418,6 +487,8 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.overlay_color, decl.overlay_color)
 	apply_opt(&s.overlay_border_color, decl.overlay_border_color)
 	apply_opt(&s.overlay_border_width, decl.overlay_border_width)
+	apply_opt(&s.cursor, decl.cursor)
+	apply_opt(&s.scroll_chain, decl.scroll_chain)
 
 	rec := &g.units[int(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
@@ -482,6 +553,10 @@ end :: proc(i: Instance, open: bool) {
 }
 
 frame_begin :: proc(input: Input, dt: f32) {
+	// Input dispatch runs FIRST, against last frame's committed tree
+	// (nodes/lay/pick_clip still hold it). Queries during this frame's
+	// declare answer from that hit test: one frame of latency (§3.8).
+	dispatch_input(input, dt)
 	// resolve_spans copies per declare; free them before dropping the nodes,
 	// or every frame using text_spans leaks.
 	for nd in g.nodes {
@@ -491,6 +566,7 @@ frame_begin :: proc(input: Input, dt: f32) {
 	clear(&g.stack)
 	clear(&g.child_counts)
 	clear(&g.lay)
+	clear(&g.pick_clip)
 	clear(&g.wrap_list)
 	clear(&g.damage)
 	clear(&g.draw_cmds)
@@ -499,10 +575,22 @@ frame_begin :: proc(input: Input, dt: f32) {
 	// Cold units, the instance map, and the text cache persist across frames.
 }
 
-// frame_end runs the resolve pass: diff instances, layout, compute damage.
+// frame_end runs the resolve pass: state overlays, layout, damage.
 // After it returns, queries (rect) read THIS frame's resolved data.
 frame_end :: proc() -> Frame_Result {
+	resolve_styles()
 	layout_pass(g.viewport)
+	// Interaction-driven restyles don't pass through the declaration diff:
+	// the affected instances' committed rects are the damage. (A restyle
+	// that changed layout already damaged old ∪ new in pass F.)
+	if g.input_dirty {
+		for id in g.affected {
+			if r, ok := g.instances[id]; ok {
+				append(&g.damage, r)
+			}
+		}
+		g.input_dirty = false
+	}
 	// Clearing dirty is O(touched), not O(units) — §8.
 	for u in g.touched {
 		g.units[int(u)].dirty = {}
@@ -512,6 +600,7 @@ frame_end :: proc() -> Frame_Result {
 		changed      = g.frame_index == 0 || len(g.damage) > 0,
 		damage       = g.damage[:],
 		next_wake_ms = max(u32), // ∞: no timers/animations in this build
+		cursor       = current_cursor(),
 	}
 	g.frame_index += 1
 	return res
@@ -522,6 +611,64 @@ frame_end :: proc() -> Frame_Result {
 rect :: proc(i: Instance) -> (r: Rect, ok: bool) {
 	r, ok = g.instances[i]
 	return r, ok
+}
+
+// ============ interaction queries ============
+// Answered from this frame's dispatch (the hit test of last frame's tree,
+// run at frame_begin). All three bubble: an instance counts when it is the
+// target or an ancestor of the target, so a button answers for clicks on
+// its label. Semantics detail lives in input.odin.
+
+// hovered reports the cursor is over the instance (or a descendant).
+hovered :: proc(i: Instance) -> bool {
+	return chain_contains(g.hover_chain[:], i)
+}
+
+// pressed reports a button was pressed on the instance (or a descendant)
+// and is still held — capture keeps this true wherever the cursor goes.
+pressed :: proc(i: Instance) -> bool {
+	for b in Mouse_Button {
+		if chain_contains(g.press_chains[b][:], i) {
+			return true
+		}
+	}
+	return false
+}
+
+// clicked reports a left-button press on the instance (or a descendant)
+// completed with a release over it, as of this frame's dispatch. True for
+// exactly one declare: the one after the release.
+clicked :: proc(i: Instance) -> bool {
+	return chain_contains(g.clicked_chain[:], i)
+}
+
+// hover_duration is how long the cursor has been inside i's subtree, in
+// seconds: i's own entry time into the hover chain, so a button reports
+// one continuous duration whether the cursor is over its body or its
+// label. 0 whenever i is not in the current chain. Tooltip delays read
+// this.
+hover_duration :: proc(i: Instance) -> f32 {
+	if since, ok := g.hover_since[i]; ok {
+		return g.hover_clock - since
+	}
+	return 0
+}
+
+// focused reports i holds programmatic keyboard focus (see focus).
+focused :: proc(i: Instance) -> bool {
+	return i != 0 && i == g.focus_id
+}
+
+// focus sets keyboard focus programmatically; pass Instance(0) to clear.
+// Traversal (Tab order) is a later pass (§3.9); the focus overlay and
+// focused() work now.
+focus :: proc(i: Instance) {
+	if i == g.focus_id {
+		return
+	}
+	note_affected(g.focus_id)
+	g.focus_id = i
+	note_affected(i)
 }
 
 // ============ text measurement backend ============
@@ -543,6 +690,5 @@ line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant
 //   groups:      group_new, group_add, group_merge, group_set, group_tween
 //   mutation:   edit, tween, propagate, pin
 //   hot path:   transient
-//   input:      clicked, hovered, pressed, hover_duration
-//   focus:      focused, focus            (seams reserved: focusable, With.label)
+//   focus:      traversal + text input (focused/focus work; seams reserved)
 //   scheduling: wake
