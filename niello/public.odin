@@ -1071,13 +1071,25 @@ propagate :: proc(proto: Unit, fields: Fields) {
 // explicitly-set paint fields blend over the instance's resolved style
 // — in over in_ms, back out over out_ms, then gone. Only paint fields
 // participate (TRANSIENT_FIELDS): a pulse never relayouts the tree.
-// Firing again on the same instance restarts the envelope from the
-// new snapshot. Instance 0 is ignored.
+// Re-firing the IDENTICAL pulse (same style unit and durations) while
+// it is still in flight is a no-op, so the natural pattern
+// `if hovered(i) { transient(i, ...) }` — which calls this every frame
+// for the whole hover — plays the pulse instead of pinning its
+// envelope at zero by restarting it each frame. A fire with different
+// parameters, or after the pulse has ended, starts a new one.
+// Instance 0 is ignored.
 transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 	if i == 0 {
 		return
 	}
 	assert(int(style) >= 1 && int(style) < len(g.units), "niello.transient: style unit is not minted")
+	if prev, ok := g.transients[i]; ok {
+		if prev.src == style && prev.in_ms == in_ms && prev.out_ms == out_ms {
+			if _, active := transient_k(&prev); active {
+				return
+			}
+		}
+	}
 	src := &g.units[int(style)]
 	fields := src.explicit & TRANSIENT_FIELDS
 	if fields == {} {
@@ -1089,6 +1101,7 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 	g.transients[i] = Transient_Rec{
 		fields   = fields,
 		style    = src.style,
+		src      = style,
 		start_ms = g.time_ms,
 		in_ms    = in_ms,
 		out_ms   = out_ms,

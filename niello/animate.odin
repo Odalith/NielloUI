@@ -44,9 +44,12 @@ Tween :: struct {
 // Transient_Rec is one fired pulse on one instance: a snapshot of the
 // source unit's explicit fields (filtered to TRANSIENT_FIELDS),
 // blended over the instance's resolved style by an in/out envelope.
+// src/in/out are the pulse's identity: re-firing the identical pulse
+// while it is in flight is a no-op (see transient in public.odin).
 Transient_Rec :: struct {
 	fields:   Fields,
 	style:    Style,
+	src:      Unit,
 	start_ms: u64,
 	in_ms:    u16,
 	out_ms:   u16,

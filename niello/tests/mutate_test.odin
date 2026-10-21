@@ -309,3 +309,67 @@ test_transient_is_paint_only :: proc(t: ^testing.T) {
 	r1, _ := niello.rect(tr_box_i)
 	testing.expect(t, r1 == r0, "...but the rect never moves: Size is ignored")
 }
+
+// Re-firing the identical pulse while it is in flight must be a
+// no-op: the natural pattern `if hovered(i) { transient(i, ...) }`
+// calls transient every frame for the whole hover, and restarting
+// the envelope on each call would pin it at k=0 until the hover
+// ends. A fire with different parameters still replaces.
+tr_fire_always: bool
+
+declare_tr_tree_always :: proc() {
+	if _, ok := niello.begin(tr_root); ok {
+		tr_box_i = niello.show(tr_box)
+		if tr_fire_always {
+			niello.transient(tr_box_i, tr_flash, 100, 100)
+		}
+	}
+}
+
+@(test)
+test_transient_refire_does_not_restart :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&tr_root, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(200), niello.fixed(100)},
+	})
+	niello.mint(&tr_box, niello.NO_UNIT, {
+		size  = niello.Size{niello.fixed(80), niello.fixed(40)},
+		color = niello.Color{40, 40, 40, 255},
+	})
+	niello.mint(&tr_flash, niello.NO_UNIT, {color = niello.Color{240, 240, 240, 255}})
+
+	mframe(declare_tr_tree_always, 0.05) // settle
+	r, _ := niello.rect(tr_box_i)
+	tr_fire_always = true
+	mframe(declare_tr_tree_always, 0.05) // fires; k=0
+	c, _ := fill_color_at(r)
+	testing.expect(t, c.r == 40, "the pulse starts")
+	mframe(declare_tr_tree_always, 0.05) // re-fired identically: no-op
+	c, _ = fill_color_at(r)
+	testing.expect(t, c.r == 140,
+		"the envelope advanced on the FIRST fire's schedule (k=0.5), not restarted")
+	mframe(declare_tr_tree_always, 0.05)
+	c, _ = fill_color_at(r)
+	testing.expect(t, c.r == 240, "and peaks on schedule")
+	mframe(declare_tr_tree_always, 0.05)
+	mframe(declare_tr_tree_always, 0.05) // first pulse expires this frame
+	c, _ = fill_color_at(r)
+	testing.expect(t, c.r == 40, "the pulse ended on schedule despite constant re-firing")
+	mframe(declare_tr_tree_always, 0.05) // a fresh pulse begins (the guard still holds)
+	c, _ = fill_color_at(r)
+	testing.expect(t, c.r == 140, "after expiry, the next identical fire starts a new pulse")
+	tr_fire_always = false
+
+	// A fire with different parameters replaces mid-flight.
+	tr_fire = true
+	mframe(declare_tr_tree, 0.05) // fires (100/100)
+	mframe(declare_tr_tree, 0.05) // k=0.5 of that envelope
+	niello.transient(tr_box_i, tr_flash, 100, 400) // different out_ms
+	mframe(declare_tr_tree, 0.05) // the replacement's own k=0.5 point is also 140...
+	c, _ = fill_color_at(r)
+	testing.expect(t, c.r == 140, "the replacement is mid-in-phase")
+	mframe(declare_tr_tree, 0.05) // old envelope would have ENDED the out phase by now;
+	c, _ = fill_color_at(r)        // the replacement (out=400) is still near its peak
+	testing.expect(t, c.r > 200, "the replacement envelope governs, not the original")
+}
