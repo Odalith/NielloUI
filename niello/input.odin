@@ -162,7 +162,7 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		note_affected(g.hover_id)
 		g.hover_id = 0
 		clear(&g.hover_chain)
-		g.hover_t = 0
+		clear(&g.hover_since)
 		for b in Mouse_Button {
 			note_affected(g.press_ids[b])
 			g.press_ids[b] = 0
@@ -201,21 +201,44 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		}
 	}
 
-	// Hover follows the cursor, never the capture.
+	// Hover follows the cursor, never the capture. Durations are per
+	// instance: every chain member stamps its entry time when it joins
+	// the chain and loses the stamp when it leaves, so a button keeps
+	// one continuous timer whether the cursor is over its body or its
+	// label (each with its own start), and hover_duration answers for
+	// any member of the chain.
+	g.hover_clock += dt
+	if g.hover_since == nil {
+		g.hover_since = make(map[Instance]f32)
+	}
 	new_hover := Instance(0)
+	if hover_len > 0 {
+		new_hover = g.nodes[chain_idx[hover_len - 1]].identity
+	}
+	for id in g.hover_chain {
+		stays := false
+		for k in 0 ..< hover_len {
+			if g.nodes[chain_idx[k]].identity == id {
+				stays = true
+				break
+			}
+		}
+		if !stays {
+			delete_key(&g.hover_since, id)
+		}
+	}
 	clear(&g.hover_chain)
 	for k in 0 ..< hover_len {
 		id := g.nodes[chain_idx[k]].identity
 		append(&g.hover_chain, id)
-		new_hover = id
+		if _, ok := g.hover_since[id]; !ok {
+			g.hover_since[id] = g.hover_clock
+		}
 	}
 	if new_hover != g.hover_id {
 		note_affected(g.hover_id)
 		note_affected(new_hover)
 		g.hover_id = new_hover
-		g.hover_t = 0
-	} else if new_hover != 0 {
-		g.hover_t += dt
 	}
 
 	// Press capture and click completion, per button.

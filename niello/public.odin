@@ -642,10 +642,16 @@ clicked :: proc(i: Instance) -> bool {
 	return chain_contains(g.clicked_chain[:], i)
 }
 
-// hover_duration is how long the current hover target has been hovered,
-// in seconds (0 unless i IS the target itself). Tooltip delays read this.
+// hover_duration is how long the cursor has been inside i's subtree, in
+// seconds: i's own entry time into the hover chain, so a button reports
+// one continuous duration whether the cursor is over its body or its
+// label. 0 whenever i is not in the current chain. Tooltip delays read
+// this.
 hover_duration :: proc(i: Instance) -> f32 {
-	return g.hover_t if i == g.hover_id else 0
+	if since, ok := g.hover_since[i]; ok {
+		return g.hover_clock - since
+	}
+	return 0
 }
 
 // focused reports i holds programmatic keyboard focus (see focus).

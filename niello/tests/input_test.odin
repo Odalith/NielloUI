@@ -207,23 +207,41 @@ test_input_hover_duration :: proc(t: ^testing.T) {
 	niello.frame_begin(idle_input(BTN_PT), 0.25)
 	finish(declare_input_tree)
 
+	// Entry: every chain member starts its own timer at 0.
 	niello.frame_begin(idle_input(BTN_PT), 0.25)
 	testing.expect(t, niello.hover_duration(input_btn_i) == 0, "duration starts at 0 on entry")
+	testing.expect(t, niello.hover_duration(input_root_i) == 0, "root entered the same frame")
 	finish(declare_input_tree)
 
 	niello.frame_begin(idle_input(BTN_PT), 0.25)
 	d := niello.hover_duration(input_btn_i)
 	testing.expect(t, d > 0.25 - EPS && d < 0.25 + EPS, "duration accumulates dt")
-	testing.expect(t, niello.hover_duration(input_root_i) == 0, "ancestors don't share the duration")
+	d = niello.hover_duration(input_root_i)
+	testing.expect(t, d > 0.25 - EPS && d < 0.25 + EPS, "chain members share the session")
 	finish(declare_input_tree)
 
-	niello.frame_begin(idle_input(BTN_PT), 0.25)
+	// Crossing onto the label: the button's timer runs on (one session),
+	// the label's starts now.
+	niello.frame_begin(idle_input(LBL_PT), 0.25)
 	d = niello.hover_duration(input_btn_i)
-	testing.expect(t, d > 0.5 - EPS && d < 0.5 + EPS, "duration keeps accumulating")
+	testing.expect(t, d > 0.5 - EPS && d < 0.5 + EPS, "button timer survives the label crossing")
+	testing.expect(t, niello.hover_duration(input_lbl_i) == 0, "label timer starts at the crossing")
 	finish(declare_input_tree)
 
+	niello.frame_begin(idle_input(LBL_PT), 0.25)
+	d = niello.hover_duration(input_btn_i)
+	testing.expect(t, d > 0.75 - EPS && d < 0.75 + EPS, "button keeps accumulating over its label")
+	d = niello.hover_duration(input_lbl_i)
+	testing.expect(t, d > 0.25 - EPS && d < 0.25 + EPS, "label accumulates from its own entry")
+	finish(declare_input_tree)
+
+	// Leaving to root-only ground: button and label timers die with
+	// their chain membership; the root's session never broke.
 	niello.frame_begin(idle_input(AWAY_PT), 0.25)
-	testing.expect(t, niello.hover_duration(input_btn_i) == 0, "duration resets on hover loss")
+	testing.expect(t, niello.hover_duration(input_btn_i) == 0, "duration ends when the chain leaves")
+	testing.expect(t, niello.hover_duration(input_lbl_i) == 0, "label duration ends too")
+	d = niello.hover_duration(input_root_i)
+	testing.expect(t, d > 1.0 - EPS && d < 1.0 + EPS, "root kept its own continuous timer")
 	finish(declare_input_tree)
 }
 

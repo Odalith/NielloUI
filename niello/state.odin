@@ -80,7 +80,12 @@ Globals :: struct {
 	// what gives clicked/hovered their bubble-up semantics.
 	hover_id:      Instance, // pick target under the cursor; 0 = none
 	hover_chain:   [dynamic]Instance,
-	hover_t:       f32, // seconds the current hover target has been hovered
+	hover_clock:   f32, // total dispatch time; durations read against it
+	hover_since:   map[Instance]f32, // per-member chain entry time: an
+	                                  // instance's hover duration is
+	                                  // hover_clock - hover_since[id], and
+	                                  // the entry dies when it leaves the
+	                                  // chain (input.odin maintains both)
 	press_ids:     [Mouse_Button]Instance, // press capture per button; 0 = none
 	press_chains:  [Mouse_Button][dynamic]Instance,
 	clicked_id:    Instance, // set at a release dispatch, valid for one declare
@@ -151,6 +156,7 @@ test_reset :: proc() {
 	delete(g.inst_hash)
 	delete(g.damage)
 	delete(g.hover_chain)
+	delete(g.hover_since)
 	for b in Mouse_Button {
 		delete(g.press_chains[b])
 	}

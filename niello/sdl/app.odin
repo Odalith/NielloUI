@@ -20,6 +20,7 @@
 package sdl
 
 import "core:fmt"
+import "core:os"
 import "core:strings"
 import "base:runtime"
 import sdl "vendor:sdl3"
@@ -69,6 +70,10 @@ g_cursor_applied: niello.Cursor_Kind = .Arrow
 g_last_ns:  u64
 @(private)
 g_content_scale: f32 = 1
+@(private)
+g_input_trace: bool // NUI_INPUT_TRACE: log button edges + focus flips
+@(private)
+g_trace_focused: bool = true
 
 @(private)
 g_wayland: bool
@@ -132,6 +137,15 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 	if !sdl.Init({.VIDEO}) {
 		fmt.printf("sdl.Init failed: %s\n", sdl.GetError())
 		return .FAILURE
+	}
+
+	// Deliver the click that activates the window, not just the focus:
+	// without this hint, SDL drops the activating press on several
+	// platforms and the first click on an unfocused window is eaten
+	// before the app ever sees it.
+	_ = sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
+	if v, found := os.lookup_env("NUI_INPUT_TRACE", context.temp_allocator); found {
+		g_input_trace = v != "" && v != "0"
 	}
 
 	w := g_config.width if g_config.width > 0 else 800
@@ -209,6 +223,22 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 		key_count        = g_key_count,
 		window_focused   = g_window_focused,
 	}
+	if g_input_trace &&
+	   (input.buttons_pressed != {} ||
+		   input.buttons_released != {} ||
+		   input.window_focused != g_trace_focused) {
+		fmt.printf(
+			"input-trace: focused=%v valid=%v pressed=%v released=%v mouse=(%.0f,%.0f)\n",
+			input.window_focused,
+			input.mouse_valid,
+			input.buttons_pressed,
+			input.buttons_released,
+			input.mouse.x,
+			input.mouse.y,
+		)
+		g_trace_focused = input.window_focused
+	}
+
 	// Edges and accumulations are per-frame: this frame_begin consumes them.
 	g_buttons_pressed = {}
 	g_buttons_released = {}
