@@ -28,6 +28,9 @@ INF :: max(f32) // standing in for +infinity
 // means "no prototype: start from default_style()".
 NO_UNIT :: Unit(0)
 
+// NO_GROUP is the group store's sentinel (index 0), mirroring NO_UNIT.
+NO_GROUP :: Group(0)
+
 Unit     :: distinct u32 // cold: minted once, owns its values
 Instance :: distinct u64 // hot: one on-screen occurrence = hash(parent, unit, key)
 Group    :: distinct u32 // cold: broadcast list of (unit, fields)
@@ -53,6 +56,18 @@ Field :: enum u8 {
 // Scroll_Chain steers input dispatch (wheel routing); neither affects
 // layout or paint.
 Fields :: bit_set[Field]
+
+// ALL_FIELDS is every Field, the default membership mask. Written out
+// in full on purpose: a mask built from a bit trick could silently omit
+// a field added later; the tests iterate Field and check membership.
+ALL_FIELDS :: Fields{
+	.Color, .Font_Color, .Border_Color,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Ellipsis,
+	.Padding, .Gap, .Corner_Radius, .Opacity,
+	.Layout, .Align, .Size, .Scroll, .Overflow,
+	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
+	.Text_Spans, .Cursor, .Scroll_Chain,
+}
 
 Layout :: enum u8 {
 	Left_To_Right,
@@ -408,6 +423,11 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	// decl = {} is a no-op merge (set_many skips the generation bump when no
 	// explicit fields were set).
 	set_many(u, decl)
+	// decl.groups registers membership in those groups: the locate-only
+	// half of mint (§3.7). Nothing is applied by joining.
+	for gr in decl.groups {
+		group_add_member(gr, u, ALL_FIELDS)
+	}
 }
 
 // ============ mutation (the only writes; each bumps the unit generation) ============
@@ -763,11 +783,118 @@ compute_next_wake :: proc() -> u32 {
 	return u32(min(d, u64(max(u32))))
 }
 
+// ============ groups ============
+// A group is an address book: a list of (unit, field-mask) members used
+// to LOCATE units for a later broadcast (§3.7). Membership itself
+// writes nothing — a unit's birth values come from its base at mint,
+// never from joining a group — and there is no retained patch: a
+// broadcast reaches only the members present when it is issued.
+// group_set is the only group write; it copies the value into each
+// member's owned style through the same path as set, skipping fields
+// outside the member's mask or pinned on that unit. Among explicit
+// writes the last one wins, determined entirely by call order.
+
+// group_new creates an empty group. The name is debug metadata.
+group_new :: proc(name: string = "") -> Group {
+	if len(g.groups) == 0 {
+		append(&g.groups, Group_Rec{name = "NO_GROUP"}) // sentinel at index 0
+	}
+	append(&g.groups, Group_Rec{name = name})
+	return Group(len(g.groups) - 1)
+}
+
+// group_add registers units as members. The plain form masks in every
+// field; the masked form scopes the membership to the given fields.
+// Adding a unit that is already a member widens its mask.
+group_add :: proc{group_add_all, group_add_masked}
+
+group_add_all :: proc(grp: Group, units: ..Unit) {
+	for u in units {
+		group_add_member(grp, u, ALL_FIELDS)
+	}
+}
+
+group_add_masked :: proc(grp: Group, fields: Fields, units: ..Unit) {
+	for u in units {
+		group_add_member(grp, u, fields)
+	}
+}
+
+// group_merge copies sub's members into g (flattened: g gains the
+// members themselves, not a reference to sub). A unit already in g
+// unions the masks. sub is unchanged and stays independent.
+group_merge :: proc(grp, sub: Group) {
+	if grp == sub {
+		return
+	}
+	_ = group_rec(grp)
+	_ = group_rec(sub)
+	n := len(g.groups[int(sub)].members)
+	for i in 0 ..< n {
+		m := g.groups[int(sub)].members[i]
+		group_add_member(grp, m.unit, m.fields)
+	}
+}
+
+// group_set broadcasts one field value to every member whose mask
+// includes it and whose unit has not pinned it. ms is the tween
+// duration; the tween engine does not exist yet, so ms must be 0.
+group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
+	assert(ms == 0, "niello.group_set: ms > 0 waits on the tween engine")
+	rec := group_rec(grp)
+	for m in rec.members {
+		if f not_in m.fields {
+			continue
+		}
+		if f in g.units[int(m.unit)].pinned {
+			continue
+		}
+		set(m.unit, f, v)
+	}
+}
+
+// pin exempts the given fields of a unit from group broadcasts; unpin
+// re-admits them. Pinning changes no style value — it only gates future
+// group_set calls, so it bumps no generation and damages nothing.
+//
+// Reach for pin only when the reason a value must not change on
+// broadcast is directly obvious — the danger-red action that shares a
+// group with ordinary actions. If you find yourself pinning routinely,
+// the group is drawn wrong: split it instead.
+pin :: proc(u: Unit, fields: Fields) {
+	assert(int(u) >= 1 && int(u) < len(g.units), "niello.pin: unit is not minted")
+	g.units[int(u)].pinned += fields
+}
+
+unpin :: proc(u: Unit, fields: Fields) {
+	assert(int(u) >= 1 && int(u) < len(g.units), "niello.unpin: unit is not minted")
+	g.units[int(u)].pinned -= fields
+}
+
+@(private)
+group_rec :: proc(grp: Group) -> ^Group_Rec {
+	assert(int(grp) >= 1 && int(grp) < len(g.groups), "niello: group handle is not a live group")
+	return &g.groups[int(grp)]
+}
+
+@(private)
+group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
+	assert(int(u) >= 1 && int(u) < len(g.units), "niello.group_add: unit is not minted")
+	rec := group_rec(grp)
+	for &m in rec.members {
+		if m.unit == u {
+			m.fields += fields // already a member: widen the mask
+			return
+		}
+	}
+	append(&rec.members, Group_Member{unit = u, fields = fields})
+}
+
 // ============ not yet implemented (roadmap, in doc order) ============
 // Each is a subsystem, not a stub: declaring them now would promise behavior
 // the mock can't deliver.
 //
-//   groups:      group_new, group_add, group_merge, group_set, group_tween
-//   mutation:   edit, tween, propagate, pin
+//   groups:      group_tween (rides in with the tween engine)
+//   mutation:    edit, tween, propagate
 //   hot path:   transient
 //   focus:      traversal + text input (focused/focus work; seams reserved)

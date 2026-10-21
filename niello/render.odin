@@ -154,8 +154,8 @@ Text_Run :: struct {
 }
 
 @(private)
-same_run_style :: proc(r: Text_Run, f: Text_Frag) -> bool {
-	return r.font == f.font && r.font_size == f.font_size && r.font_weight == f.font_weight && r.font_slant == f.font_slant && r.font_color == f.font_color
+same_run_style :: proc(r: Text_Run, f: Text_Frag, f_color: Color) -> bool {
+	return r.font == f.font && r.font_size == f.font_size && r.font_weight == f.font_weight && r.font_slant == f.font_slant && r.font_color == f_color
 }
 
 // emit_text lays out the node's text into positioned Text commands: one per
@@ -207,7 +207,13 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 				}
 				for f in w.frags {
 					line_w += f.width
-					if len(runs) > 0 && same_run_style(runs[len(runs)-1], f) && runs[len(runs)-1].end == f.start {
+					// The fragment's effective color: its span override,
+					// or the node's CURRENT base font_color. The word
+					// cache deliberately does not store the base color
+					// (it is not in the cache key), so a Font_Color write
+					// recolors already-cached text on the next frame.
+					f_color := f.span_color.? or_else s.font_color
+					if len(runs) > 0 && same_run_style(runs[len(runs)-1], f, f_color) && runs[len(runs)-1].end == f.start {
 						runs[len(runs)-1].end = f.end
 						runs[len(runs)-1].width += f.width
 					} else {
@@ -215,7 +221,7 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 							start = f.start, end = f.end, width = f.width,
 							font = f.font, font_size = f.font_size,
 							font_weight = f.font_weight, font_slant = f.font_slant,
-							font_color = f.font_color,
+							font_color = f_color,
 						})
 					}
 				}
