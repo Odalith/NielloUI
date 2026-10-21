@@ -22,7 +22,12 @@ Text_Frag :: struct {
 	font_size:   f32,
 	font_weight: Font_Weight,
 	font_slant:  Font_Slant,
-	font_color:  Color,
+	// Span color override only. The BASE font_color is paint state, not
+	// metrics: it is not part of the cache key, so freezing it into the
+	// entry would replay the first color forever. Emission resolves the
+	// base color from the node's current style; a span override is part
+	// of spans_hash, so storing it here is keyed and safe.
+	span_color: Maybe(Color),
 }
 
 Text_Word :: struct {
@@ -86,8 +91,11 @@ ellipsis_width :: proc(s: ^Style) -> f32 {
 
 // style_at resolves the effective style at byte offset `at`: the base unit
 // style with the last span covering `at` applied (later spans win).
+// color_from_span reports whether the returned color came from a span
+// (and is therefore covered by spans_hash) or fell through to the base
+// style (not covered by any cache key — callers must not cache it).
 @(private)
-style_at :: proc(s: ^Style, spans: []Text_Span, at: int) -> (font: Font_Handle, size: f32, weight: Font_Weight, slant: Font_Slant, color: Color) {
+style_at :: proc(s: ^Style, spans: []Text_Span, at: int) -> (font: Font_Handle, size: f32, weight: Font_Weight, slant: Font_Slant, color: Color, color_from_span: bool) {
 	font, size, weight, slant, color = s.font, s.font_size, s.font_weight, s.font_slant, s.font_color
 	for sp in spans {
 		if at >= sp.start && at < sp.end {
@@ -105,10 +113,11 @@ style_at :: proc(s: ^Style, spans: []Text_Span, at: int) -> (font: Font_Handle, 
 			}
 			if v, ok := sp.font_color.?; ok {
 				color = v
+				color_from_span = true
 			}
 		}
 	}
-	return font, size, weight, slant, color
+	return font, size, weight, slant, color, color_from_span
 }
 
 @(private)
@@ -187,13 +196,17 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 					if ce <= cs {
 						continue
 					}
-					font, size, weight, slant, color := style_at(s, spans, cs)
+					font, size, weight, slant, color, from_span := style_at(s, spans, cs)
 					fw := measure_frag(font, weight, slant, size, text[cs:ce])
-					append(&frags, Text_Frag{
+					frag := Text_Frag{
 						start = cs, end = ce, width = fw,
 						font = font, font_size = size, font_weight = weight,
-						font_slant = slant, font_color = color,
-					})
+						font_slant = slant,
+					}
+					if from_span {
+						frag.span_color = color
+					}
+					append(&frags, frag)
 					word_w += fw
 					e.line_h = max(e.line_h, frag_line_height(font, weight, slant, size))
 				}

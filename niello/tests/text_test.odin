@@ -18,6 +18,18 @@ text_run :: struct {
 	x:      f32,
 }
 
+// text_colors collects the colors of the current draw list's Text
+// commands, in emission order.
+text_colors :: proc() -> [dynamic]niello.Color {
+	colors: [dynamic]niello.Color
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			append(&colors, c.color)
+		}
+	}
+	return colors
+}
+
 // fixed_root mints a 400x300 root; FIT labels inside it measure their text
 // instead of filling the viewport (a FIT root fills the viewport).
 fixed_root :: proc() -> niello.Unit {
@@ -263,4 +275,81 @@ test_backend_hooks :: proc(t: ^testing.T) {
 	}
 	niello.frame_end()
 	testing.expect(t, hook_calls == miss_calls, "hook does not fire on cache hit")
+}
+
+@(test)
+test_font_color_change_recolors_cached_text :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	root := fixed_root()
+	u: niello.Unit
+	niello.mint(&u, niello.NO_UNIT, {font_color = niello.Color{10, 20, 30, 255}})
+
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		_ = niello.show(u, 0, niello.With{text = "Hi"})
+	}
+	niello.frame_end()
+	colors := text_colors()
+	defer delete(colors)
+	testing.expect(t, len(colors) == 1 && colors[0] == niello.Color{10, 20, 30, 255},
+		"first frame emits the base font_color")
+
+	// Same text, same spans: the word-cache entry is warm and must be
+	// reused. Only the paint-only base color changes — a theme
+	// broadcast (group_set .Font_Color) does exactly this.
+	niello.set(u, .Font_Color, niello.Color{200, 210, 220, 255})
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		_ = niello.show(u, 0, niello.With{text = "Hi"})
+	}
+	niello.frame_end()
+	clear(&colors)
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			append(&colors, c.color)
+		}
+	}
+	testing.expect(t, len(colors) == 1 && colors[0] == niello.Color{200, 210, 220, 255},
+		"cached text takes the CURRENT base font_color at emission")
+}
+
+@(test)
+test_span_color_survives_base_color_change :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	root := fixed_root()
+	red := niello.Color{255, 0, 0, 255}
+	u: niello.Unit
+	niello.mint(&u, niello.NO_UNIT, {
+		font_color = niello.Color{10, 20, 30, 255},
+		text_spans = []niello.Text_Span{{start = 0, end = 1, font_color = red}},
+	})
+
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		_ = niello.show(u, 0, niello.With{text = "Hi"})
+	}
+	niello.frame_end()
+	colors := text_colors()
+	defer delete(colors)
+	testing.expect(t, len(colors) == 2 && colors[0] == red &&
+		colors[1] == niello.Color{10, 20, 30, 255},
+		"span fragment red, base fragment in the base color")
+
+	niello.set(u, .Font_Color, niello.Color{200, 210, 220, 255})
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		_ = niello.show(u, 0, niello.With{text = "Hi"})
+	}
+	niello.frame_end()
+	clear(&colors)
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			append(&colors, c.color)
+		}
+	}
+	testing.expect(t, len(colors) == 2 && colors[0] == red &&
+		colors[1] == niello.Color{200, 210, 220, 255},
+		"span override is keyed and survives; the base fragment follows the new color")
 }
