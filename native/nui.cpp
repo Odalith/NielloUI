@@ -181,7 +181,13 @@ SkFont* ResolveFont(uint32_t family, int32_t weight, int32_t slant, float size) 
             }
         }
         if (!tf) {
-            tf = mgr->matchFamilyStyle(nullptr, SkFontStyle());
+            // Default family, but at the REQUESTED style — the
+            // no-style fallback (SkFontStyle()) silently flattened
+            // every bold/italic request on family 0 to the regular
+            // face, even when the family has the faces.
+            SkFontStyle style(weight, SkFontStyle::kNormal_Width,
+                              static_cast<SkFontStyle::Slant>(slant));
+            tf = mgr->matchFamilyStyle(nullptr, style);
         }
     }
     if (!tf) return nullptr;
