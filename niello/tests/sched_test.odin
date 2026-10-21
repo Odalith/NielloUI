@@ -48,6 +48,39 @@ test_sched_deadline_earliest_wins :: proc(t: ^testing.T) {
 	testing.expect(t, res.next_wake_ms == 40, "the earlier deadline wins")
 }
 
+@(test)
+test_sched_hover_duration_arms_refresh :: proc(t: ^testing.T) {
+	niello.test_reset()
+	mint_input_tree()
+
+	// Not hovered: asking for the duration arms nothing.
+	niello.frame_begin(idle_input(AWAY_PT), 0.05)
+	_ = niello.hover_duration(input_btn_i)
+	res := finish(declare_input_tree)
+	testing.expect(t, res.next_wake_ms == max(u32),
+		"duration of an unhovered instance schedules nothing")
+
+	// Hovered and displayed: the query arms the 50ms refresh, and it
+	// re-arms on every frame the cursor stays parked.
+	niello.frame_begin(idle_input(BTN_PT), 0.05)
+	_ = niello.hover_duration(input_btn_i)
+	res = finish(declare_input_tree)
+	testing.expect(t, res.next_wake_ms == 50,
+		"displayed hover duration schedules a refresh")
+	niello.frame_begin(idle_input(BTN_PT), 0.05)
+	_ = niello.hover_duration(input_btn_i)
+	res = finish(declare_input_tree)
+	testing.expect(t, res.next_wake_ms == 50,
+		"the refresh re-arms while hovered")
+
+	// Cursor leaves: back to sleeping at infinity.
+	niello.frame_begin(idle_input(AWAY_PT), 0.05)
+	_ = niello.hover_duration(input_btn_i)
+	res = finish(declare_input_tree)
+	testing.expect(t, res.next_wake_ms == max(u32),
+		"hover left: the refresh disarms")
+}
+
 wake_hook_calls: int
 
 counting_wake_hook :: proc() {

@@ -471,7 +471,10 @@ loop_timeout :: proc() -> i32 {
 // next_wake_ms deadline, so an idle window sits at ~0% CPU (§3.3). Any
 // event, including the wake() user event, cuts the wait short. Desktop
 // targets only: platforms where SDL must own main() (web, consoles) are
-// not NielloUI targets.
+// not NielloUI targets. If WASM ever becomes one, the browser forbids
+// blocking the main thread entirely — run() would hand these same four
+// entry points back to EnterAppMainCallbacks and give up the blocking
+// sleep; the rest of the glue is loop-agnostic by design.
 run :: proc(config: App_Config, declare: Declare_Proc) {
 	g_config = config
 	g_declare = declare

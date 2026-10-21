@@ -659,8 +659,19 @@ clicked :: proc(i: Instance) -> bool {
 // one continuous duration whether the cursor is over its body or its
 // label. 0 whenever i is not in the current chain. Tooltip delays read
 // this.
+// HOVER_REFRESH_MS: while an app displays a live hover duration, the
+// engine refreshes it at ~20 Hz. Coarse on purpose — a duration readout
+// is glanceable text, not an animation.
+HOVER_REFRESH_MS :: 50
+
 hover_duration :: proc(i: Instance) -> f32 {
 	if since, ok := g.hover_since[i]; ok {
+		// Displaying a duration is a standing request for refresh frames
+		// while the hover lasts (§8's hover thresholds): arm the next
+		// one, or a sleeping host loop would freeze the readout. An app
+		// that never asks never pays; an instance that is not hovered
+		// arms nothing.
+		schedule_wake_in(HOVER_REFRESH_MS)
 		return g.hover_clock - since
 	}
 	return 0
@@ -726,7 +737,11 @@ wake :: proc() {
 // UI and next_wake_ms is max(u32).
 schedule_wake_in :: proc(ms: u32) {
 	at := g.time_ms + u64(ms)
-	if !g.wake_deadline_set || at < g.wake_deadline {
+	// The earliest pending deadline wins — except a deadline that is
+	// already due: it fires with this frame either way, so a same-frame
+	// registration (a recurring refresh re-arming itself) supersedes
+	// the corpse instead of losing to it.
+	if !g.wake_deadline_set || g.wake_deadline <= g.time_ms || at < g.wake_deadline {
 		g.wake_deadline = at
 		g.wake_deadline_set = true
 	}
