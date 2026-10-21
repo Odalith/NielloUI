@@ -28,10 +28,26 @@ Unit_Rec :: struct {
 	loc:  runtime.Source_Code_Location,
 }
 
+// Group_Member is one (unit, field-mask) pair: the mask scopes which
+// fields a broadcast may write on this member (§3.7).
+Group_Member :: struct {
+	unit:   Unit,
+	fields: Fields,
+}
+
+// Group_Rec is the group's whole state — an address book (§3.7). There
+// is deliberately no retained patch: joining applies nothing, and a
+// broadcast reaches only the members present when it is issued.
+Group_Rec :: struct {
+	members: [dynamic]Group_Member,
+	name:    string, // debug/inspector only
+}
+
 Globals :: struct {
 	// Cold store: units own their style values. Survives across frames.
 	// Index 0 is the NO_UNIT sentinel (§8).
 	units: [dynamic]Unit_Rec,
+	groups: [dynamic]Group_Rec,
 
 	// Change tracking (§8): global generation bumped by every set/set_many,
 	// per-unit dirty bitsets, O(touched) clearing at frame_end.
@@ -140,6 +156,7 @@ test_reset :: proc() {
 	free_globals()
 	g = Globals{}
 	append(&g.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
+	append(&g.groups, Group_Rec{name = "NO_GROUP"})
 }
 
 test_teardown :: proc() {
@@ -168,6 +185,10 @@ free_globals :: proc() {
 		delete(nd.spans)
 	}
 	delete(g.units)
+	for &gr in g.groups {
+		delete(gr.members)
+	}
+	delete(g.groups)
 	delete(g.touched)
 	delete(g.nodes)
 	delete(g.stack)
