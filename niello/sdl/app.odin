@@ -76,6 +76,13 @@ g_input_trace: bool // NUI_INPUT_TRACE: log button edges + focus flips
 g_trace_focused: bool = true
 
 @(private)
+g_wake_event_type: u32 = max(u32) // SDL user event type for wake(); set in sdl_init
+@(private)
+g_last_changed: bool = true // last frame_end's changed; the loop sleeps only when false
+@(private)
+g_last_next_wake: u32 = max(u32) // last frame_end's next_wake_ms
+
+@(private)
 g_wayland: bool
 @(private)
 g_pending_size: bool
@@ -162,6 +169,15 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 	// them here so the native lib never touches SDL.
 	niello.measure_word_hook = hook_measure_word
 	niello.line_height_hook = hook_line_height
+
+	// wake() plumbing: a user event type the wake hook pushes from any
+	// thread to interrupt the loop's event wait. Registration failing
+	// leaves wake_hook nil — wake() then only flags the core and
+	// discovery waits for the next natural wake.
+	g_wake_event_type = sdl.RegisterEvents(1)
+	if g_wake_event_type != max(u32) {
+		niello.wake_hook = glue_wake
+	}
 	handles := native_handles_for_window(g_window)
 	px_w, px_h: i32
 	sdl.GetWindowSizeInPixels(g_window, &px_w, &px_h)
@@ -199,6 +215,9 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 		g_force_render = true
 	}
 	if g_pixel_width <= 0 || g_pixel_height <= 0 || .MINIMIZED in sdl.GetWindowFlags(g_window) {
+		// Nothing can change while minimized; let the loop sleep until
+		// an event (restore, resize) arrives.
+		g_last_changed = false
 		sdl.Delay(8)
 		return .CONTINUE
 	}
@@ -262,16 +281,28 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 			// Retry through a complete current frame after a failed update/acquire.
 			g_force_render = true
 		}
-	} else {
-		sdl.Delay(8)
 	}
+	// No idle delay here anymore: an unchanged frame makes run()'s loop
+	// block on events until the next deadline (§3.3).
 
+	g_last_changed = result.changed
+	g_last_next_wake = result.next_wake_ms
 	return .CONTINUE
 }
 
 @(private)
 event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResult {
 	context = runtime.default_context()
+
+	if g_wake_event_type != max(u32) &&
+	   transmute(u32)(event.type) == g_wake_event_type {
+		// niello.wake() from another thread: the frame it asked for is
+		// the iterate that follows this event batch. Nothing else to do.
+		if g_input_trace {
+			fmt.println("input-trace: wake event")
+		}
+		return .CONTINUE
+	}
 
 	#partial switch event.type {
 	case .QUIT:
@@ -408,11 +439,67 @@ apply_cursor :: proc(kind: niello.Cursor_Kind) {
 	}
 }
 
-// run opens the window and enters SDL's callback-driven main loop. It does
-// not return until the app quits.
+// glue_wake is niello's wake_hook: pushing an event is SDL's thread-safe
+// way to interrupt a WaitEventTimeout sleeping on the loop thread.
+@(private)
+glue_wake :: proc() {
+	ev: sdl.Event
+	ev.type = transmute(sdl.EventType)(g_wake_event_type)
+	_ = sdl.PushEvent(&ev)
+}
+
+// loop_timeout: how long run()'s loop may block before the next iterate.
+// 0 = iterate immediately (motion sustains its own cadence; the backend
+// paces actual presents), -1 = until an event arrives.
+@(private)
+loop_timeout :: proc() -> i32 {
+	if g_pending_size || g_force_render || g_last_changed {
+		return 0
+	}
+	if g_last_next_wake == max(u32) {
+		return -1
+	}
+	return i32(min(g_last_next_wake, u32(max(i32))))
+}
+
+// run opens the window and drives the frame loop until the app quits.
+//
+// The loop is hand-driven — the four SDL_App* entry points, called from
+// here instead of EnterAppMainCallbacks — so the idle path can BLOCK:
+// when the last frame changed nothing and no resize is pending, the loop
+// waits in SDL_WaitEventTimeout until the next OS event or the engine's
+// next_wake_ms deadline, so an idle window sits at ~0% CPU (§3.3). Any
+// event, including the wake() user event, cuts the wait short. Desktop
+// targets only: platforms where SDL must own main() (web, consoles) are
+// not NielloUI targets.
 run :: proc(config: App_Config, declare: Declare_Proc) {
 	g_config = config
 	g_declare = declare
 	argv: cstring = ""
-	sdl.EnterAppMainCallbacks(0, &argv, sdl_init, app_iterate, event_callback, app_quit)
+	appstate: rawptr // the callbacks keep state in this package's globals
+	res := sdl_init(&appstate, 0, &argv)
+	if res != .CONTINUE {
+		sdl.Quit()
+		return
+	}
+	ev: sdl.Event
+	for res == .CONTINUE {
+		timeout := loop_timeout()
+		got := false
+		if timeout < 0 {
+			got = sdl.WaitEvent(&ev)
+		} else if timeout > 0 {
+			got = sdl.WaitEventTimeout(&ev, timeout)
+		}
+		if got {
+			res = event_callback(nil, &ev)
+			for res == .CONTINUE && sdl.PollEvent(&ev) {
+				res = event_callback(nil, &ev)
+			}
+		}
+		if res == .CONTINUE {
+			res = app_iterate(nil)
+		}
+	}
+	app_quit(nil, res)
 }

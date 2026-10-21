@@ -9,6 +9,8 @@
 // each is a subsystem on the roadmap, not an oversight.
 package niello
 
+import "core:sync"
+
 // ============ math ============
 
 Vec2 :: [2]f32
@@ -376,8 +378,9 @@ Input :: struct {
 Frame_Result :: struct {
 	changed:      bool,   // anything new, moved, or resized this frame
 	damage:       []Rect, // damaged regions, valid until the next frame_begin
-	next_wake_ms: u32,    // ∞ (max(u32)) here: no timers/animations in this build,
-	                      // so the host sleeps until input or wake()
+	next_wake_ms: u32,    // ms until the engine's nearest registered deadline
+	                      // (tween/transient/hover timers, §8); max(u32) = none
+	                      // pending, so the host may sleep until input or wake()
 	cursor:       Cursor_Kind, // the hovered instance's resolved cursor
 	                           // (.Arrow when nothing is hovered); the host
 	                           // applies it when it changes
@@ -553,6 +556,15 @@ end :: proc(i: Instance, open: bool) {
 }
 
 frame_begin :: proc(input: Input, dt: f32) {
+	// Engine time advances by the real frame delta; scheduling
+	// deadlines are stamped against it.
+	g.time_ms += u64(dt * 1000 + 0.5)
+	// A wake() since the last frame is consumed here — the frame it
+	// asked for is this one, and pending changes are discovered by
+	// the ordinary diff machinery below.
+	if sync.atomic_load(&g.wake_requested) {
+		sync.atomic_store(&g.wake_requested, false)
+	}
 	// Input dispatch runs FIRST, against last frame's committed tree
 	// (nodes/lay/pick_clip still hold it). Queries during this frame's
 	// declare answer from that hit test: one frame of latency (§3.8).
@@ -599,7 +611,7 @@ frame_end :: proc() -> Frame_Result {
 	res := Frame_Result{
 		changed      = g.frame_index == 0 || len(g.damage) > 0,
 		damage       = g.damage[:],
-		next_wake_ms = max(u32), // ∞: no timers/animations in this build
+		next_wake_ms = compute_next_wake(),
 		cursor       = current_cursor(),
 	}
 	g.frame_index += 1
@@ -683,6 +695,59 @@ focus :: proc(i: Instance) {
 measure_word_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> f32
 line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> f32
 
+// ============ scheduling ============
+// The idle-CPU contract (§3.3): changes are found by the next SCHEDULED
+// frame. frame_end reports the nearest engine deadline as next_wake_ms
+// and the host blocks on OS events until then. wake() is the escape
+// hatch for work that happens off the frame thread.
+
+// wake_hook, when set, runs at the end of wake(). Host glue uses it to
+// interrupt its event wait (niello/sdl pushes an SDL user event). Set
+// once at startup, like the measure hooks. nil = wake() only flags the
+// core, and discovery waits for the next natural wake.
+wake_hook: proc()
+
+// wake schedules a frame from outside the loop — the one core entry
+// point that is safe to call from any thread. It flags the request
+// atomically and pokes the host through wake_hook; the frame it asked
+// for discovers pending changes through the ordinary diff machinery.
+wake :: proc() {
+	sync.atomic_store(&g.wake_requested, true)
+	if wake_hook != nil {
+		wake_hook()
+	}
+}
+
+// schedule_wake_in registers an engine deadline ms from now, in engine
+// time; frame_end reports the nearest pending deadline as
+// next_wake_ms. Engine subsystems register here — tweens, transients,
+// hover-delay thresholds (§8). Not app-facing API: apps use wake().
+// Until those subsystems land, the registry stays empty in a static
+// UI and next_wake_ms is max(u32).
+schedule_wake_in :: proc(ms: u32) {
+	at := g.time_ms + u64(ms)
+	if !g.wake_deadline_set || at < g.wake_deadline {
+		g.wake_deadline = at
+		g.wake_deadline_set = true
+	}
+}
+
+@(private)
+compute_next_wake :: proc() -> u32 {
+	if !g.wake_deadline_set {
+		return max(u32)
+	}
+	if g.wake_deadline <= g.time_ms {
+		// Due: the frame that just ran IS the scheduled frame. Whatever
+		// registered the deadline re-registers during declare if it is
+		// still active.
+		g.wake_deadline_set = false
+		return max(u32)
+	}
+	d := g.wake_deadline - g.time_ms
+	return u32(min(d, u64(max(u32))))
+}
+
 // ============ not yet implemented (roadmap, in doc order) ============
 // Each is a subsystem, not a stub: declaring them now would promise behavior
 // the mock can't deliver.
@@ -691,4 +756,3 @@ line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant
 //   mutation:   edit, tween, propagate, pin
 //   hot path:   transient
 //   focus:      traversal + text input (focused/focus work; seams reserved)
-//   scheduling: wake

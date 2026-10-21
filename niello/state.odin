@@ -94,6 +94,14 @@ Globals :: struct {
 	prev_focused:  bool, // last frame's window_focused; the falling edge
 	                     // drops press capture (input.odin)
 	input_dirty:   bool,     // interaction state changed this frame
+	// Scheduling (§3.3): engine time accumulates frame_begin's dt;
+	// deadlines are engine-time stamps, the nearest one wins.
+	time_ms:           u64,
+	wake_deadline:     u64,
+	wake_deadline_set: bool,
+	// Set by wake() from any thread (atomic access only), consumed at
+	// frame_begin.
+	wake_requested: bool,
 	affected:      [dynamic]Instance, // instances whose resolved style may have
 	                                  // changed; frame_end damages their rects
 
