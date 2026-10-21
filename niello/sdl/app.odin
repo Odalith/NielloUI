@@ -63,6 +63,8 @@ g_keys:      [16]niello.Key_Event
 @(private)
 g_key_count: int
 @(private)
+g_text_buf: [dynamic]u8 // committed text since the last frame (UTF-8)
+@(private)
 g_cursors: [niello.Cursor_Kind]^sdl.Cursor // lazily created system cursors
 @(private)
 g_cursor_applied: niello.Cursor_Kind = .Arrow
@@ -170,6 +172,11 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 	niello.measure_word_hook = hook_measure_word
 	niello.line_height_hook = hook_line_height
 
+	// Text input on, always (desktop): without it, SDL never sends
+	// TEXT_INPUT — and dead keys never compose. The core routes the
+	// committed text to the focused instance (§3.17).
+	_ = sdl.StartTextInput(g_window)
+
 	// wake() plumbing: a user event type the wake hook pushes from any
 	// thread to interrupt the loop's event wait. Registration failing
 	// leaves wake_hook nil — wake() then only flags the core and
@@ -240,6 +247,7 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 		wheel            = g_wheel,
 		keys             = g_keys,
 		key_count        = g_key_count,
+		text             = string(g_text_buf[:]),
 		window_focused   = g_window_focused,
 	}
 	if g_input_trace &&
@@ -265,6 +273,9 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 	g_key_count = 0
 
 	niello.frame_begin(input, dt)
+	// frame_begin copied the committed text into the core's own
+	// buffer; the accumulation starts over.
+	clear(&g_text_buf)
 	g_declare()
 	result := niello.frame_end()
 
@@ -333,6 +344,17 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 		g_wheel += {x, y}
 		g_mouse = {event.wheel.mouse_x, event.wheel.mouse_y}
 		g_mouse_valid = true
+	case .TEXT_INPUT:
+		// Committed text (typing, dead-key results, IME commits),
+		// accumulated for the next frame's Input.text. Capped: a
+		// frame's worth of typing is small; the cap only stops a
+		// pathological flood.
+		if event.text.text != nil {
+			ptr := cast([^]u8)event.text.text
+			for j := 0; ptr[j] != 0 && len(g_text_buf) < 1024; j += 1 {
+				append(&g_text_buf, ptr[j])
+			}
+		}
 	case .KEY_DOWN, .KEY_UP:
 		// Collected now, consumed by the focus pass later. Overflow past
 		// the ring is dropped: 16 key events in one frame is a flood, and

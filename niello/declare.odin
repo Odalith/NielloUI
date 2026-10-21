@@ -20,6 +20,8 @@ Frame_Node :: struct {
 	spans_hash:     u64,    // hash of spans; 0 when nil. The text cache keys
 	                        // on this alongside the font tuple.
 	has_text:        bool,
+	focusable:       bool, // resolved at declare: With.focusable wins
+	                       // over the unit's Style_Decl.focusable
 	is_container:    bool,
 	culled:          bool,
 	has_eff:         bool, // frame_end resolved an effective style into
@@ -120,6 +122,7 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instan
 			spans = spans,
 			spans_hash = spans_hash,
 			has_text = has_text,
+			focusable = with.focusable.? or_else g.units[int(unit)].focusable,
 			is_container = is_container,
 			culled = parent_culled,
 			sibling_ordinal = ord,

@@ -317,6 +317,10 @@ With :: struct {
 	                                // over Style.text_spans. Copied at declare
 	                                // time (small), so no borrow contract.
 	disabled: bool,
+	focusable: Maybe(bool), // per-instance focus participation; wins over
+	                        // the unit's Style_Decl.focusable, so one
+	                        // instance of a repeated unit can be the
+	                        // tabbable one (or none of them can).
 	variant:  Unit,          // persistent per-instance overlay (e.g. selected)
 	anchor:   Maybe([2]f32), // overlay positioning hint
 
@@ -355,9 +359,10 @@ Mouse_Button :: enum u8 {
 
 Buttons :: bit_set[Mouse_Button]
 
-// One keyboard event, in the host's native code spaces. The core collects
-// these now and consumes them in the focus pass later; nothing in v1
-// interprets the values.
+// One keyboard event, in the host's native code spaces. The core
+// interprets only the keys its own semantics need (traversal and
+// activation, below); the rest pass through to the focused instance
+// via input_keys, uninterpreted.
 Key_Event :: struct {
 	scancode: u32, // physical key position (SDL scancode values from niello/sdl)
 	keycode:  u32, // logical key (SDL keycode values from niello/sdl)
@@ -365,6 +370,19 @@ Key_Event :: struct {
 	down:     bool,
 	repeat:   bool, // key-repeat event (down only)
 }
+
+// Scancodes the core itself consumes, in the SDL space Key_Event uses:
+// traversal (Tab; Shift reverses) and activation (Space/Enter press
+// the focused instance). Every other key passes through to the
+// focused instance untouched.
+SCANCODE_TAB      :: 43
+SCANCODE_RETURN   :: 40
+SCANCODE_KP_ENTER :: 88
+SCANCODE_SPACE    :: 44
+
+// Modifier bits the core reads, in the host (SDL KMOD) space of
+// Key_Event.mods.
+MOD_SHIFT :: 0x0003 // KMOD_LSHIFT | KMOD_RSHIFT
 
 Input :: struct {
 	viewport: Vec2, // window size in DIP; roots fill it unless FIXED/PERCENT.
@@ -392,6 +410,13 @@ Input :: struct {
 
 	keys:      [16]Key_Event, // events since the last frame, oldest first
 	key_count: int,
+
+	text: string, // text committed since the last frame (host text-input
+	              // events, concatenated, UTF-8): typed characters,
+	              // dead-key results, IME commits. The core routes it to
+	              // the focused instance at dispatch; apps read it back
+	              // with input_text. Inline composition (IME preedit)
+	              // is not reported in v1.
 
 	window_focused: bool, // false ends all interaction at dispatch (decision:
 	                      // focus loss / mouse-leave clears pressed+hovered)
@@ -702,6 +727,24 @@ frame_end :: proc() -> Frame_Result {
 	sweep_transients()
 	resolve_styles()
 	layout_pass(g.viewport)
+	// Focus survival (§3.17): focus cannot outlive its instance. If
+	// the focused instance left the tree this frame or became
+	// disabled, focus clears (set_focus_id also cancels a pending
+	// key-press on it). Focusable is NOT a condition: it gates
+	// traversal participation, while programmatic focus() may
+	// target any instance.
+	if g.focus_id != 0 {
+		alive := false
+		for i in 0 ..< len(g.nodes) {
+			if g.nodes[i].identity == g.focus_id {
+				alive = !g.disabled_flags[i]
+				break
+			}
+		}
+		if !alive {
+			set_focus_id(0)
+		}
+	}
 	// Interaction-driven restyles don't pass through the declaration diff:
 	// the affected instances' committed rects are the damage. (A restyle
 	// that changed layout already damaged old ∪ new in pass F.)
@@ -755,7 +798,9 @@ pressed :: proc(i: Instance) -> bool {
 			return true
 		}
 	}
-	return false
+	// A Space/Enter capture on a focused descendant presses its
+	// ancestors too, exactly like a pointer capture.
+	return chain_contains(g.key_press_chain[:], i)
 }
 
 // clicked reports a left-button press on the instance (or a descendant)
@@ -793,16 +838,55 @@ focused :: proc(i: Instance) -> bool {
 	return i != 0 && i == g.focus_id
 }
 
-// focus sets keyboard focus programmatically; pass Instance(0) to clear.
-// Traversal (Tab order) is a later pass (§3.9); the focus overlay and
-// focused() work now.
+// focus sets keyboard focus programmatically; pass Instance(0) to
+// clear. Focus also moves by traversal (Tab) and by pointer press on
+// a focusable instance (§3.17). Moving focus cancels any pending
+// key-press (Space/Enter) capture.
 focus :: proc(i: Instance) {
-	if i == g.focus_id {
-		return
+	set_focus_id(i)
+}
+
+// focus_next / focus_prev move keyboard focus one step along the tab
+// order — declaration order over the focusable instances of the last
+// completed tree — wrapping at the ends. The same walk Tab runs at
+// dispatch; calling it during declare moves focus immediately (this
+// frame's already-dispatched keys/text keep the routing they were
+// given at dispatch).
+focus_next :: proc() {
+	traverse_focus(1)
+}
+
+focus_prev :: proc() {
+	traverse_focus(-1)
+}
+
+// input_text returns the text committed to i this frame (host text
+// input: typed characters, dead-key results, IME commits), or "".
+// Text routes to the instance that held focus at dispatch, and only
+// to it. Declare-scoped: read it during declare, like clicked.
+input_text :: proc(i: Instance) -> string {
+	if i == 0 || i != g.text_target || len(g.frame_text) == 0 {
+		return ""
 	}
-	note_affected(g.focus_id)
-	g.focus_id = i
-	note_affected(i)
+	return string(g.frame_text[:])
+}
+
+// input_keys returns i's key events for this frame — downs (repeats
+// included) and ups, oldest first — or an empty slice. Routing as
+// input_text. The core's own keys never arrive: traversal's Tab is
+// consumed at dispatch. The slice is rebuilt on each call; consume
+// it before calling again.
+input_keys :: proc(i: Instance) -> []Key_Event {
+	clear(&g.keys_scratch)
+	if i == 0 || i != g.keys_target {
+		return g.keys_scratch[:]
+	}
+	for k in 0 ..< g.frame_key_count {
+		if !g.key_consumed[k] {
+			append(&g.keys_scratch, g.frame_keys[k])
+		}
+	}
+	return g.keys_scratch[:]
 }
 
 // ============ scrolling ============

@@ -130,6 +130,199 @@ pick_at :: proc(p: Vec2) -> int {
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard focus (§3.17)
+
+// set_focus_id is the one focus writer: it notes the transition for
+// damage and cancels any pending key-press capture (a Space/Enter
+// press belongs to the instance that held focus when it began).
+@(private)
+set_focus_id :: proc(i: Instance) {
+	if i == g.focus_id {
+		return
+	}
+	note_affected(g.focus_id)
+	g.focus_id = i
+	note_affected(i)
+	if g.key_press_id != 0 && g.key_press_id != i {
+		note_affected(g.key_press_id)
+		g.key_press_id = 0
+		clear(&g.key_press_chain)
+	}
+}
+
+// focus_candidate: can this node of the last completed tree hold
+// focus right now? Focusable (resolved at declare), not culled, not
+// effectively disabled (last frame's flags, node-indexed like the
+// tree they describe).
+@(private)
+focus_candidate :: proc(idx: int) -> bool {
+	nd := &g.nodes[idx]
+	if nd.culled || !nd.focusable {
+		return false
+	}
+	if idx < len(g.disabled_flags) && g.disabled_flags[idx] {
+		return false
+	}
+	return true
+}
+
+// traverse_focus moves focus one step along the tab order:
+// declaration order (the node array IS declaration order) over the
+// focusable instances of the last completed tree, wrapping at the
+// ends. From no focus, forward lands on the first candidate and
+// reverse on the last. No candidates: focus is left alone.
+@(private)
+traverse_focus :: proc(dir: int) {
+	n := len(g.nodes)
+	if n == 0 {
+		return
+	}
+	cur := -1
+	for i in 0 ..< n {
+		if g.nodes[i].identity == g.focus_id {
+			cur = i
+			break
+		}
+	}
+	origin := cur
+	if origin < 0 {
+		origin = dir > 0 ? -1 : 0
+	}
+	for step in 1 ..= n {
+		idx := (origin + dir * step) %% n
+		if focus_candidate(idx) {
+			set_focus_id(g.nodes[idx].identity)
+			return
+		}
+	}
+}
+
+// key_press_target: can the focused instance take a key press?
+// Weaker than focus_candidate on purpose: focusable gates
+// traversal, not focus itself — a programmatically focused instance
+// activates too. Only absence and disabled (which absorbs) refuse.
+@(private)
+key_press_target :: proc(idx: int) -> bool {
+	if g.nodes[idx].culled {
+		return false
+	}
+	if idx < len(g.disabled_flags) && g.disabled_flags[idx] {
+		return false
+	}
+	return true
+}
+
+// key_press_begin starts a Space/Enter capture on the focused
+// instance: its press overlay shows (the chain snapshot feeds
+// resolve_styles and pressed()) until the key comes up.
+@(private)
+key_press_begin :: proc(code: u32) {
+	if g.focus_id == 0 || g.key_press_id != 0 {
+		return
+	}
+	for idx in 0 ..< len(g.nodes) {
+		if g.nodes[idx].identity != g.focus_id {
+			continue
+		}
+		if !key_press_target(idx) {
+			return
+		}
+		g.key_press_id = g.focus_id
+		g.key_press_code = code
+		clear(&g.key_press_chain)
+		depth := 0
+		for c := idx; c != -1; c = g.nodes[c].parent {
+			depth += 1
+		}
+		resize(&g.key_press_chain, depth)
+		k := depth - 1
+		for c := idx; c != -1; c = g.nodes[c].parent {
+			g.key_press_chain[k] = g.nodes[c].identity
+			k -= 1
+		}
+		note_affected(g.key_press_id)
+		return
+	}
+}
+
+// key_press_end completes a capture: the click fires (for exactly
+// one declare, like a pointer click) only if focus never moved and
+// the target is still a live candidate.
+@(private)
+key_press_end :: proc(code: u32) {
+	if g.key_press_id == 0 || code != g.key_press_code {
+		return
+	}
+	id := g.key_press_id
+	note_affected(id)
+	g.key_press_id = 0
+	if g.focus_id == id {
+		for idx in 0 ..< len(g.nodes) {
+			if g.nodes[idx].identity == id && key_press_target(idx) {
+				g.clicked_id = id
+				clear(&g.clicked_chain)
+				append(&g.clicked_chain, ..g.key_press_chain[:])
+				break
+			}
+		}
+	}
+	clear(&g.key_press_chain)
+}
+
+// dispatch_keys snapshots the frame's keyboard input and runs the
+// core's own key semantics: traversal and activation. Routing
+// targets freeze here — a declare-time focus() call does not
+// retro-route this frame's keys or text.
+@(private)
+dispatch_keys :: proc(input: Input) {
+	g.frame_key_count = min(input.key_count, 16)
+	for k in 0 ..< g.frame_key_count {
+		g.frame_keys[k] = input.keys[k]
+	}
+	g.key_consumed = {}
+	clear(&g.frame_text)
+	if len(input.text) > 0 {
+		bytes := transmute([]u8)input.text
+		append(&g.frame_text, ..bytes)
+	}
+
+	if !input.window_focused {
+		// No key semantics without window focus (the host delivers
+		// none anyway), and a held key-press cannot complete across
+		// the loss.
+		if g.key_press_id != 0 {
+			note_affected(g.key_press_id)
+			g.key_press_id = 0
+			clear(&g.key_press_chain)
+		}
+		g.keys_target = 0
+		g.text_target = 0
+		return
+	}
+
+	for k in 0 ..< g.frame_key_count {
+		ev := g.frame_keys[k]
+		if ev.scancode == SCANCODE_TAB && ev.down {
+			// Traversal consumes Tab outright (repeats included:
+			// holding Tab keeps cycling, as everywhere else).
+			g.key_consumed[k] = true
+			traverse_focus((ev.mods & MOD_SHIFT) != 0 ? -1 : 1)
+			continue
+		}
+		if ev.scancode == SCANCODE_SPACE || ev.scancode == SCANCODE_RETURN ||
+		   ev.scancode == SCANCODE_KP_ENTER {
+			if ev.down && !ev.repeat {
+				key_press_begin(ev.scancode)
+			} else if !ev.down {
+				key_press_end(ev.scancode)
+			}
+		}
+	}
+	g.keys_target = g.focus_id
+	g.text_target = g.focus_id
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch (frame_begin, before the frame store is cleared)
 
 // dispatch_input converts one frame of host input into interaction state.
@@ -156,6 +349,10 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		}
 	}
 	g.prev_focused = input.window_focused
+
+	// Keyboard dispatch runs even when the cursor has left the
+	// window: keys belong to the window's focus, not the pointer.
+	dispatch_keys(input)
 
 	if !input.mouse_valid {
 		// Cursor departure: everything ends at once.
@@ -239,6 +436,19 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		note_affected(g.hover_id)
 		note_affected(new_hover)
 		g.hover_id = new_hover
+	}
+
+	// Click-to-focus: a left press focuses the deepest focusable
+	// instance on the pick's chain (a label inside a button focuses
+	// the button). No focusable on the chain — focus is left alone;
+	// clicking empty space does not clear it (decided §3.17).
+	if .Left in input.buttons_pressed && pick >= 0 && !blocked {
+		for j := len(chain_idx) - 1; j >= 0; j -= 1 {
+			if focus_candidate(chain_idx[j]) {
+				set_focus_id(g.nodes[chain_idx[j]].identity)
+				break
+			}
+		}
 	}
 
 	// Press capture and click completion, per button.
@@ -368,6 +578,9 @@ resolve_styles :: proc() {
 				prs = true
 				break
 			}
+		}
+		if !prs && chain_contains(g.key_press_chain[:], id) {
+			prs = true
 		}
 		foc := g.focus_id != 0 && id == g.focus_id
 		has_tr := false
