@@ -11,6 +11,7 @@
 //   pass F: position_and_damage(positions, instance rects, damage, overflow)
 package niello
 
+
 Lay :: struct {
 	content: Vec2, // intrinsic size (measured / accumulated)
 	min_c:   Vec2, // shrink floor
@@ -541,7 +542,20 @@ position_and_damage :: proc() {
 			continue
 		}
 		s := node_style(i)
-		scroll := Vec2{0, 0} // mock: no live scroll offsets yet
+		// The live scroll offset: the stored value, clamped per
+		// scrollable axis to last frame's range (g.scroll_max — g.lay
+		// was zeroed by pass 0, so the range cannot come from there).
+		// The fresh range computed below re-clamps it for storage.
+		scroll := Vec2{0, 0}
+		stored_off, has_off := g.scroll_off[nd.identity]
+		if has_off {
+			prev_max := g.scroll_max[nd.identity]
+			for axis in 0 ..< 2 {
+				if scrollable_axis(s, axis) {
+					scroll[axis] = clamp(stored_off[axis], 0, prev_max[axis])
+				}
+			}
+		}
 		base := g.lay[i].pos
 		pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
 		axis := main_axis(s.layout) if s.layout != .Stack else X_AXIS
@@ -588,6 +602,28 @@ position_and_damage :: proc() {
 		g.lay[i].overfl = Vec2{
 			max(0, max_end.x - (origin.x + inner.x)),
 			max(0, max_end.y - (origin.y + inner.y)),
+		}
+		// Publish the fresh range for the next frame's clamps, and
+		// store back the offset re-clamped against it: scroll_offset()
+		// then reports rendered truth, and shrinking content pulls a
+		// stranded offset back in. The write-back clamps the STORED
+		// value (not this frame's read-clamped scroll), so an offset
+		// set before the first frame survives to be rendered once a
+		// range exists. Pass F never creates an offset entry.
+		if scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
+			if g.scroll_max == nil {
+				g.scroll_max = make(map[Instance]Vec2)
+			}
+			g.scroll_max[nd.identity] = g.lay[i].overfl
+		}
+		if has_off {
+			eff := Vec2{0, 0}
+			for axis in 0 ..< 2 {
+				if scrollable_axis(s, axis) {
+					eff[axis] = clamp(stored_off[axis], 0, g.lay[i].overfl[axis])
+				}
+			}
+			g.scroll_off[nd.identity] = eff
 		}
 	}
 	// Accumulated ancestor clips for the next frame's hit test (input.odin's
