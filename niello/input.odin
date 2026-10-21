@@ -272,6 +272,64 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			}
 		}
 	}
+
+	// The wheel is consumed last, once the pick's chain and its blocked
+	// state are known; it writes offsets only (pass F does the moving).
+	consume_wheel(input.wheel, chain_idx[:], blocked)
+}
+
+// consume_wheel routes one frame of accumulated wheel delta to the
+// scrollable containers on the pick's ancestor chain, deepest first,
+// per axis independently. A scrollable container takes what it can in
+// the delta's direction (clamped to last frame's scroll range — pass F
+// re-clamps against the live range); the leftover climbs to the next
+// scrollable ancestor only while the container that held it has
+// scroll_chain set — an opt-out ends the wheel region: the leftover is
+// dropped, never skipped past. A disabled pick absorbs the wheel whole,
+// like it absorbs clicks. Non-container nodes never participate: a
+// leaf's scroll field has no children to move and no scroll range.
+@(private)
+consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
+	if blocked || len(chain) == 0 || (wheel.x == 0 && wheel.y == 0) {
+		return
+	}
+	if g.scroll_off == nil {
+		g.scroll_off = make(map[Instance]Vec2)
+	}
+	for axis in 0 ..< 2 {
+		// Sign: the host reports the scroll-UP direction as positive
+		// (the SDL convention), so a positive delta DECREASES the
+		// offset — the offset delta is the negation.
+		rem := -wheel[axis] * WHEEL_UNIT_PX
+		if rem == 0 {
+			continue
+		}
+		for k := len(chain) - 1; k >= 0; k -= 1 {
+			idx := chain[k]
+			if !g.nodes[idx].is_container {
+				continue
+			}
+			s := node_style(idx)
+			if !scrollable_axis(s, axis) {
+				continue
+			}
+			id := g.nodes[idx].identity
+			off := g.scroll_off[id]
+			clamped := clamp(off[axis] + rem, 0, g.scroll_max[id][axis])
+			used := clamped - off[axis]
+			if used != 0 {
+				off[axis] = clamped
+				g.scroll_off[id] = off
+			}
+			rem -= used
+			if rem == 0 {
+				break
+			}
+			if !s.scroll_chain {
+				break // opt-out ends the wheel region
+			}
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

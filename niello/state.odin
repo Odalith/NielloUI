@@ -89,6 +89,17 @@ Globals :: struct {
 	inst_hash: map[Instance]u64,
 	damage:    [dynamic]Rect,
 
+	// Scroll offsets by identity: written by wheel dispatch at
+	// frame_begin and by scroll_to, read and re-clamped by pass F every
+	// frame (the stored value is the offset the last frame rendered
+	// with). Only scrollable containers ever get an entry; absence = 0.
+	scroll_off: map[Instance]Vec2,
+	// Scroll ranges by identity: the max offset per axis, written by
+	// pass F from the fresh overflow every frame. Dispatch and pass F
+	// clamp against this — g.lay is zeroed by pass 0 each frame, so the
+	// range needs a persistent home of its own.
+	scroll_max: map[Instance]Vec2,
+
 	// Interaction state (input.odin): written by dispatch at frame_begin,
 	// read by the queries during declare and by overlay resolution at
 	// frame_end. Chains are identity snapshots, root first: an instance is
@@ -205,6 +216,8 @@ free_globals :: proc() {
 	delete(g.instances)
 	delete(g.inst_hash)
 	delete(g.damage)
+	delete(g.scroll_off)
+	delete(g.scroll_max)
 	delete(g.hover_chain)
 	delete(g.hover_since)
 	for b in Mouse_Button {

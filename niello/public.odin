@@ -381,7 +381,13 @@ Input :: struct {
 	buttons_released: Buttons,
 
 	wheel: Vec2, // accumulated scroll delta since the last frame, in wheel
-	             // units (fractional on smooth wheels/trackpads)
+	             // units (fractional on smooth wheels/trackpads). Sign is
+	             // the SDL convention: positive y is the scroll-UP
+	             // direction (the view moves toward the top; offsets
+	             // decrease), positive x the scroll-left direction. Hosts
+	             // deliver it as SDL reports it — the glue passes events
+	             // through, negating only FLIPPED ones, whose deltas
+	             // arrive pre-inverted.
 
 	keys:      [16]Key_Event, // events since the last frame, oldest first
 	key_count: int,
@@ -712,6 +718,37 @@ focus :: proc(i: Instance) {
 	note_affected(g.focus_id)
 	g.focus_id = i
 	note_affected(i)
+}
+
+// ============ scrolling ============
+
+// WHEEL_UNIT_PX: one wheel unit (one notch; trackpads report fractions)
+// scrolls this many DIP — roughly three lines of default text.
+WHEEL_UNIT_PX :: 48
+
+// scroll_offset reports i's scroll offset in DIP: the offset the last
+// frame rendered with. {0, 0} when i is not a scrollable container or
+// has never scrolled. Pass F re-clamps the stored offset to the live
+// scroll range every frame, so a shrinking content pulls it back in.
+scroll_offset :: proc(i: Instance) -> Vec2 {
+	if i == 0 {
+		return {0, 0}
+	}
+	return g.scroll_off[i]
+}
+
+// scroll_to sets i's scroll offset in DIP (back-to-top is
+// scroll_to(i, {0, 0})). The stored value is clamped to the scrollable
+// range when the next frame renders — the same range the wheel clamps
+// against — so an out-of-range request lands on the nearest end.
+scroll_to :: proc(i: Instance, offset: Vec2) {
+	if i == 0 {
+		return
+	}
+	if g.scroll_off == nil {
+		g.scroll_off = make(map[Instance]Vec2)
+	}
+	g.scroll_off[i] = offset
 }
 
 // ============ text measurement backend ============
