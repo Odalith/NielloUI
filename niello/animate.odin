@@ -207,7 +207,7 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 @(private)
 write_field :: proc(u: Unit, f: Field, src: ^Style) {
 	rec := &g.units[int(u)]
-	copy_field(&rec.style, src, f)
+	copy_field_owned(&rec.style, src, f)
 	touch(u, Fields{f})
 }
 
@@ -322,7 +322,7 @@ apply_edits :: proc() {
 				continue
 			}
 			cancel_glide_fields(u, Fields{f})
-			copy_field(&rec.style, &es.shadow, f)
+			copy_field_owned(&rec.style, &es.shadow, f)
 			touch(u, Fields{f})
 		}
 		free(es)

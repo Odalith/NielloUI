@@ -353,3 +353,51 @@ test_span_color_survives_base_color_change :: proc(t: ^testing.T) {
 		colors[1] == niello.Color{200, 210, 220, 255},
 		"span override is keyed and survives; the base fragment follows the new color")
 }
+
+// A unit OWNS its spans (and its style text): mint/set clone the
+// reference-typed fields, so a caller mutating its slice afterwards
+// cannot reach in. This is the deterministic form of a real failure:
+// apps mint inside an init proc that returns, the stored header kept
+// pointing at that dead frame, and at -o:none every span silently
+// vanished (the suite runs -o:speed, whose layout luck masked it).
+@(test)
+test_style_spans_are_owned_copies :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	root := fixed_root()
+	u: niello.Unit
+	spans := []niello.Text_Span{{start = 1, end = 4, font_weight = .Bold}}
+	niello.mint(&u, niello.NO_UNIT, {text_spans = spans})
+	spans[0] = niello.Text_Span{start = 0, end = 0} // the caller scribbles
+
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(u, 0, niello.With{text = "Hello you"})
+	}
+	niello.frame_end()
+	bold := false
+	for cmd in niello.draw_list() {
+		if cmd.tag == .Text && cmd.font_weight == 700 {
+			bold = true
+		}
+	}
+	testing.expect(t, bold, "mint cloned the spans; the scribble did not reach the unit")
+
+	// Same for the set() path, with a color span this time.
+	spans2 := []niello.Text_Span{{start = 0, end = 5, font_color = niello.Color{9, 8, 7, 255}}}
+	niello.set(u, .Text_Spans, spans2)
+	spans2[0] = niello.Text_Span{}
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(u, 0, niello.With{text = "Hello you"})
+	}
+	niello.frame_end()
+	want := niello.Color{9, 8, 7, 255}
+	colored := false
+	for cmd in niello.draw_list() {
+		if cmd.tag == .Text && cmd.color == want {
+			colored = true
+		}
+	}
+	testing.expect(t, colored, "set cloned the spans too")
+}

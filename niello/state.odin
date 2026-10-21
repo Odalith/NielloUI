@@ -205,6 +205,16 @@ free_globals :: proc() {
 	for nd in g.nodes {
 		delete(nd.spans)
 	}
+	// Unit styles own their reference-typed fields (cloned on write —
+	// see store_spans in public.odin).
+	for &rec in g.units {
+		if rec.style.text_spans != nil {
+			delete(rec.style.text_spans)
+		}
+		if len(rec.style.text) > 0 {
+			delete(rec.style.text)
+		}
+	}
 	delete(g.units)
 	for &gr in g.groups {
 		delete(gr.members)
