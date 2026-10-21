@@ -449,9 +449,11 @@ must :: proc(v: any, $T: typeid) -> T {
 	return x
 }
 
+// style_set_any writes one field of a bare style (no unit bookkeeping):
+// set_any's switch, reused where a style is assembled off-unit
+// (group_set's tween targets).
 @(private)
-set_any :: proc(u: Unit, f: Field, v: any) {
-	s := &g.units[int(u)].style
+style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	switch f {
 	case .Color:         s.color         = must(v, Color)
 	case .Font_Color:    s.font_color    = must(v, Color)
@@ -480,6 +482,12 @@ set_any :: proc(u: Unit, f: Field, v: any) {
 	case .Cursor:       s.cursor       = must(v, Cursor_Kind)
 	case .Scroll_Chain: s.scroll_chain = must(v, bool)
 	}
+}
+
+@(private)
+set_any :: proc(u: Unit, f: Field, v: any) {
+	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
+	style_set_any(&g.units[int(u)].style, f, v)
 	touch(u, Fields{f})
 }
 
@@ -531,6 +539,7 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 
 	fields := explicit_fields(decl)
 	if fields != {} {
+		cancel_glide_fields(u, fields)
 		touch(u, fields)
 	}
 }
@@ -616,6 +625,12 @@ frame_begin :: proc(input: Input, dt: f32) {
 // frame_end runs the resolve pass: state overlays, layout, damage.
 // After it returns, queries (rect) read THIS frame's resolved data.
 frame_end :: proc() -> Frame_Result {
+	// The mutation layer lands first (§3.16): glides step, edit diffs
+	// apply (winning over glides on the fields they changed), expired
+	// transients are swept — all before resolution reads any style.
+	step_tweens()
+	apply_edits()
+	sweep_transients()
 	resolve_styles()
 	layout_pass(g.viewport)
 	// Interaction-driven restyles don't pass through the declaration diff:
@@ -634,6 +649,7 @@ frame_end :: proc() -> Frame_Result {
 		g.units[int(u)].dirty = {}
 	}
 	clear(&g.touched)
+	update_animation_wake()
 	res := Frame_Result{
 		changed      = g.frame_index == 0 || len(g.damage) > 0,
 		damage       = g.damage[:],
@@ -874,10 +890,10 @@ group_merge :: proc(grp, sub: Group) {
 }
 
 // group_set broadcasts one field value to every member whose mask
-// includes it and whose unit has not pinned it. ms is the tween
-// duration; the tween engine does not exist yet, so ms must be 0.
+// includes it and whose unit has not pinned it. ms == 0 lands the
+// value immediately; ms > 0 glides each member to it over ms through
+// the tween engine (§3.16), starting from wherever the member is.
 group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
-	assert(ms == 0, "niello.group_set: ms > 0 waits on the tween engine")
 	rec := group_rec(grp)
 	for m in rec.members {
 		if f not_in m.fields {
@@ -886,7 +902,13 @@ group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 		if f in g.units[int(m.unit)].pinned {
 			continue
 		}
-		set(m.unit, f, v)
+		if ms == 0 {
+			set(m.unit, f, v)
+		} else {
+			target := g.units[int(m.unit)].style
+			style_set_any(&target, f, v)
+			start_glide(m.unit, Fields{f}, &target, ms)
+		}
 	}
 }
 
@@ -927,11 +949,167 @@ group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
 	append(&rec.members, Group_Member{unit = u, fields = fields})
 }
 
+// ============ mutation layer: animation, bulk writes, pulses (§3.16) ============
+// The engine lives in animate.odin. Three targets, three verbs:
+// set/tween/edit/propagate write UNITS (every occurrence), transient
+// pulses ONE INSTANCE, and the group forms broadcast either way.
+
+// tween glides u toward the unit `to`'s style over ms, for the masked
+// fields: animatable fields interpolate (one house curve, cubic
+// ease-out), the rest snap at t=0. Both endpoints snapshot at the
+// call — `from` is u's live style (mid-glide values included, so
+// retargeting never jumps) and `to` is the target's style as of now;
+// if the target unit changes later, the glide does not chase it. A
+// new tween steals its masked fields from any glide running on u, and
+// an explicit write (set/set_many/edit/group_set) to a gliding field
+// cancels that field's glide. ms == 0 is an immediate masked copy.
+tween :: proc(u: Unit, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
+	assert(int(u) >= 1 && int(u) < len(g.units), "niello.tween: unit is not minted")
+	assert(int(to) >= 1 && int(to) < len(g.units), "niello.tween: target unit is not minted")
+	target := g.units[int(to)].style
+	start_glide(u, fields, &target, ms)
+}
+
+// group_tween broadcasts tween: every member glides toward `to`'s
+// style, gated per member by its mask (intersected with fields) and
+// its pins — the same gates as group_set.
+group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
+	assert(int(to) >= 1 && int(to) < len(g.units), "niello.group_tween: target unit is not minted")
+	rec := group_rec(grp)
+	target := g.units[int(to)].style
+	for m in rec.members {
+		eff := fields & m.fields
+		for f in g.units[int(m.unit)].pinned {
+			eff -= Fields{f}
+		}
+		start_glide(m.unit, eff, &target, ms)
+	}
+}
+
+// edit is the bulk escape hatch: it returns a pointer to a shadow copy
+// of u's style. Mutate it freely (any fields, any order); at frame_end
+// the engine diffs the shadow against the style as it was when edit
+// was called and writes only the fields that actually changed — an
+// intervening set on an untouched field is never clobbered. Repeated
+// edit calls in one frame return the same shadow. The pointer is
+// valid until frame_end; holding it across frames is a contract
+// violation.
+edit :: proc(u: Unit) -> ^Style {
+	assert(int(u) >= 1 && int(u) < len(g.units), "niello.edit: unit is not minted")
+	if g.edits == nil {
+		g.edits = make(map[Unit]^Edit_State)
+	}
+	if es, ok := g.edits[u]; ok {
+		return &es.shadow
+	}
+	es := new(Edit_State)
+	es.base = g.units[int(u)].style
+	es.shadow = es.base
+	g.edits[u] = es
+	return &es.shadow
+}
+
+// propagate pushes proto's current values to the units minted from
+// it, for the masked fields each derived unit has never explicitly
+// set: birth values come from the base snapshot at mint, and this is
+// the opt-in push that refreshes them (§3.3). Propagated writes do not
+// mark fields explicit, so values keep flowing on later calls. One
+// pass in mint order makes the push transitive — a derived unit's
+// refreshed values flow to its own derived units in the same call.
+// Pins do not gate propagate (they gate group writes), and a field
+// with a glide in flight on the target unit is skipped — the glide is
+// the more specific intent; call propagate again after it lands.
+propagate :: proc(proto: Unit, fields: Fields) {
+	assert(int(proto) >= 1 && int(proto) < len(g.units), "niello.propagate: unit is not minted")
+	if fields == {} {
+		return
+	}
+	updated: [dynamic]Unit
+	defer delete(updated)
+	for idx in 1 ..< len(g.units) {
+		rec := &g.units[idx]
+		if rec.proto == NO_UNIT {
+			continue
+		}
+		src_unit := rec.proto
+		if src_unit != proto {
+			flowed := false
+			for x in updated {
+				if x == src_unit {
+					flowed = true
+					break
+				}
+			}
+			if !flowed {
+				continue
+			}
+		}
+		u := Unit(idx)
+		src := &g.units[int(src_unit)].style
+		wrote := Fields{}
+		for f in fields {
+			if f in rec.explicit {
+				continue
+			}
+			if field_gliding(u, f) {
+				continue
+			}
+			if field_equal(&rec.style, src, f) {
+				continue
+			}
+			copy_field(&rec.style, src, f)
+			wrote += Fields{f}
+		}
+		if wrote != {} {
+			touch_unmarked(u, wrote)
+			append(&updated, u)
+		}
+	}
+}
+
+// transient fires a one-shot pulse on ONE instance: the style unit's
+// explicitly-set paint fields blend over the instance's resolved style
+// — in over in_ms, back out over out_ms, then gone. Only paint fields
+// participate (TRANSIENT_FIELDS): a pulse never relayouts the tree.
+// Re-firing the IDENTICAL pulse (same style unit and durations) while
+// it is still in flight is a no-op, so the natural pattern
+// `if hovered(i) { transient(i, ...) }` — which calls this every frame
+// for the whole hover — plays the pulse instead of pinning its
+// envelope at zero by restarting it each frame. A fire with different
+// parameters, or after the pulse has ended, starts a new one.
+// Instance 0 is ignored.
+transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
+	if i == 0 {
+		return
+	}
+	assert(int(style) >= 1 && int(style) < len(g.units), "niello.transient: style unit is not minted")
+	if prev, ok := g.transients[i]; ok {
+		if prev.src == style && prev.in_ms == in_ms && prev.out_ms == out_ms {
+			if _, active := transient_k(&prev); active {
+				return
+			}
+		}
+	}
+	src := &g.units[int(style)]
+	fields := src.explicit & TRANSIENT_FIELDS
+	if fields == {} {
+		return
+	}
+	if g.transients == nil {
+		g.transients = make(map[Instance]Transient_Rec)
+	}
+	g.transients[i] = Transient_Rec{
+		fields   = fields,
+		style    = src.style,
+		src      = style,
+		start_ms = g.time_ms,
+		in_ms    = in_ms,
+		out_ms   = out_ms,
+	}
+}
+
 // ============ not yet implemented (roadmap, in doc order) ============
 // Each is a subsystem, not a stub: declaring them now would promise behavior
 // the mock can't deliver.
 //
-//   groups:      group_tween (rides in with the tween engine)
-//   mutation:    edit, tween, propagate
-//   hot path:   transient
 //   focus:      traversal + text input (focused/focus work; seams reserved)

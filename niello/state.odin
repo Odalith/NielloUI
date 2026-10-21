@@ -129,6 +129,16 @@ Globals :: struct {
 	// Set by wake() from any thread (atomic access only), consumed at
 	// frame_begin.
 	wake_requested: bool,
+
+	// Mutation layer (§3.16, animate.odin): active unit tweens (stepped
+	// at frame_end), per-instance transient pulses (read by
+	// resolve_styles, swept at frame_end), and pending edit shadows
+	// (diffed and applied at frame_end, then freed). Edit states are
+	// heap-allocated: edit() hands out a pointer into the shadow, and
+	// it must stay valid until frame_end however many units are edited.
+	tweens:     [dynamic]Tween,
+	transients: map[Instance]Transient_Rec,
+	edits:      map[Unit]^Edit_State,
 	affected:      [dynamic]Instance, // instances whose resolved style may have
 	                                  // changed; frame_end damages their rects
 
@@ -218,6 +228,12 @@ free_globals :: proc() {
 	delete(g.damage)
 	delete(g.scroll_off)
 	delete(g.scroll_max)
+	delete(g.tweens)
+	delete(g.transients)
+	for _, es in g.edits {
+		free(es)
+	}
+	delete(g.edits)
 	delete(g.hover_chain)
 	delete(g.hover_since)
 	for b in Mouse_Button {
@@ -287,6 +303,19 @@ touch :: proc(u: Unit, f: Fields) {
 	}
 	rec.dirty += f
 	rec.explicit += f
+	g.gen += 1
+}
+
+// touch_unmarked is touch without the explicit marking: propagate's
+// writes (§3.16) are received values, not the unit's own choices, and
+// marking them explicit would freeze the unit out of later propagates.
+@(private)
+touch_unmarked :: proc(u: Unit, f: Fields) {
+	rec := &g.units[int(u)]
+	if card(rec.dirty) == 0 {
+		append(&g.touched, u)
+	}
+	rec.dirty += f
 	g.gen += 1
 }
 

@@ -57,3 +57,9 @@ test_overflow :: proc(i: Instance) -> Vec2 {
 	}
 	return Vec2{0, 0}
 }
+
+// test_style returns a copy of a unit's live style (post any tween
+// steps / edit applies of the last frame_end).
+test_style :: proc(u: Unit) -> Style {
+	return g.units[int(u)].style
+}

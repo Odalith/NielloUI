@@ -844,3 +844,56 @@ test_grow_with_content_split :: proc(t: ^testing.T) {
 	testing.expect(t, abs(ra.size.y-140) < EPS, fmt.tprintf("A height: %v", ra.size.y))
 	testing.expect(t, abs(rb.size.y-160) < EPS, fmt.tprintf("B height: %v", rb.size.y))
 }
+
+// A FIT container shrunk by ITS parent must pass the deficit through
+// to its own shrinkable children: parent_fit used to skip the take
+// entirely (FIT was assumed to mean content-sized), so a squeezed
+// button's label kept its full content width and spilled, untruncated.
+// (Regression from the animate demo's buttons in a narrow row.)
+sqz_root, sqz_btn, sqz_lbl: niello.Unit
+sqz_btn_i, sqz_lbl_i: niello.Instance
+
+@(test)
+test_fit_container_passes_deficit_to_children :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&sqz_root, niello.NO_UNIT, {
+		layout = niello.Layout.Left_To_Right,
+		size = niello.Size{niello.fixed(200), niello.fixed(60)},
+		gap = 8,
+	})
+	niello.mint(&sqz_btn, niello.NO_UNIT, {
+		layout = niello.Layout.Left_To_Right,
+		size = niello.Size{niello.fit(), niello.fixed(40)},
+		padding = [4]u16{16, 0, 16, 0},
+		align = [2]niello.Align_Kind{.Center, .Center},
+	})
+	niello.mint(&sqz_lbl, niello.NO_UNIT, {font_size = 14})
+
+	finish(proc() {
+		if _, ok := niello.begin(sqz_root); ok {
+			if bi, ok2 := niello.begin(sqz_btn, niello.key_int(0)); ok2 {
+				sqz_btn_i = bi
+				sqz_lbl_i = niello.show(sqz_lbl, 0, {text = "Cycle accent + propagate"})
+			}
+			if _, ok3 := niello.begin(sqz_btn, niello.key_int(1)); ok3 {
+				niello.show(sqz_lbl, 0, {text = "Crossfade theme"})
+			}
+		}
+	})
+	br, _ := niello.rect(sqz_btn_i)
+	testing.expect(t, br.size.x < 200, "the first button was squeezed by its parent")
+	lr, _ := niello.rect(sqz_lbl_i)
+	testing.expect(t, abs(lr.size.x - (br.size.x - 32)) < EPS,
+		"the label shrank to the button's inner width")
+	found := false
+	for cmd in niello.draw_list() {
+		if cmd.tag == .Text && cmd.bounds.pos == lr.pos {
+			found = true
+			testing.expect(t, cmd.truncated, "the squeezed text is marked truncated")
+			testing.expect(t, abs(cmd.max_width - lr.size.x) < EPS,
+				"and its max_width is the resolved width, so the backend ellipsizes")
+		}
+	}
+	testing.expect(t, found, "the label's text command exists")
+}

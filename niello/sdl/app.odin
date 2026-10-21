@@ -488,17 +488,23 @@ run :: proc(config: App_Config, declare: Declare_Proc) {
 	ev: sdl.Event
 	for res == .CONTINUE {
 		timeout := loop_timeout()
-		got := false
 		if timeout < 0 {
-			got = sdl.WaitEvent(&ev)
-		} else if timeout > 0 {
-			got = sdl.WaitEventTimeout(&ev, timeout)
-		}
-		if got {
-			res = event_callback(nil, &ev)
-			for res == .CONTINUE && sdl.PollEvent(&ev) {
+			if sdl.WaitEvent(&ev) {
 				res = event_callback(nil, &ev)
 			}
+		} else if timeout > 0 {
+			if sdl.WaitEventTimeout(&ev, timeout) {
+				res = event_callback(nil, &ev)
+			}
+		}
+		// Drain whatever else is queued — on EVERY pass, including
+		// timeout == 0, where nothing was waited on. This drain used to
+		// run only after a blocking wait returned an event, so a streak
+		// of changed frames never pumped the queue at all: animations
+		// hold `changed` true for their whole duration, and mouse input
+		// (hover, clicks) starved until the streak ended.
+		for res == .CONTINUE && sdl.PollEvent(&ev) {
+			res = event_callback(nil, &ev)
 		}
 		if res == .CONTINUE {
 			res = app_iterate(nil)

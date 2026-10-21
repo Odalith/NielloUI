@@ -406,14 +406,21 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 		gaps = f32(nchild-1) * f32(s.gap)
 	}
 	remaining := inner - committed - gaps
-	if parent_fit {
-		return // parent sized to content; nothing to distribute
-	}
 	if remaining < 0 && !scrollable_axis(s, axis) {
 		// Scroll containers skip the take: children keep natural sizes and the
 		// excess becomes scrollable overflow. That IS the scroll semantic.
+		// The take runs even under parent_fit: FIT only means the container
+		// ASKED for its content size — if its own parent shrunk it anyway
+		// (the waterfill above us), the deficit passes through to the
+		// shrinkable children instead of stranding them at full content
+		// size inside a squeezed box (a button's label, say). A FIT
+		// container that truly got its content size has remaining == 0
+		// here, so this changes nothing for it.
 		waterfill_take(shrinkables[:], axis, -remaining)
-	} else if remaining > 0 && len(growers) > 0 {
+	} else if remaining > 0 && len(growers) > 0 && !parent_fit {
+		// The give stays suppressed under FIT: the parent sized itself to
+		// the children's content, so there is no leftover to hand out and
+		// GROW children were already degraded to FIT above.
 		waterfill_give(growers[:], axis, remaining)
 	}
 	// remaining > 0 with no growers: space stays empty; main-axis alignment
