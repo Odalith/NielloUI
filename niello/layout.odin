@@ -229,6 +229,16 @@ accumulate :: proc(axis: int) {
 			g.lay[i].content[axis] = m + pad
 			g.lay[i].min_c[axis] = mmin + pad
 		}
+		if scrollable_axis(s, axis) {
+			// A scroller's content is not its floor on the scroll axis:
+			// the container may shrink to its padding and scroll the
+			// rest. Without this, a grow/fit scroller in a bounded
+			// parent keeps its full content size and pushes its
+			// siblings out — the dual of the FIT-clamp exemption for
+			// children OF a scroller (resolve_cross). The content size
+			// above stays honest; only the floor drops.
+			g.lay[i].min_c[axis] = pad
+		}
 	}
 }
 

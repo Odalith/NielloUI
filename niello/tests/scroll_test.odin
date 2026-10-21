@@ -279,6 +279,66 @@ test_wheel_horizontal :: proc(t: ^testing.T) {
 	testing.expect(t, abs(r.pos.x - (-48)) < EPS, "cells moved left by the offset")
 }
 
+// A grow scroller in a bounded parent must take the parent's leftover,
+// not its content size: its content is not its shrink floor on the
+// scroll axis. (Regression: the scroll demo's list kept its full
+// 1008px content height in a 560px window and pushed the footer out.)
+sc_bound_root, sc_bound_head, sc_bound_foot: niello.Unit
+sc_bound_head_i, sc_bound_foot_i: niello.Instance
+
+@(test)
+test_grow_scroller_takes_leftover_not_content :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&sc_bound_root, niello.NO_UNIT, {
+		layout = niello.Layout.Top_To_Bottom,
+		size   = niello.Size{niello.fixed(400), niello.fixed(300)},
+	})
+	niello.mint(&sc_bound_head, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(400), niello.fixed(50)},
+	})
+	niello.mint(&sc_outer, niello.NO_UNIT, {
+		layout = niello.Layout.Top_To_Bottom,
+		size   = niello.Size{niello.grow(), niello.grow()},
+		scroll = niello.Scroll.Vertical,
+	})
+	niello.mint(&sc_row, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(400), niello.fixed(30)},
+	})
+	niello.mint(&sc_bound_foot, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(400), niello.fixed(40)},
+	})
+
+	plain_frame(declare_bound_tree, OUTER_PT)
+	lr, _ := niello.rect(sc_outer_i)
+	testing.expect(t, abs(lr.size.y - 210) < EPS,
+		"grow scroller takes the leftover (300 - 50 header - 40 footer), not its 300 of content")
+	fr, _ := niello.rect(sc_bound_foot_i)
+	testing.expect(t, abs(fr.pos.y - 260) < EPS, "the footer stays inside the parent")
+	ov := niello.test_overflow(sc_outer_i)
+	testing.expect(t, abs(ov.y - 90) < EPS, "the excess is the scroll range (300 - 210)")
+
+	// And it actually scrolls, clamped to that range.
+	wheel_frame(declare_bound_tree, OUTER_PT, {0, 1})
+	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 48}, "wheel scrolls it")
+	wheel_frame(declare_bound_tree, OUTER_PT, {0, 10})
+	testing.expect(t, niello.scroll_offset(sc_outer_i) == niello.Vec2{0, 90},
+		"clamped at the leftover-derived range")
+}
+
+declare_bound_tree :: proc() {
+	if _, ok := niello.begin(sc_bound_root); ok {
+		sc_bound_head_i = niello.show(sc_bound_head)
+		if oi, ok2 := niello.begin(sc_outer); ok2 {
+			sc_outer_i = oi
+			for k in 0 ..< 10 {
+				niello.show(sc_row, niello.key_int(k))
+			}
+		}
+		sc_bound_foot_i = niello.show(sc_bound_foot)
+	}
+}
+
 declare_strip_tree :: proc() {
 	if _, ok := niello.begin(sc_root); ok {
 		if si, ok2 := niello.begin(sc_strip); ok2 {
