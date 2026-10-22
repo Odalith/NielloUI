@@ -1239,6 +1239,16 @@ context_wake :: proc(ctx: ^Context) {
 	}
 }
 
+// wake_pending reports whether a context_wake is still unconsumed.
+// Hosts use it to decide which window is due a frame; frame_begin
+// does the consuming.
+wake_pending :: proc(ctx: ^Context) -> bool {
+	if ctx == nil {
+		return false
+	}
+	return sync.atomic_load(&ctx.wake_requested)
+}
+
 // schedule_wake_in registers an engine deadline ms from now, in engine
 // time; frame_end reports the nearest pending deadline as
 // next_wake_ms. Engine subsystems register here — tweens, transients,

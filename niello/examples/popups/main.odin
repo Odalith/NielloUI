@@ -125,7 +125,9 @@ button :: proc(key: int, text: string) -> niello.Instance {
 
 main :: proc() {
 	mint()
-	sdl.run({title = "NielloUI — popups", width = 680, height = 520}, declare)
+	ctx := niello.context_create()
+	defer niello.context_destroy(ctx)
+	sdl.run(ctx, {title = "NielloUI — popups", width = 680, height = 520}, declare)
 }
 
 declare :: proc() {

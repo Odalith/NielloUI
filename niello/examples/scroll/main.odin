@@ -173,5 +173,7 @@ declare :: proc() {
 
 main :: proc() {
 	mint_units()
-	niello_sdl.run({title = "Scroll — NielloUI", width = 720, height = 560}, declare)
+	ctx := niello.context_create()
+	defer niello.context_destroy(ctx)
+	niello_sdl.run(ctx, {title = "Scroll — NielloUI", width = 720, height = 560}, declare)
 }
