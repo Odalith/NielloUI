@@ -1,8 +1,11 @@
 // niello/sdl — SDL3 app glue + FFI bindings to the native render backend.
 //
 // The native side (see ../../native/nui.h) is a static library exposing a small C
-// API: nui_init / nui_resize / nui_set_refresh_rate / nui_render / nui_present_cached /
-// nui_register_font / nui_measure_word / nui_line_height / nui_destroy.
+// API: nui_init / nui_create_window / nui_resize / nui_set_refresh_rate /
+// nui_render / nui_present_cached / nui_register_font / nui_measure_word /
+// nui_line_height / nui_destroy_window / nui_shutdown. Multi-window (M2):
+// the device + Graphite context are shared; each window renders through
+// its own opaque Window handle.
 //
 // This package type-checks standalone; linking needs the prebuilt native
 // backend for your platform (see ../../third_party/native/README.md).
@@ -31,7 +34,10 @@ foreign import native {
 	"system:fontconfig",
 }
 
-// Native window handles for nui_init. Mirrors UiNativeHandles in
+// Window is the opaque per-window backend handle (nui_window* in C).
+Window :: distinct rawptr
+
+// Native window handles for nui_create_window. Mirrors UiNativeHandles in
 // ../../native/nui.h (field order is the ABI). The Odin side queries these
 // via SDL_GetWindowProperties; the C++ side never touches SDL.
 Native_Handles :: struct {
@@ -47,19 +53,23 @@ Native_Handles :: struct {
 
 @(default_calling_convention = "c", link_prefix = "nui_")
 foreign native {
-	// Lifecycle. handles carries the platform window handles (see above);
-	// width_px/height_px is the initial swapchain size. The Odin side owns
-	// the window and the event loop. Returns 0 on success.
-	init             :: proc(handles: ^Native_Handles, width_px, height_px: u32) -> c.int ---
-	resize           :: proc(width_px, height_px: u32) ---
-	set_refresh_rate :: proc(hz: f32) ---
-	is_resizing      :: proc() -> c.int ---
-	destroy          :: proc() ---
+	// Lifecycle (M2): init brings up the SHARED device/context once;
+	// create_window makes one window's surface + pixel cache on it. The
+	// Odin side owns the OS windows and the event loop.
+	init             :: proc() -> c.int ---
+	shutdown         :: proc() ---
+	create_window    :: proc(handles: ^Native_Handles, width_px, height_px: u32) -> Window ---
+	destroy_window   :: proc(win: Window) ---
+	resize           :: proc(win: Window, width_px, height_px: u32) ---
+	set_refresh_rate :: proc(win: Window, hz: f32) ---
+	is_resizing      :: proc(win: Window) -> c.int ---
 
-	present_cached   :: proc() -> c.int ---
+	present_cached   :: proc(win: Window) -> c.int ---
 
-	// Fully rebuild the owned pixel cache. Borrowed commands are never retained.
+	// Fully rebuild the window's owned pixel cache. Borrowed commands
+	// are never retained.
 	render :: proc(
+		win: Window,
 		cmds: [^]niello.Draw_Cmd, n_cmds: i32,
 		damage: [^]niello.Rect, n_damage: i32,
 		content_scale: f32, // device pixels per DIP point

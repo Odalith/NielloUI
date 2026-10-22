@@ -46,6 +46,8 @@ g_declare:  Declare_Proc
 g_ctx:      ^niello.Context // the window's engine context (M1; the app
                             // supplies it instead from M3 on)
 @(private)
+g_nui_win:  Window          // the window's backend handle (M2)
+@(private)
 g_window:   ^sdl.Window
 @(private)
 g_mouse:    niello.Vec2
@@ -111,8 +113,9 @@ content_scale :: proc() -> f32 {
 
 // native_handles_for_window queries the platform window handles via
 // SDL_GetWindowProperties. The C++ backend takes these instead of the
-// SDL_Window, so it never links or includes SDL.
-@(private)
+// SDL_Window, so it never links or includes SDL. Exported: the M3
+// window table calls it per window, and embedders driving their own
+// loop (see examples/twowin_smoke) need it too.
 native_handles_for_window :: proc(window: ^sdl.Window) -> Native_Handles {
 	handles := Native_Handles{}
 	props := sdl.GetWindowProperties(window)
@@ -184,9 +187,9 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 	// committed text to the focused instance (§3.17).
 	_ = sdl.StartTextInput(g_window)
 
-	// wake() plumbing: a user event type the wake hook pushes from any
-	// thread to interrupt the loop's event wait. Registration failing
-	// leaves wake_hook nil — wake() then only flags the core and
+	// context_wake plumbing: a user event type the wake hook pushes
+	// from any thread to interrupt the loop's event wait. Registration
+	// failing leaves wake_hook nil — a wake then only flags the core and
 	// discovery waits for the next natural wake.
 	g_wake_event_type = sdl.RegisterEvents(1)
 	if g_wake_event_type != max(u32) {
@@ -195,8 +198,13 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 	handles := native_handles_for_window(g_window)
 	px_w, px_h: i32
 	sdl.GetWindowSizeInPixels(g_window, &px_w, &px_h)
-	if init(&handles, u32(px_w), u32(px_h)) != 0 {
+	if init() != 0 {
 		fmt.println("nui_init failed")
+		return .FAILURE
+	}
+	g_nui_win = create_window(&handles, u32(px_w), u32(px_h))
+	if g_nui_win == nil {
+		fmt.println("nui_create_window failed")
 		return .FAILURE
 	}
 
@@ -210,7 +218,7 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 	if display != 0 {
 		mode := sdl.GetCurrentDisplayMode(display)
 		if mode != nil && mode.refresh_rate > 0 {
-			set_refresh_rate(mode.refresh_rate)
+			set_refresh_rate(g_nui_win, mode.refresh_rate)
 		}
 	}
 
@@ -223,7 +231,7 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 
 	// Events only retain the latest size; layout follows the single reconfiguration.
 	if g_pending_size {
-		resize(u32(max(g_pixel_width, 0)), u32(max(g_pixel_height, 0)))
+		resize(g_nui_win, u32(max(g_pixel_width, 0)), u32(max(g_pixel_height, 0)))
 		g_content_scale = content_scale()
 		g_pending_size = false
 		g_force_render = true
@@ -293,9 +301,9 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 
 	if result.changed || g_force_render {
 		cmds := niello.draw_list()
-		g_force_render = render(raw_data(cmds), i32(len(cmds)), nil, 0, g_content_scale) == 0
+		g_force_render = render(g_nui_win, raw_data(cmds), i32(len(cmds)), nil, 0, g_content_scale) == 0
 	} else if g_wayland {
-		if present_cached() == 0 {
+		if present_cached(g_nui_win) == 0 {
 			// Retry through a complete current frame after a failed update/acquire.
 			g_force_render = true
 		}
@@ -397,7 +405,7 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 		if display != 0 {
 			mode := sdl.GetCurrentDisplayMode(display)
 			if mode != nil && mode.refresh_rate > 0 {
-				set_refresh_rate(mode.refresh_rate)
+				set_refresh_rate(g_nui_win, mode.refresh_rate)
 			}
 		}
 	}
@@ -408,7 +416,8 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 @(private)
 app_quit :: proc "c" (appstate: rawptr, result: sdl.AppResult) {
 	context = runtime.default_context()
-	destroy()
+	destroy_window(g_nui_win)
+	shutdown()
 	if g_ctx != nil {
 		niello.context_destroy(g_ctx)
 		g_ctx = nil

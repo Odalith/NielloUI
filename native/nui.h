@@ -73,24 +73,37 @@ typedef struct UiNativeHandles {
     void* cocoa_layer;
 } UiNativeHandles;
 
-// Lifecycle. handles carries the platform window handles (see above);
-// width_px/height_px is the initial swapchain size. The Odin side owns the
-// window and the event loop. Returns 0 on success.
-int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px);
+// Opaque per-window handle (multi-window M2). The Dawn device, the
+// Graphite context, the one recorder (used sequentially — see nui.cpp),
+// and the font registry are SHARED by every window; everything
+// surface-shaped lives behind this handle.
+typedef struct nui_window nui_window;
+
+// Shared bring-up: Dawn instance/device + Graphite context + recorder.
+// Call once, before any window exists. Returns 0 on success.
+int32_t nui_init(void);
+
+// Create one window's surface + owned pixel cache on the shared device.
+// handles carries the platform window handles (see above);
+// width_px/height_px is the initial swapchain size. The Odin side owns
+// the OS window and the event loop. NULL on failure.
+nui_window* nui_create_window(const UiNativeHandles* handles,
+                              uint32_t width_px, uint32_t height_px);
+void nui_destroy_window(nui_window* win);
 
 // Reconfigure once per host iteration, before layout/render. Zero size suspends.
-// A size change invalidates the owned pixel cache. Fifo is used throughout.
-void nui_resize(uint32_t width_px, uint32_t height_px);
-void nui_set_refresh_rate(float hz);
-int32_t nui_is_resizing(void); // retained ABI; always zero
+// A size change invalidates the window's pixel cache. Fifo is used throughout.
+void nui_resize(nui_window* win, uint32_t width_px, uint32_t height_px);
+void nui_set_refresh_rate(nui_window* win, float hz);
+int32_t nui_is_resizing(nui_window* win); // retained ABI; always zero
 
-// Fully repaint the owned GPU texture, then copy/present it. No pointers are
-// retained. Damage is currently ignored because repaint clears the whole image.
-// content_scale is device pixels per DIP. Returns 1 on successful presentation.
-int32_t nui_render(const UiDrawCmd* cmds, int32_t n_cmds,
+// Fully repaint the window's GPU texture, then copy/present it. No pointers
+// are retained. Damage is currently ignored because repaint clears the whole
+// image. content_scale is device pixels per DIP. Returns 1 on presentation.
+int32_t nui_render(nui_window* win, const UiDrawCmd* cmds, int32_t n_cmds,
                 const UiRect* damage, int32_t n_damage, float content_scale);
 // Paced copy/present only; returns 0 if unavailable or unsuccessful. No replay.
-int32_t nui_present_cached(void);
+int32_t nui_present_cached(nui_window* win);
 
 // Fonts. Families are registered once, cold; the backend caches
 // (family, weight, slant, size) -> SkFont internally. Family 0 is the
@@ -101,8 +114,9 @@ float nui_measure_word(uint32_t family, int32_t weight, int32_t slant, float siz
                        const uint8_t* text, int64_t len);
 float nui_line_height(uint32_t family, int32_t weight, int32_t slant, float size_px);
 
-// Teardown. Does NOT destroy the SDL window (Odin owns it).
-void nui_destroy(void);
+// Shared teardown. Destroy all windows first. Does NOT destroy the
+// SDL windows (Odin owns them).
+void nui_shutdown(void);
 
 #ifdef __cplusplus
 }

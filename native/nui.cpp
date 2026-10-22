@@ -1,9 +1,12 @@
 // nui.cpp — NielloUI native render backend (static lib).
 //
-// Owns: the Dawn instance/device, the Skia Graphite context + recorder, the
-// swapchain surface, and Draw_Cmd replay. No SDL on this side: the Odin side
-// passes platform window handles (UiNativeHandles) at init. The event loop,
-// window lifecycle, input, and frame pacing policy all live in Odin.
+// Owns: the Dawn instance/device, the Skia Graphite context, and Draw_Cmd
+// replay. Multi-window (M2): the device, the Graphite context, the ONE
+// recorder, and the font registry are shared process-wide; each window's
+// surface + owned pixel cache lives in its own nui_window. No SDL on this
+// side: the Odin side passes platform window handles (UiNativeHandles) at
+// window creation. The event loop, window lifecycle, input, and frame
+// pacing policy all live in Odin.
 
 #include "nui.h"
 #include "util.h"
@@ -80,22 +83,18 @@ SkFontMgr* GetFontMgr() {
 
 namespace {
 
-struct App {
+// Shared: one per process, behind nui_init/nui_shutdown.
+struct Shared {
     skgpu::graphite::DawnBackendContext backendContext;
     std::unique_ptr<skgpu::graphite::Context> context;
+    // ONE recorder for all windows, used SEQUENTIALLY from the host's
+    // one UI thread: record window A, snap, submit; record window B,
+    // snap, submit. A Recorder is single-owner (not concurrent), which
+    // sequential use satisfies — and sharing keeps ONE glyph atlas /
+    // strike cache for text every window shows, instead of duplicating
+    // them per window.
     std::unique_ptr<skgpu::graphite::Recorder> recorder;
-
-    wgpu::Surface surface;
-    wgpu::SurfaceConfiguration surfaceConfig{};
-
-    // All GPU work is completed before cache retirement or surface reconfiguration.
-    wgpu::Texture cacheTexture;
-    sk_sp<SkSurface> cacheSurface;
-    bool cacheValid = false;
-    bool suspended = false;
-    uint64_t targetFrameTimeNs = 1'000'000'000 / 60;
-    uint64_t nextFrameTimeNs = 0;
-    uint64_t replays = 0, copies = 0, configurations = 0, acquireFailures = 0;
+    int window_count = 0;
     bool trace = std::getenv("NUI_TRACE") != nullptr;
 
     // Font registry. Families are registered cold (once); the (family,
@@ -131,7 +130,7 @@ struct App {
     std::unordered_map<FontKey, SkFont, FontKeyHash> font_cache;
 };
 
-App g_app;
+Shared g_shared;
 
 uint64_t NowNs() {
     return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -151,16 +150,16 @@ SkFont* ResolveFont(uint32_t family, int32_t weight, int32_t slant, float size) 
     if (slant < 0 || slant > 2) slant = 0;
     if (!(size > 0)) size = 16.0f;
 
-    App::FontKey key{family, weight, slant, size};
-    auto it = g_app.font_cache.find(key);
-    if (it != g_app.font_cache.end()) return &it->second;
+    Shared::FontKey key{family, weight, slant, size};
+    auto it = g_shared.font_cache.find(key);
+    if (it != g_shared.font_cache.end()) return &it->second;
 
     SkFontMgr* mgr = GetFontMgr();
     sk_sp<SkTypeface> tf;
     if (mgr) {
-        auto fit = g_app.families.find(family);
-        if (fit != g_app.families.end()) {
-            const App::FontFamily& fam = fit->second;
+        auto fit = g_shared.families.find(family);
+        if (fit != g_shared.families.end()) {
+            const Shared::FontFamily& fam = fit->second;
             if (fam.is_name) {
                 // System family: the manager's closest-match fallback applies.
                 SkFontStyle style(weight, SkFontStyle::kNormal_Width,
@@ -192,7 +191,7 @@ SkFont* ResolveFont(uint32_t family, int32_t weight, int32_t slant, float size) 
     }
     if (!tf) return nullptr;
     SkFont font(tf, size);
-    auto ins = g_app.font_cache.emplace(key, font);
+    auto ins = g_shared.font_cache.emplace(key, font);
     return &ins.first->second;
 }
 
@@ -334,113 +333,137 @@ void ReplayCommands(SkCanvas* canvas, const UiDrawCmd* cmds, int32_t n,
     canvas->restore();
 }
 
+} // namespace
+
+// Per-window state: this struct IS the opaque nui_window. Everything
+// surface-shaped lives here; the shared device/context/recorder/fonts
+// are in g_shared above.
+struct nui_window {
+    wgpu::Surface surface;
+    wgpu::SurfaceConfiguration surfaceConfig{};
+
+    // All GPU work is completed before cache retirement or surface reconfiguration.
+    wgpu::Texture cacheTexture;
+    sk_sp<SkSurface> cacheSurface;
+    bool cacheValid = false;
+    bool suspended = false;
+    uint64_t targetFrameTimeNs = 1'000'000'000 / 60;
+    uint64_t nextFrameTimeNs = 0;
+    uint64_t replays = 0, copies = 0, configurations = 0, acquireFailures = 0;
+};
+
+namespace {
+
 // ---- frame -----------------------------------------------------------------
 
 // Wait for direct Dawn copies too: Graphite's CPU synchronization alone does
 // not cover work submitted after its last submission. The callback owns its
 // result storage even if WaitAny fails before invoking it.
 bool DrainQueue() {
-    App& app = g_app;
+    Shared& sh = g_shared;
     auto success = std::make_shared<bool>(false);
-    auto future = app.backendContext.fQueue.OnSubmittedWorkDone(
+    auto future = sh.backendContext.fQueue.OnSubmittedWorkDone(
         wgpu::CallbackMode::WaitAnyOnly,
         [success](wgpu::QueueWorkDoneStatus status, wgpu::StringView) {
             *success = status == wgpu::QueueWorkDoneStatus::Success;
         });
-    auto status = app.backendContext.fInstance.WaitAny(future, UINT64_MAX);
+    auto status = sh.backendContext.fInstance.WaitAny(future, UINT64_MAX);
     return status == wgpu::WaitStatus::Success && *success;
 }
 
-void Trace() {
-    auto& a = g_app;
-    if (a.trace) fprintf(stderr,
+void Trace(const nui_window& w) {
+    if (g_shared.trace) fprintf(stderr,
         "nui: replays=%llu copies=%llu configurations=%llu acquire_failures=%llu size=%ux%u valid=%d\n",
-        (unsigned long long)a.replays, (unsigned long long)a.copies,
-        (unsigned long long)a.configurations, (unsigned long long)a.acquireFailures,
-        a.surfaceConfig.width, a.surfaceConfig.height, a.cacheValid);
+        (unsigned long long)w.replays, (unsigned long long)w.copies,
+        (unsigned long long)w.configurations, (unsigned long long)w.acquireFailures,
+        w.surfaceConfig.width, w.surfaceConfig.height, w.cacheValid);
 }
 
-void Pace() {
-    auto& a = g_app;
+void Pace(nui_window& w) {
     auto now = NowNs();
-    if (now < a.nextFrameTimeNs)
-        std::this_thread::sleep_for(std::chrono::nanoseconds(a.nextFrameTimeNs - now));
-    a.nextFrameTimeNs = NowNs() + a.targetFrameTimeNs;
+    if (now < w.nextFrameTimeNs)
+        std::this_thread::sleep_for(std::chrono::nanoseconds(w.nextFrameTimeNs - now));
+    w.nextFrameTimeNs = NowNs() + w.targetFrameTimeNs;
 }
 
-bool EnsureCache() {
-    auto& a = g_app;
-    if (a.cacheSurface) return true;
+bool EnsureCache(nui_window& w) {
+    Shared& sh = g_shared;
+    if (w.cacheSurface) return true;
     wgpu::TextureDescriptor desc{};
     desc.label = "Niello owned frame cache";
-    desc.size = {a.surfaceConfig.width, a.surfaceConfig.height, 1};
-    desc.format = a.surfaceConfig.format;
+    desc.size = {w.surfaceConfig.width, w.surfaceConfig.height, 1};
+    desc.format = w.surfaceConfig.format;
     desc.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc |
                  wgpu::TextureUsage::TextureBinding;
-    a.cacheTexture = a.backendContext.fDevice.CreateTexture(&desc);
-    if (!a.cacheTexture) return false;
-    auto backend = skgpu::graphite::BackendTextures::MakeDawn(a.cacheTexture.Get());
-    a.cacheSurface = SkSurfaces::WrapBackendTexture(
-        a.recorder.get(), backend, SkColorSpace::MakeSRGB(), nullptr);
-    return bool(a.cacheSurface);
+    w.cacheTexture = sh.backendContext.fDevice.CreateTexture(&desc);
+    if (!w.cacheTexture) return false;
+    auto backend = skgpu::graphite::BackendTextures::MakeDawn(w.cacheTexture.Get());
+    // The shared recorder records into this window's cache surface; the
+    // recording is snapped + submitted before another window records.
+    w.cacheSurface = SkSurfaces::WrapBackendTexture(
+        sh.recorder.get(), backend, SkColorSpace::MakeSRGB(), nullptr);
+    return bool(w.cacheSurface);
 }
 
-bool PresentCache() {
-    auto& a = g_app;
-    if (a.suspended || !a.cacheValid || !a.cacheSurface ||
-        a.cacheTexture.GetWidth() != a.surfaceConfig.width ||
-        a.cacheTexture.GetHeight() != a.surfaceConfig.height ||
-        a.cacheTexture.GetFormat() != a.surfaceConfig.format) return false;
+bool PresentCache(nui_window& w) {
+    Shared& sh = g_shared;
+    if (w.suspended || !w.cacheValid || !w.cacheSurface ||
+        w.cacheTexture.GetWidth() != w.surfaceConfig.width ||
+        w.cacheTexture.GetHeight() != w.surfaceConfig.height ||
+        w.cacheTexture.GetFormat() != w.surfaceConfig.format) return false;
     wgpu::SurfaceTexture acquired;
-    a.surface.GetCurrentTexture(&acquired);
+    w.surface.GetCurrentTexture(&acquired);
     if ((acquired.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal &&
          acquired.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) ||
         !acquired.texture) {
-        ++a.acquireFailures;
-        Trace();
+        ++w.acquireFailures;
+        Trace(w);
         return false;
     }
-    if (acquired.texture.GetWidth() != a.surfaceConfig.width ||
-        acquired.texture.GetHeight() != a.surfaceConfig.height ||
-        acquired.texture.GetFormat() != a.surfaceConfig.format) return false;
-    auto encoder = a.backendContext.fDevice.CreateCommandEncoder();
+    if (acquired.texture.GetWidth() != w.surfaceConfig.width ||
+        acquired.texture.GetHeight() != w.surfaceConfig.height ||
+        acquired.texture.GetFormat() != w.surfaceConfig.format) return false;
+    auto encoder = sh.backendContext.fDevice.CreateCommandEncoder();
     if (!encoder) return false;
     wgpu::TexelCopyTextureInfo src{}, dst{};
-    src.texture = a.cacheTexture;
+    src.texture = w.cacheTexture;
     dst.texture = acquired.texture;
-    wgpu::Extent3D size{a.surfaceConfig.width, a.surfaceConfig.height, 1};
+    wgpu::Extent3D size{w.surfaceConfig.width, w.surfaceConfig.height, 1};
     encoder.CopyTextureToTexture(&src, &dst, &size);
     auto commands = encoder.Finish();
     if (!commands) return false;
     // Graphite submits on this very queue before this copy; queue order makes
     // the complete repaint visible. Bound outstanding work before returning.
-    a.backendContext.fQueue.Submit(1, &commands);
-    if (!DrainQueue()) { a.cacheValid = false; return false; }
-    if (a.surface.Present() != wgpu::Status::Success) return false;
-    ++a.copies;
-    if (a.copies % 60 == 0) Trace();
+    sh.backendContext.fQueue.Submit(1, &commands);
+    if (!DrainQueue()) { w.cacheValid = false; return false; }
+    if (w.surface.Present() != wgpu::Status::Success) return false;
+    ++w.copies;
+    if (w.copies % 60 == 0) Trace(w);
     return true;
 }
 
-void ResizeSurface(uint32_t width, uint32_t height) {
-    auto& a = g_app;
-    a.suspended = width == 0 || height == 0;
-    if (a.suspended) { a.cacheValid = false; return; }
-    if (a.surfaceConfig.width == width && a.surfaceConfig.height == height) return;
-    a.cacheValid = false;
-    if (!a.context->submit(skgpu::graphite::SyncToCpu::kYes) || !DrainQueue()) {
-        a.suspended = true;
+void ResizeSurface(nui_window& w, uint32_t width, uint32_t height) {
+    w.suspended = width == 0 || height == 0;
+    if (w.suspended) { w.cacheValid = false; return; }
+    if (w.surfaceConfig.width == width && w.surfaceConfig.height == height) return;
+    w.cacheValid = false;
+    // The queue is SHARED: this sync drains every window's outstanding
+    // work, so reconfiguring one window briefly stalls the others'
+    // submissions. Rare and short; accepted for v1 (the marker-scoped
+    // wait in DrainQueue's helper is the known refinement).
+    if (!g_shared.context->submit(skgpu::graphite::SyncToCpu::kYes) || !DrainQueue()) {
+        w.suspended = true;
         fprintf(stderr, "nui: GPU synchronization failed during resize; presentation suspended\n");
         return;
     }
     // Release Graphite's wrapper before its externally owned Dawn texture.
-    a.cacheSurface.reset();
-    a.cacheTexture = nullptr;
-    a.surfaceConfig.width = width;
-    a.surfaceConfig.height = height;
-    a.surface.Configure(&a.surfaceConfig);
-    ++a.configurations;
-    Trace();
+    w.cacheSurface.reset();
+    w.cacheTexture = nullptr;
+    w.surfaceConfig.width = width;
+    w.surfaceConfig.height = height;
+    w.surface.Configure(&w.surfaceConfig);
+    ++w.configurations;
+    Trace(w);
 }
 
 } // namespace
@@ -479,114 +502,142 @@ const char* FormatName(wgpu::TextureFormat f) {
     }
 }
 
-int32_t nui_init(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px) {
-    App& app = g_app;
-    if (!handles || !handles->driver) {
-        printf("nui_init: null handles\n");
-        return -1;
-    }
+int32_t nui_init(void) {
+    Shared& sh = g_shared;
+    if (sh.context) return 0; // already up
 
     // 1. Dawn backend context.
-    app.backendContext = GetDawnContext();
+    sh.backendContext = GetDawnContext();
 
-    // 2. Graphite context + recorder.
+    // 2. Graphite context + the one shared recorder.
     skgpu::graphite::ContextOptions options;
-    app.context = skgpu::graphite::ContextFactory::MakeDawn(app.backendContext, options);
-    if (!app.context) {
+    sh.context = skgpu::graphite::ContextFactory::MakeDawn(sh.backendContext, options);
+    if (!sh.context) {
         printf("nui_init: could not make Graphite context\n");
-        nui_destroy();
+        nui_shutdown();
         return -1;
     }
-    app.recorder = app.context->makeRecorder();
-    if (!app.recorder) {
+    sh.recorder = sh.context->makeRecorder();
+    if (!sh.recorder) {
         printf("nui_init: could not make recorder\n");
-        nui_destroy();
+        nui_shutdown();
         return -1;
     }
+    return 0;
+}
 
-    // 3. Dawn surface from the platform handles (no SDL on this side).
-    app.surface = CreateDawnSurface(app.backendContext.fInstance, handles);
-    if (!app.surface) {
-        printf("nui_init: could not create Dawn surface\n");
-        nui_destroy();
-        return -1;
+nui_window* nui_create_window(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px) {
+    Shared& sh = g_shared;
+    if (!sh.context) {
+        printf("nui_create_window: nui_init has not run\n");
+        return nullptr;
+    }
+    if (!handles || !handles->driver) {
+        printf("nui_create_window: null handles\n");
+        return nullptr;
+    }
+    auto win = std::make_unique<nui_window>();
+
+    // Dawn surface from the platform handles (no SDL on this side).
+    win->surface = CreateDawnSurface(sh.backendContext.fInstance, handles);
+    if (!win->surface) {
+        printf("nui_create_window: could not create Dawn surface\n");
+        return nullptr;
     }
 
     wgpu::SurfaceCapabilities capabilities;
-    if (!app.surface.GetCapabilities(app.backendContext.fDevice.GetAdapter(), &capabilities)) {
-        fprintf(stderr, "nui_init: surface capability query failed\n");
-        nui_destroy();
-        return -1;
+    if (!win->surface.GetCapabilities(sh.backendContext.fDevice.GetAdapter(), &capabilities)) {
+        fprintf(stderr, "nui_create_window: surface capability query failed\n");
+        return nullptr;
     }
     if (!(capabilities.usages & wgpu::TextureUsage::CopyDst) || capabilities.formatCount == 0) {
-        fprintf(stderr, "nui_init: B1 requires a surface supporting CopyDst and a texture format\n");
-        nui_destroy();
-        return -1;
+        fprintf(stderr, "nui_create_window: B1 requires a surface supporting CopyDst and a texture format\n");
+        return nullptr;
     }
 
-    app.surfaceConfig.device = app.backendContext.fDevice;
-    app.surfaceConfig.format = PickSurfaceFormat(capabilities);
-    if (app.surfaceConfig.format == wgpu::TextureFormat::Undefined) {
-        fprintf(stderr, "nui_init: surface offers no BGRA8Unorm/RGBA8Unorm format (required for correct color)\n");
-        nui_destroy();
-        return -1;
+    win->surfaceConfig.device = sh.backendContext.fDevice;
+    win->surfaceConfig.format = PickSurfaceFormat(capabilities);
+    if (win->surfaceConfig.format == wgpu::TextureFormat::Undefined) {
+        fprintf(stderr, "nui_create_window: surface offers no BGRA8Unorm/RGBA8Unorm format (required for correct color)\n");
+        return nullptr;
     }
-    printf("nui: surface format %s\n", FormatName(app.surfaceConfig.format));
-    app.surfaceConfig.usage = wgpu::TextureUsage::CopyDst;
-    app.surfaceConfig.width = width_px;
-    app.surfaceConfig.height = height_px;
-    app.surfaceConfig.presentMode = wgpu::PresentMode::Fifo;
-    app.suspended = width_px == 0 || height_px == 0;
-    if (!app.suspended) {
-        app.surface.Configure(&app.surfaceConfig);
-        ++app.configurations;
+    printf("nui: surface format %s\n", FormatName(win->surfaceConfig.format));
+    win->surfaceConfig.usage = wgpu::TextureUsage::CopyDst;
+    win->surfaceConfig.width = width_px;
+    win->surfaceConfig.height = height_px;
+    win->surfaceConfig.presentMode = wgpu::PresentMode::Fifo;
+    win->suspended = width_px == 0 || height_px == 0;
+    if (!win->suspended) {
+        win->surface.Configure(&win->surfaceConfig);
+        ++win->configurations;
     }
 
     // Refresh rate defaults to 60 Hz; the Odin side overrides it via
     // nui_set_refresh_rate at startup and on display changes.
-    app.nextFrameTimeNs = NowNs();
-    return 0;
+    win->nextFrameTimeNs = NowNs();
+    ++sh.window_count;
+    return win.release();
 }
 
-void nui_resize(uint32_t width_px, uint32_t height_px) {
-    App& app = g_app;
-    if (!app.context) return;
-    ResizeSurface(width_px, height_px);
+void nui_destroy_window(nui_window* win) {
+    if (!win) return;
+    Shared& sh = g_shared;
+    // Finish GPU work, then tear down. The queue is shared, so this
+    // drains every window's outstanding submissions (same discipline
+    // as resize). The SDL window is NOT destroyed here: Odin owns it.
+    if (sh.context) {
+        sh.context->submit(skgpu::graphite::SyncToCpu::kYes);
+    }
+    if (sh.backendContext.fQueue) DrainQueue();
+    Trace(*win);
+    win->cacheValid = false;
+    win->cacheSurface.reset(); // Graphite's wrapper before its Dawn texture
+    win->cacheTexture = nullptr;
+    win->surface = nullptr;
+    win->surfaceConfig.device = nullptr; // drop the device ref
+    win->surfaceConfig = {};
+    --sh.window_count;
+    delete win;
 }
 
-void nui_set_refresh_rate(float hz) {
-    if (hz > 0 && hz < 300) g_app.targetFrameTimeNs = (uint64_t)(1e9 / hz);
+void nui_resize(nui_window* win, uint32_t width_px, uint32_t height_px) {
+    if (!win || !g_shared.context) return;
+    ResizeSurface(*win, width_px, height_px);
 }
 
-int32_t nui_is_resizing(void) { return 0; } // Fifo throughout; no debounce.
-
-int32_t nui_present_cached(void) {
-    if (!g_app.context) return 0;
-    Pace();
-    if (g_app.suspended) return 0;
-    return PresentCache() ? 1 : 0;
+void nui_set_refresh_rate(nui_window* win, float hz) {
+    if (win && hz > 0 && hz < 300) win->targetFrameTimeNs = (uint64_t)(1e9 / hz);
 }
 
-int32_t nui_render(const UiDrawCmd* cmds, int32_t n_cmds,
+int32_t nui_is_resizing(nui_window* win) { (void)win; return 0; } // Fifo throughout; no debounce.
+
+int32_t nui_present_cached(nui_window* win) {
+    if (!win || !g_shared.context) return 0;
+    Pace(*win);
+    if (win->suspended) return 0;
+    return PresentCache(*win) ? 1 : 0;
+}
+
+int32_t nui_render(nui_window* win, const UiDrawCmd* cmds, int32_t n_cmds,
                 const UiRect* damage, int32_t n_damage, float content_scale) {
-    auto& a = g_app;
+    Shared& sh = g_shared;
     (void)damage; (void)n_damage; // Full clear requires full replay.
-    if (!a.context) return 0;
-    Pace();
-    if (a.suspended) return 0;
-    a.cacheValid = false;
-    if (!EnsureCache()) return 0;
-    auto canvas = a.cacheSurface->getCanvas();
+    if (!win || !sh.context) return 0;
+    Pace(*win);
+    if (win->suspended) return 0;
+    win->cacheValid = false;
+    if (!EnsureCache(*win)) return 0;
+    auto canvas = win->cacheSurface->getCanvas();
     canvas->clear(SkColors::kBlack);
     ReplayCommands(canvas, cmds, n_cmds, nullptr, 0, content_scale);
-    ++a.replays;
-    auto recording = a.recorder->snap();
+    ++win->replays;
+    auto recording = sh.recorder->snap();
     if (!recording) return 0;
     skgpu::graphite::InsertRecordingInfo info;
     info.fRecording = recording.get();
-    if (!a.context->insertRecording(info) || !a.context->submit()) return 0;
-    a.cacheValid = true;
-    return PresentCache() ? 1 : 0;
+    if (!sh.context->insertRecording(info) || !sh.context->submit()) return 0;
+    win->cacheValid = true;
+    return PresentCache(*win) ? 1 : 0;
 }
 
 void nui_register_font(uint32_t family, const char* path) {
@@ -596,21 +647,21 @@ void nui_register_font(uint32_t family, const char* path) {
         printf("nui_register_font: could not load '%s'\n", path);
         return;
     }
-    App::FontFamily& fam = g_app.families[family];
+    Shared::FontFamily& fam = g_shared.families[family];
     fam.is_name = false;
     fam.data = data;
     fam.name.clear();
     // Registration is cold; drop cached fonts so a re-registration can't go stale.
-    g_app.font_cache.clear();
+    g_shared.font_cache.clear();
 }
 
 void nui_register_font_family(uint32_t family, const char* name) {
     if (!name) return;
-    App::FontFamily& fam = g_app.families[family];
+    Shared::FontFamily& fam = g_shared.families[family];
     fam.is_name = true;
     fam.name = name;
     fam.data.reset();
-    g_app.font_cache.clear();
+    g_shared.font_cache.clear();
 }
 
 float nui_measure_word(uint32_t family, int32_t weight, int32_t slant, float size_px,
@@ -628,25 +679,23 @@ float nui_line_height(uint32_t family, int32_t weight, int32_t slant, float size
     return -metrics.fAscent + metrics.fDescent + metrics.fLeading;
 }
 
-void nui_destroy(void) {
-    App& app = g_app;
-    // Finish GPU work, then tear down. The SDL window is NOT destroyed here:
-    // the Odin side owns it.
-    if (app.context) {
-        app.context->submit(skgpu::graphite::SyncToCpu::kYes);
+void nui_shutdown(void) {
+    Shared& sh = g_shared;
+    // Finish GPU work, then tear down the shared device side. Windows
+    // must already be destroyed (a live window's surface holds device
+    // refs; wgpu handles are refcounted, so a straggler degrades to a
+    // leak, not a crash — but it IS a caller bug, so say so).
+    if (sh.window_count > 0) {
+        fprintf(stderr, "nui_shutdown: %d window(s) still live (caller bug)\n", sh.window_count);
     }
-    if (app.backendContext.fQueue) DrainQueue();
-    Trace();
-    app.cacheValid = false;
-    app.cacheSurface.reset();
-    app.cacheTexture = nullptr;
-    app.families.clear();
-    app.font_cache.clear();
-    app.recorder.reset();
-    app.context.reset();
-    app.surface = nullptr;
-    app.surfaceConfig.device = nullptr; // drop the device ref before shutdown
-    app.surfaceConfig = {};
-    app.backendContext = {};
-    app = App{};
+    if (sh.context) {
+        sh.context->submit(skgpu::graphite::SyncToCpu::kYes);
+    }
+    if (sh.backendContext.fQueue) DrainQueue();
+    sh.families.clear();
+    sh.font_cache.clear();
+    sh.recorder.reset();
+    sh.context.reset();
+    sh.backendContext = {};
+    sh = Shared{};
 }
