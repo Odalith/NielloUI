@@ -391,6 +391,7 @@ Key_Event :: struct {
 // traversal (Tab; Shift reverses) and activation (Space/Enter press
 // the focused instance). Every other key passes through to the
 // focused instance untouched.
+SCANCODE_ESCAPE   :: 41
 SCANCODE_TAB      :: 43
 SCANCODE_RETURN   :: 40
 SCANCODE_KP_ENTER :: 88
@@ -702,6 +703,94 @@ end :: proc(i: Instance, open: bool) {
 	pop(&g.child_counts)
 }
 
+// Placement picks where a popup root sits relative to its anchor
+// (§3.19). At ignores the anchor and uses Popup_Opts.at; Center
+// ignores it too and centers on the viewport (dialogs).
+Placement :: enum {
+	Below,
+	Above,
+	Left,
+	Right,
+	At,
+	Center,
+}
+
+// Popup_Opts tunes a popup root (§3.19). The zero value is a plain
+// menu: non-modal, light-dismiss on, flush against the anchor.
+Popup_Opts :: struct {
+	modal: bool, // absorb outside presses; scope Tab traversal;
+	             // focus moves in on open, restores on close
+	stay:  bool, // no light dismiss: outside presses and Esc leave
+	             // it open (toasts, pinned panels)
+	gap:   f32,  // space between anchor and popup, on the
+	             // placement axis
+	at:    Vec2, // the placement point for Placement.At
+}
+
+// begin_popup declares an overlay root (§3.19): a container whose
+// node is parented to the layer, not to the declaring code's
+// container — a dropdown declared inside a scrolled column escapes
+// its ancestors' layout and clips, and its identity (hashed against
+// the layer seed) is stable wherever it is declared from. Children
+// declared inside lay out normally within the popup root.
+//
+// The root is sized by its own style with one exception: Fit (and
+// Grow, which has no parent to grow into) resolves to the content
+// size. Placement is resolved in pass F against the anchor's last
+// committed rect: Below/Above/Left/Right sit against the anchor's
+// edge (plus opts.gap), flipping to the opposite side when the
+// content would leave the viewport there and fits on the other
+// side, and clamped into the viewport on the cross axis.
+//
+// open == false means the anchor instance has no committed rect
+// (it was never shown, or left the tree): declare children anyway
+// or not, exactly like begin — the subtree is culled either way.
+@(deferred_out = end)
+begin_popup :: proc(
+	unit: Unit,
+	anchor: Instance,
+	placement: Placement,
+	opts: Popup_Opts = {},
+	key: Key = 0,
+	with: With = {},
+) -> (
+	i:    Instance,
+	open: bool,
+) {
+	anchor_ok := placement == .At || placement == .Center || anchor in g.instances
+	// A popup declared from inside a culled subtree stays culled,
+	// like any other declaration there.
+	decl_culled := len(g.stack) > 0 && g.nodes[g.stack[len(g.stack) - 1]].culled
+	ord := g.popup_ordinal
+	g.popup_ordinal += 1
+	new_inst, idx := declare_as(
+		unit, key, with, true, -1, ord, POPUP_PARENT_SEED, decl_culled || !anchor_ok,
+	)
+	i = new_inst
+	nd := &g.nodes[idx]
+	nd.is_popup = true
+	nd.popup_anchor = anchor
+	nd.popup_place = placement
+	nd.popup_at = opts.at
+	nd.popup_gap = opts.gap
+	append(&g.popups, Popup_Rec{root_idx = idx, id = i, modal = opts.modal, stay = opts.stay})
+	open = anchor_ok && !decl_culled
+	append(&g.stack, idx)
+	append(&g.child_counts, 0)
+	return i, open
+}
+
+// dismiss_requested reports that this frame's dispatch asked for
+// the popup root's dismissal (§3.19): a left press outside it (or
+// outside every popup above the pressed one), or Esc. The engine
+// owns no open state — the query is the whole mechanism: stop
+// declaring the popup and it is closed. Valid for the one declare
+// following the dispatch, like clicked.
+dismiss_requested :: proc(i: Instance) -> bool {
+	_, ok := g.dismiss_flags[i]
+	return ok
+}
+
 frame_begin :: proc(input: Input, dt: f32) {
 	// Engine time advances by the real frame delta; scheduling
 	// deadlines are stamped against it.
@@ -722,6 +811,8 @@ frame_begin :: proc(input: Input, dt: f32) {
 		delete(nd.spans)
 	}
 	clear(&g.nodes)
+	clear(&g.popups) // last frame's list; dispatch already read it
+	g.popup_ordinal = 0
 	clear(&g.stack)
 	clear(&g.child_counts)
 	clear(&g.lay)
@@ -763,6 +854,51 @@ frame_end :: proc() -> Frame_Result {
 			set_focus_id(0)
 		}
 	}
+	// Modal focus (§3.19): when the topmost modal popup changes,
+	// focus follows the session. Opening (from no modal) snapshots
+	// the current focus and moves it to the modal's first traversal
+	// candidate; closing (to no modal) restores the snapshot if it
+	// is still live. A modal swapped for another keeps the original
+	// snapshot and just re-grabs.
+	{
+		top_modal: Instance = 0
+		top_root := -1
+		for rec in g.popups {
+			if rec.modal {
+				top_modal = rec.id
+				top_root = rec.root_idx
+			}
+		}
+		if top_modal != g.modal_prev_id {
+			if g.modal_prev_id == 0 && top_modal != 0 {
+				g.modal_saved_focus = g.focus_id
+			}
+			if top_modal != 0 && top_root >= 0 {
+				for idx in top_root ..= g.subtree_end[top_root] {
+					if focus_candidate(idx) {
+						set_focus_id(g.nodes[idx].identity)
+						break
+					}
+				}
+			} else if top_modal == 0 {
+				// Session over. If the snapshot is still live it
+				// takes focus back; if not, the survival check
+				// above has already cleared focus out of the dead
+				// modal subtree, and nothing more is owed.
+				saved := g.modal_saved_focus
+				g.modal_saved_focus = 0
+				if saved != 0 {
+					for idx in 0 ..< len(g.nodes) {
+						if g.nodes[idx].identity == saved && !g.disabled_flags[idx] {
+							set_focus_id(saved)
+							break
+						}
+					}
+				}
+			}
+			g.modal_prev_id = top_modal
+		}
+	}
 	// Interaction-driven restyles don't pass through the declaration diff:
 	// the affected instances' committed rects are the damage. (A restyle
 	// that changed layout already damaged old ∪ new in pass F.)
@@ -795,6 +931,14 @@ frame_end :: proc() -> Frame_Result {
 rect :: proc(i: Instance) -> (r: Rect, ok: bool) {
 	r, ok = g.instances[i]
 	return r, ok
+}
+
+// mouse_position reads the cursor position as of this frame's
+// dispatch (one frame of latency, like every query). ok = false
+// when the cursor is outside the window. Its popup-layer use:
+// anchoring an .At popup where the user just clicked (§3.19).
+mouse_position :: proc() -> (p: Vec2, ok: bool) {
+	return g.pointer_pos, g.pointer_valid
 }
 
 // ============ interaction queries ============

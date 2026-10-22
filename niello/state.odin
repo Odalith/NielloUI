@@ -62,6 +62,9 @@ Globals :: struct {
 	// Frame inputs, latched at frame_begin.
 	viewport: Vec2,
 	dt:       f32,
+	pointer_pos:   Vec2, // last dispatch's cursor position (§3.19:
+	pointer_valid: bool, // mouse_position's source; At placement
+	                     // needs it for context menus)
 
 	// Layout scratch (parallel to nodes).
 	lay:          [dynamic]Lay,
@@ -138,6 +141,20 @@ Globals :: struct {
 	                         // (pass F); built only on frames where
 	                         // something died
 	dead_ids:        [dynamic]Instance, // recycle sweep scratch
+	// Popups (§3.19): the frame's popup roots in begin_popup call
+	// order (later = higher). Dispatch at frame_begin reads LAST
+	// frame's list (cleared after dispatch); frame_end reads this
+	// frame's for the modal focus bookkeeping.
+	popups:          [dynamic]Popup_Rec,
+	popup_ordinal:   int, // per-frame counter: the Key-0 ordinal
+	                         // fallback for popup roots
+	dismiss_flags:   map[Instance]bool, // popups whose dismissal was
+	                         // requested at this frame's dispatch;
+	                         // valid for one declare (dismiss_requested)
+	modal_prev_id:   Instance, // last frame_end's topmost modal
+	                         // popup root; 0 = no modal session
+	modal_saved_focus: Instance, // focus held when the modal
+	                         // session opened; restored when it ends
 	prev_focused:  bool, // last frame's window_focused; the falling edge
 	                     // drops press capture (input.odin)
 	input_dirty:   bool,     // interaction state changed this frame
@@ -256,6 +273,8 @@ free_globals :: proc() {
 	delete(g.instances)
 	delete(g.inst_hash)
 	delete(g.damage)
+	delete(g.popups)
+	delete(g.dismiss_flags)
 	delete(g.scroll_off)
 	delete(g.scroll_max)
 	delete(g.tweens)
@@ -380,4 +399,15 @@ identity_of :: proc(parent_id: u64, u: Unit, key: u64) -> Instance {
 	h = hash_mix(h, u64(u))
 	h = hash_mix(h, key)
 	return Instance(h)
+}
+
+// Popup_Rec is one open popup root (§3.19), recorded at declare
+// time by begin_popup. root_idx indexes the node array of the frame
+// that declared it — during the next frame_begin's dispatch, that
+// is exactly the tree being hit-tested.
+Popup_Rec :: struct {
+	root_idx: int,
+	id:       Instance,
+	modal:    bool,
+	stay:     bool, // no light dismiss (toasts, pinned panels)
 }
