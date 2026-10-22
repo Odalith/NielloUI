@@ -441,6 +441,8 @@ Scroll_Glide :: struct {
 	to:     Vec2,
 	t:      f32, // ms elapsed
 	dur:    f32, // ms
+	delay:  f32, // ms to hold `from` before easing starts (springs:
+	              // the gesture-quiet window, §3.22)
 	spring: bool, // an overscroll spring (§3.22): its target is the
 	              // range end it returns to. Wheel accumulation reads
 	              // the rendered offset while one is in flight, not

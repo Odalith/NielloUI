@@ -500,13 +500,13 @@ test_overscroll_band_and_spring :: proc(t: ^testing.T) {
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80, "parked at the end")
 	sm_frame({0, -1}) // one tick past the end
 	off := niello.scroll_offset(sc_outer_i).y
-	testing.expect(t, off > 84 && off < 100,
-		"banded: past the end (resisted), already springing back")
-	sm_frame({})
-	sm_frame({})
-	sm_frame({})
+	testing.expect(t, off > 100 && off < 108,
+		"banded and HELD at the resisted position (27.4 past the end)")
+	for _ in 0 ..< 9 {
+		sm_frame({})
+	}
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
-		"the spring lands exactly on the end")
+		"after the quiet window the spring lands exactly on the end")
 }
 
 @(test)
@@ -517,10 +517,10 @@ test_overscroll_top_end :: proc(t: ^testing.T) {
 	sm_frame({})
 	sm_frame({0, 1}) // scroll-up tick at the top: negative band
 	off := niello.scroll_offset(sc_outer_i).y
-	testing.expect(t, off < 0 && off > -27.5, "banded below zero, resisted")
-	sm_frame({})
-	sm_frame({})
-	sm_frame({})
+	testing.expect(t, off < -20 && off > -28, "banded below zero, held")
+	for _ in 0 ..< 9 {
+		sm_frame({})
+	}
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 0,
 		"springs back to zero")
 }
@@ -535,14 +535,13 @@ test_overscroll_tick_during_spring_deepens :: proc(t: ^testing.T) {
 	sm_frame({})
 	sm_frame({0, -1})
 	mid := niello.scroll_offset(sc_outer_i).y
-	sm_frame({0, -1}) // wheeling again mid-spring: the pull deepens
+	sm_frame({0, -1}) // wheeling again while held: the pull deepens
 	off := niello.scroll_offset(sc_outer_i).y
 	testing.expect(t, off > mid,
 		"accumulation reads the rendered offset during a spring")
-	sm_frame({})
-	sm_frame({})
-	sm_frame({})
-	sm_frame({})
+	for _ in 0 ..< 9 {
+		sm_frame({})
+	}
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
 		"and still settles on the end")
 }
@@ -559,4 +558,35 @@ test_scroll_to_clamps_to_range :: proc(t: ^testing.T) {
 	niello.scroll_to(sc_outer_i, {0, -50})
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 0,
 		"clamped at the top too — overscroll is never parked")
+}
+
+@(test)
+test_overscroll_holds_while_ticks_continue :: proc(t: ^testing.T) {
+	// The jitter regression (his report, 2026-10-21): slow ticking at
+	// the end must not sawtooth. While ticks keep arriving inside the
+	// quiet window the band HOLDS — no spring-back between ticks at
+	// all — and one clean spring runs when they stop.
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_overscroll_tree()
+	sm_frame({})
+	niello.scroll_to(sc_outer_i, {0, 80})
+	sm_frame({})
+	sm_frame({0, -1})
+	for _ in 0 ..< 5 {
+		sm_frame({}) // 200ms of quiet-ish frames, window is 250ms
+	}
+	off := niello.scroll_offset(sc_outer_i).y
+	testing.expect(t, off > 100, "still held out: no spring between ticks")
+	sm_frame({0, -1}) // the gesture continues: deeper, still held
+	for _ in 0 ..< 5 {
+		sm_frame({})
+	}
+	off = niello.scroll_offset(sc_outer_i).y
+	testing.expect(t, off > 110, "held at the deeper pull")
+	for _ in 0 ..< 9 {
+		sm_frame({})
+	}
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
+		"one spring, once the wheel actually stops")
 }

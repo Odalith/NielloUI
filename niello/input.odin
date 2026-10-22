@@ -915,7 +915,15 @@ step_scroll_glides :: proc() {
 	defer delete(done)
 	for id, &gl in g.scroll_glides {
 		gl.t += g.dt * 1000
-		p := gl.dur <= 0 ? f32(1) : min(gl.t / gl.dur, 1)
+		eff := gl.t - gl.delay
+		if eff < 0 {
+			// Holding (a spring's quiet window): the offset stays
+			// exactly at `from`; the glide outlives the window or
+			// a fresh tick re-arms it.
+			g.scroll_off[id] = gl.from
+			continue
+		}
+		p := gl.dur <= 0 ? f32(1) : min(eff / gl.dur, 1)
 		e := ease_out_cubic(p)
 		// Re-clamp the target against the live range every step:
 		// content may have shrunk since the tick that set it.
@@ -965,10 +973,19 @@ overscroll_raw :: proc(disp, allow: f32) -> f32 {
 	return allow * disp / (allow - disp)
 }
 
+// OVERSCROLL_QUIET_MS: the spring holds the banded position until
+// the wheel has been quiet this long. Without the hold, slow ticking
+// at the end restarted the spring on every tick and the offset
+// sawtoothed — out on the tick, partway back, out again (his bug
+// report, 2026-10-21). A gesture is a stream; the spring belongs to
+// its end, not to each tick. 250ms bridges slow notch gaps.
+OVERSCROLL_QUIET_MS :: f32(250)
+
 // apply_overscroll lands the offset on the resisted position NOW (the
-// band is direct manipulation, even on a smoothing scroller) and
-// starts the spring: a glide back to the violated range end, timed by
-// smooth_ms. The other axis keeps any wheel-glide target it had.
+// band is direct manipulation, even on a smoothing scroller) and arms
+// the spring: a glide back to the violated range end, timed by
+// smooth_ms, starting once the wheel goes quiet (each banded tick
+// re-arms it). The other axis keeps any wheel-glide target it had.
 @(private)
 apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Style) {
 	if g.scroll_glides == nil {
@@ -984,6 +1001,7 @@ apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Styl
 	g.scroll_glides[id] = Scroll_Glide{
 		from = from, to = to, t = 0,
 		dur = f32(s.smooth_ms), spring = true,
+		delay = OVERSCROLL_QUIET_MS,
 	}
 	g.scroll_off[id] = from
 }
