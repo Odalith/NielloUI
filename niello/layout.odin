@@ -129,7 +129,8 @@ popup_position :: proc(r: int) -> Vec2 {
 		}
 		return clamp_to_view(p, size, vp)
 	}
-	a, ok := g.instances[nd.popup_anchor]
+	a_rec, ok := g.instances[nd.popup_anchor]
+	a := a_rec.rect
 	if !ok {
 		// begin_popup culled this root (no committed anchor), so
 		// the position is never painted or picked; park it at the
@@ -840,30 +841,25 @@ position_and_damage :: proc() {
 	// rect — a same-size text edit or a set() restyle damages too, via the
 	// per-instance content hash.
 	if g.instances == nil {
-		g.instances = make(map[Instance]Rect)
-	}
-	if g.inst_hash == nil {
-		g.inst_hash = make(map[Instance]u64)
+		g.instances = make(map[Instance]Inst_Rec)
 	}
 	for i in 0 ..< n {
 		id := g.nodes[i].identity
 		new := Rect{g.lay[i].pos, g.lay[i].size}
 		h := content_hash(i)
-		old, ok := g.instances[id]
-		old_h := g.inst_hash[id] // 0 when absent; real hashes are never 0 here
+		old, ok := g.instances[id] // the one map op per node
 		if !ok {
 			r := new
 			r.size.x += g.lay[i].overfl.x
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
-		} else if old != new || old_h != h {
-			r := rect_union(old, new)
+		} else if old.rect != new || old.hash != h {
+			r := rect_union(old.rect, new)
 			r.size.x += g.lay[i].overfl.x
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
 		}
-		g.instances[id] = new
-		g.inst_hash[id] = h
+		g.instances[id] = Inst_Rec{rect = new, hash = h}
 	}
 	// Recycle: an instance that was committed before but not declared
 	// this frame is gone, and its last rect is damage — otherwise its
@@ -881,15 +877,14 @@ position_and_damage :: proc() {
 			g.seen_ids[g.nodes[i].identity] = true
 		}
 		clear(&g.dead_ids)
-		for id, r in g.instances {
+		for id, rec in g.instances {
 			if id not_in g.seen_ids {
 				append(&g.dead_ids, id)
-				append(&g.damage, r)
+				append(&g.damage, rec.rect)
 			}
 		}
 		for id in g.dead_ids {
 			delete_key(&g.instances, id)
-			delete_key(&g.inst_hash, id)
 		}
 	}
 }

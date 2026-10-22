@@ -941,8 +941,8 @@ frame_end :: proc() -> Frame_Result {
 	// that changed layout already damaged old ∪ new in pass F.)
 	if g.input_dirty {
 		for id in g.affected {
-			if r, ok := g.instances[id]; ok {
-				append(&g.damage, r)
+			if rec, ok := g.instances[id]; ok {
+				append(&g.damage, rec.rect)
 			}
 		}
 		g.input_dirty = false
@@ -966,8 +966,9 @@ frame_end :: proc() -> Frame_Result {
 // rect reads the last completed layout. During declaration it sees the
 // previous frame; after frame_end it sees this frame.
 rect :: proc(i: Instance) -> (r: Rect, ok: bool) {
-	r, ok = g.instances[i]
-	return r, ok
+	rec: Inst_Rec
+	rec, ok = g.instances[i]
+	return rec.rect, ok
 }
 
 // mouse_position reads the cursor position as of this frame's

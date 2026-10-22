@@ -90,13 +90,11 @@ Globals :: struct {
 	// frame_end, valid until the next frame_begin.
 	draw_cmds: [dynamic]Draw_Cmd,
 
-	// Persistent instance store: identity -> last committed rect.
-	instances: map[Instance]Rect,
-	// Identity -> hash of the last committed frame's resolved content
-	// (style values + text). Pass F damages an instance whose content hash
-	// changed even when its rect didn't move — §5's "changed → new rect"
-	// covers text edits and set() restyles, not just motion.
-	inst_hash: map[Instance]u64,
+	// Persistent instance store: identity -> last committed record.
+	// The content hash rides in the same map value: pass F used to do
+	// TWO map ops per node per frame (rect map + hash map), and the
+	// second op was the input pass's single biggest cost — one op now.
+	instances: map[Instance]Inst_Rec,
 	damage:    [dynamic]Rect,
 
 	// Scroll offsets by identity: written by wheel dispatch at
@@ -286,7 +284,6 @@ free_globals :: proc() {
 	delete(g.scratch_ints)
 	delete(g.draw_cmds)
 	delete(g.instances)
-	delete(g.inst_hash)
 	delete(g.damage)
 	delete(g.popups)
 	delete(g.dismiss_flags)
@@ -447,4 +444,14 @@ Scroll_Glide :: struct {
 	              // range end it returns to. Wheel accumulation reads
 	              // the rendered offset while one is in flight, not
 	              // this target.
+}
+
+// One committed instance: its last rect plus the hash of its last
+// committed resolved content (style values + text). Pass F damages an
+// instance whose hash changed even when its rect didn't move — §5's
+// "changed → new rect" covers text edits and set() restyles, not just
+// motion.
+Inst_Rec :: struct {
+	rect: Rect,
+	hash: u64,
 }
