@@ -237,6 +237,50 @@ when niello.NIELLO_DEBUG {
 		testing.expect(t, dbg_frame_res(ctx1).changed, "tint off marks the frame changed")
 	}
 
+	@(private)
+	dbg_pad_box, dbg_crush_root, dbg_crush_child: niello.Unit
+
+	@(test)
+	test_debug_spill_padding :: proc(t: ^testing.T) {
+		// Regression (2026-10-22, found via the layouts gallery):
+		// Lay.content is padding-inclusive, and the first spill
+		// formula subtracted padding again — every padded box
+		// reported a phantom overflow of exactly its padding.
+		niello.test_reset()
+		defer niello.test_teardown()
+		ctx1 := niello.test_context()
+		// A padded FIT box around a label (the gallery's box
+		// shape): fits by construction, must NOT report.
+		niello.mint(&dbg_pad_box, niello.NO_UNIT, {
+			size = niello.Size{niello.fit(), niello.fit()},
+			padding = [4]u16{8, 4, 8, 4},
+			text = "Fit",
+		})
+		// A padded column crushed for real: 150 of child in a
+		// 100 box with 10 padding -> the true excess is 70
+		// (child vs the 80 inner), not 90.
+		niello.mint(&dbg_crush_root, niello.NO_UNIT, {
+			layout = niello.Layout.Top_To_Bottom,
+			size = niello.Size{niello.fixed(100), niello.fixed(100)},
+			padding = [4]u16{10, 10, 10, 10},
+		})
+		niello.mint(&dbg_crush_child, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(150)}})
+
+		niello.frame_begin(ctx1, niello.Input{viewport = {400, 300}}, 0.016)
+		niello.show(dbg_pad_box)
+		if _, open := niello.begin(dbg_crush_root); open {
+			niello.show(dbg_crush_child)
+		}
+		niello.frame_end()
+
+		recs := niello.debug_overflows(ctx1)
+		testing.expect(t, len(recs) == 1, "only the genuine crush reports")
+		if len(recs) == 1 {
+			testing.expect(t, recs[0].axis == .Y, "on the crushed axis")
+			testing.expect_value(t, recs[0].px, f32(70))
+		}
+	}
+
 	@(test)
 	test_debug_overflow_overlay :: proc(t: ^testing.T) {
 		niello.test_reset()

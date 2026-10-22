@@ -52,7 +52,13 @@ Debug_Node :: struct {
 	overfl:   Vec2, // pass-F overflow: children extend past bounds, px per axis
 	spill:    Vec2, // intrinsic content exceeds the box, px per axis
 	                 // (text truncation, crushed containers — cases
-	                 // child-extent overflow cannot see)
+	                 // child-extent overflow cannot see). Lay.content
+	                 // is padding-INCLUSIVE — the size the node wants
+	                 // to be, which is what FIT resolves from — so
+	                 // spill is content - size, never content - inner:
+	                 // the first version subtracted padding twice
+	                 // and flagged every padded box by exactly its
+	                 // padding (found via the layouts gallery).
 	flags:    Debug_Flags,
 	with:     Debug_With, // the With overrides this instance was
 	                      // declared with
@@ -173,8 +179,8 @@ debug_snapshot_build :: proc() {
 			spill: Vec2
 			if !nd.culled {
 				spill = Vec2{
-					max(0, g.lay[i].content.x - (g.lay[i].size.x - padding_sum(s, X_AXIS))),
-					max(0, g.lay[i].content.y - (g.lay[i].size.y - padding_sum(s, Y_AXIS))),
+					max(0, g.lay[i].content.x - g.lay[i].size.x),
+					max(0, g.lay[i].content.y - g.lay[i].size.y),
 				}
 			}
 			append(
@@ -217,7 +223,7 @@ emit_debug_overlay :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 		if store.debug_ovf_on && store.debug_ovf_ctx == g {
 			over := false
 			for axis in 0 ..< 2 {
-				spill := max(0, g.lay[i].content[axis] - (g.lay[i].size[axis] - padding_sum(s, axis)))
+				spill := max(0, g.lay[i].content[axis] - g.lay[i].size[axis])
 				if max(g.lay[i].overfl[axis], spill) > 0 && !scrollable_axis(s, axis) {
 					over = true
 					break
