@@ -636,6 +636,7 @@ copy_field :: proc(dst, src: ^Style, f: Field) {
 	case .Font_Slant:    dst.font_slant    = src.font_slant
 	case .Text_Spans:    dst.text_spans    = src.text_spans
 	case .Text_Wrap:     dst.wrap          = src.wrap
+	case .Whitespace:    dst.whitespace    = src.whitespace
 	case .Ellipsis:      dst.ellipsis      = src.ellipsis
 	case .Padding:       dst.padding       = src.padding
 	case .Gap:           dst.gap           = src.gap

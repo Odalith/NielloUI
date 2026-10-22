@@ -34,11 +34,27 @@ Text_Word :: struct {
 	start, end: int, // byte offsets into the node's text
 	width:      f32, // sum of frag widths — this is what pack_lines sees
 	frags:      []Text_Frag, // 1 frag when there are no spans
+	// The whitespace run before this word, within its segment (§3.18):
+	// measured like a word (real advances, cut at span boundaries),
+	// never collapsed at ingestion. gap_start is the run's first byte;
+	// for a segment's first word it is the segment's first byte, so
+	// [gap_start, start) is exactly the run. Collapse mode ignores
+	// these at assembly time; Preserve counts them.
+	space_before: f32,
+	gap_start:    int,
+}
+
+// One \n-segment of a cached text.
+Text_Seg :: struct {
+	words:    []Text_Word,
+	trailing: f32, // the whitespace run after the last word, measured
+	               // like a gap (§3.18); Preserve counts it in the
+	               // segment's width, Collapse hangs it
 }
 
 // Cached per (font, size, weight, slant, spans, text).
 Text_Entry :: struct {
-	segs:    [dynamic][]Text_Word, // per \n-segment
+	segs:    [dynamic]Text_Seg, // per \n-segment
 	space_w: f32, // space advance in the base style
 	line_h:  f32, // max over fragments; layout and the emitter share it
 }
@@ -138,8 +154,39 @@ get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64,
 	return e
 }
 
-// fill_entry splits text into \n-segments, then words (collapsing repeated
-// spaces, as before), then each word into fragments at span boundaries.
+// gap_width measures a whitespace run text[a:b] the way a word is
+// measured: cut at span boundaries, each sub-run priced at its own
+// style's space advance times its length (a space's advance is
+// constant within a style, so runs price linearly). §3.18: spaces
+// are data, not separators — collapsing is an assembly-time policy.
+@(private)
+gap_width :: proc(s: ^Style, spans: []Text_Span, text: string, a, b: int) -> f32 {
+	if b <= a {
+		return 0
+	}
+	w := f32(0)
+	cur := a
+	for cur < b {
+		next := b
+		for sp in spans {
+			if sp.start > cur && sp.start < next {
+				next = sp.start
+			}
+			if sp.end > cur && sp.end < next {
+				next = sp.end
+			}
+		}
+		font, size, weight, slant, _, _ := style_at(s, spans, cur)
+		w += measure_frag(font, weight, slant, size, " ") * f32(next - cur)
+		cur = next
+	}
+	return w
+}
+
+// fill_entry splits text into \n-segments, then words, then each word
+// into fragments at span boundaries. Whitespace runs are measured
+// (gap_width) and recorded on the following word / the segment, in
+// full — the Collapse/Preserve policy applies later, at assembly.
 @(private)
 fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 	e := Text_Entry{}
@@ -154,6 +201,9 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 	defer delete(words)
 
 	word_start := -1
+	seg_start := 0 // first byte of the current segment
+	prev_end := 0 // end of the previous word in this segment (the
+	              // pending gap is [prev_end, next word's start))
 	for j := 0; j <= len(text); j += 1 {
 		at_end := j == len(text)
 		c := u8(' ')
@@ -212,14 +262,24 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 				}
 				wfrags := make([]Text_Frag, len(frags))
 				copy(wfrags, frags[:])
-				append(&words, Text_Word{start = ws, end = we, width = word_w, frags = wfrags})
+				append(&words, Text_Word{
+					start = ws, end = we, width = word_w, frags = wfrags,
+					space_before = gap_width(s, spans, text, prev_end, ws),
+					gap_start = prev_end,
+				})
+				prev_end = we
 				word_start = -1
 			}
 			if at_end || c == '\n' {
-				seg := make([]Text_Word, len(words))
-				copy(seg, words[:])
-				append(&e.segs, seg)
+				seg_words := make([]Text_Word, len(words))
+				copy(seg_words, words[:])
+				append(&e.segs, Text_Seg{
+					words = seg_words,
+					trailing = gap_width(s, spans, text, prev_end, j),
+				})
 				clear(&words)
+				seg_start = j + 1
+				prev_end = seg_start
 			}
 		} else if word_start < 0 {
 			word_start = j
@@ -236,16 +296,27 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 // would make the text untruncatable inside any container).
 measure_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64, text: string, wrap: Text_Wrap) -> (unwrapped: Vec2, min_w: f32) {
 	e := get_text(s, spans, spans_hash, text_hash, text)
+	preserve := s.whitespace == .Preserve
 	unwrapped = Vec2{0, 0}
 	for seg in e.segs {
 		seg_w := f32(0)
 		seg_min := f32(0)
-		for w, k in seg {
-			if k > 0 {
-				seg_w += e.space_w
+		for w, k in seg.words {
+			if preserve {
+				// Every measured space counts: the leading run (the
+				// first word's space_before), internal runs at their
+				// real widths, and the trailing run below.
+				seg_w += w.space_before + w.width
+			} else {
+				if k > 0 {
+					seg_w += e.space_w
+				}
+				seg_w += w.width
 			}
-			seg_w += w.width
 			seg_min = max(seg_min, w.width)
+		}
+		if preserve {
+			seg_w += seg.trailing
 		}
 		unwrapped.x = max(unwrapped.x, seg_w)
 		if wrap == .Word {
@@ -262,7 +333,11 @@ measure_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: 
 }
 
 // pack_lines greedily packs word widths into lines of at most max_w.
-pack_lines :: proc(words: []Text_Word, space_w: f32, max_w: f32) -> int {
+// The gap priced before a word joining a line: Collapse charges the
+// canonical space_w; Preserve charges the word's measured space_before
+// (§3.18). A line's first word pays no gap in either mode — in
+// Preserve its run hangs at the previous line's end, as everywhere.
+pack_lines :: proc(words: []Text_Word, space_w: f32, max_w: f32, preserve: bool) -> int {
 	if len(words) == 0 {
 		return 1
 	}
@@ -271,7 +346,7 @@ pack_lines :: proc(words: []Text_Word, space_w: f32, max_w: f32) -> int {
 	for w in words {
 		add := w.width
 		if cur > 0 {
-			add += space_w
+			add += preserve ? w.space_before : space_w
 		}
 		if cur > 0 && cur + add > max_w {
 			lines += 1
@@ -285,7 +360,7 @@ pack_lines :: proc(words: []Text_Word, space_w: f32, max_w: f32) -> int {
 
 // pack_line_breaks is pack_lines that also records [first, past) word-index
 // ranges per line into out. The emitter uses it to position fragments.
-pack_line_breaks :: proc(words: []Text_Word, space_w: f32, max_w: f32, out: ^[dynamic][2]int) -> int {
+pack_line_breaks :: proc(words: []Text_Word, space_w: f32, max_w: f32, out: ^[dynamic][2]int, preserve: bool) -> int {
 	clear(out)
 	if len(words) == 0 {
 		return 1
@@ -295,7 +370,7 @@ pack_line_breaks :: proc(words: []Text_Word, space_w: f32, max_w: f32, out: ^[dy
 	for w, i in words {
 		add := w.width
 		if cur > 0 {
-			add += space_w
+			add += preserve ? w.space_before : space_w
 		}
 		if cur > 0 && cur + add > max_w {
 			append(out, [2]int{start, i})
@@ -312,8 +387,9 @@ pack_line_breaks :: proc(words: []Text_Word, space_w: f32, max_w: f32, out: ^[dy
 // wrapped_lines packs the cached words at max_w (pass C).
 wrapped_lines :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64, text: string, max_w: f32) -> (lines: int, line_h: f32) {
 	e := get_text(s, spans, spans_hash, text_hash, text)
+	preserve := s.whitespace == .Preserve
 	for seg in e.segs {
-		lines += pack_lines(seg, e.space_w, max_w)
+		lines += pack_lines(seg.words, e.space_w, max_w, preserve)
 	}
 	return max(lines, 1), e.line_h
 }

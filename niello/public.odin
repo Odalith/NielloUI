@@ -41,7 +41,7 @@ Key      :: distinct u64 // stable per-item identity; 0 = sibling ordinal
 
 Field :: enum u8 {
 	Color, Font_Color, Border_Color,
-	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Ellipsis,
+	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Whitespace, Ellipsis,
 	Padding, Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
@@ -51,7 +51,8 @@ Field :: enum u8 {
 // Align is layout-invalidating (controls child positioning);
 // Font_Size, Font_Weight and Font_Slant are layout-invalidating (they change
 // text measurement); Text_Spans is layout-invalidating (it changes word
-// widths). Ellipsis and Overflow are paint-only (resolved at draw-command
+// widths); Whitespace is layout-invalidating (it changes which space
+// advances count toward line widths). Ellipsis and Overflow are paint-only (resolved at draw-command
 // emission). Cursor is host-facing (never reaches a draw command; the host
 // reads the hovered instance's resolved cursor from Frame_Result) and
 // Scroll_Chain steers input dispatch (wheel routing); neither affects
@@ -63,7 +64,7 @@ Fields :: bit_set[Field]
 // a field added later; the tests iterate Field and check membership.
 ALL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
-	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Ellipsis,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis,
 	.Padding, .Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
@@ -191,6 +192,19 @@ Text_Wrap :: enum u8 {
 	Word, // wrap at word boundaries (opts into pass C)
 }
 
+// Whitespace: how space runs count toward text geometry (§3.18).
+// Space runs are always MEASURED (real advances, cut at span
+// boundaries like words); the mode chooses the accounting.
+Whitespace :: enum u8 {
+	Collapse, // default: a run counts as one canonical gap between
+	          // words; leading/trailing runs hang (count for
+	          // nothing). The HTML-like model for labels and prose.
+	Preserve, // every space occupies its advance — leading, trailing,
+	          // and runs — so positions derived from text width
+	          // (a caret, a selection) are exact. Editable text and
+	          // markdown, where trailing spaces can be semantic.
+}
+
 Overflow :: enum u8 {
 	Spill, // default: children may draw past bounds (Clay-like); debug reports it
 	Clip,   // hard clip children at the container's bounds
@@ -231,6 +245,7 @@ Style :: struct {
 	scroll:        Scroll,
 	align:         [2]Align_Kind, // indexed by axis; caller resolves main vs cross
 	wrap:          Text_Wrap,     // default .None
+	whitespace:    Whitespace,    // default .Collapse (§3.18)
 	ellipsis:      bool,          // default true; paint-time trim when no-wrap text overflows
 	overflow:      Overflow,      // default .Spill
 
@@ -289,6 +304,7 @@ Style_Decl :: struct {
 	scroll:        Maybe(Scroll),
 	align:         Maybe([2]Align_Kind),
 	wrap:          Maybe(Text_Wrap), // default .None
+	whitespace:    Maybe(Whitespace), // default .Collapse (§3.18)
 	ellipsis:      Maybe(bool),      // default true; paint-time trim when no-wrap text overflows
 	overflow:      Maybe(Overflow),  // default .Spill
 
@@ -497,6 +513,7 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	case .Font_Slant:    s.font_slant    = must(v, Font_Slant)
 	case .Text_Spans:    s.text_spans    = must(v, []Text_Span)
 	case .Text_Wrap:     s.wrap          = must(v, Text_Wrap)
+	case .Whitespace:    s.whitespace    = must(v, Whitespace)
 	case .Ellipsis:      s.ellipsis      = must(v, bool)
 	case .Padding:       s.padding       = must(v, [4]u16)
 	case .Gap:           s.gap           = must(v, u16)
@@ -613,6 +630,7 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.scroll, decl.scroll)
 	apply_opt(&s.align, decl.align)
 	apply_opt(&s.wrap, decl.wrap)
+	apply_opt(&s.whitespace, decl.whitespace)
 	apply_opt(&s.ellipsis, decl.ellipsis)
 	apply_opt(&s.overflow, decl.overflow)
 	apply_opt(&s.overlay_color, decl.overlay_color)

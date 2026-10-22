@@ -149,7 +149,7 @@ lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
 			}
 		}
 	case .Text, .Font, .Font_Weight, .Font_Slant, .Text_Spans,
-	     .Text_Wrap, .Ellipsis, .Layout, .Align, .Scroll, .Overflow,
+	     .Text_Wrap, .Whitespace, .Ellipsis, .Layout, .Align, .Scroll, .Overflow,
 	     .Cursor, .Scroll_Chain:
 		copy_field(dst, b, f)
 	}
@@ -179,6 +179,7 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 		}
 		return true
 	case .Text_Wrap:     return a.wrap == b.wrap
+	case .Whitespace:    return a.whitespace == b.whitespace
 	case .Ellipsis:      return a.ellipsis == b.ellipsis
 	case .Padding:       return a.padding == b.padding
 	case .Gap:           return a.gap == b.gap

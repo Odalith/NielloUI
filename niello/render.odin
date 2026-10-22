@@ -179,31 +179,37 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 	runs: [dynamic]Text_Run
 	defer delete(runs)
 
+	preserve := s.whitespace == .Preserve
 	line_idx := 0
 	for seg in e.segs {
-		if len(seg) == 0 {
+		if len(seg.words) == 0 {
 			line_idx += 1
 			continue
 		}
 		if s.wrap == .Word {
-			pack_line_breaks(seg, e.space_w, max_w, &breaks)
+			pack_line_breaks(seg.words, e.space_w, max_w, &breaks, preserve)
 		} else {
 			clear(&breaks)
-			append(&breaks, [2]int{0, len(seg)})
+			append(&breaks, [2]int{0, len(seg.words)})
 		}
 		for br in breaks {
 			// Build merged runs: fragments in word order; inter-word gaps
 			// are attributed to the preceding fragment's style (gaps are
 			// invisible, so color is irrelevant; this keeps runs maximal
-			// and the command count low).
+			// and the command count low). The gap's WIDTH is the mode's
+			// (§3.18): the canonical space in Collapse, the word's
+			// measured space_before in Preserve — the run's bytes carry
+			// the actual spaces either way (its end extends to the next
+			// word's start), so Preserve's width is the drawn truth.
 			clear(&runs)
 			line_w := f32(0)
 			for wi in br[0] ..< br[1] {
-				w := &seg[wi]
+				w := &seg.words[wi]
 				if wi > br[0] {
-					line_w += e.space_w
+					gap := preserve ? w.space_before : e.space_w
+					line_w += gap
 					runs[len(runs)-1].end = w.start
-					runs[len(runs)-1].width += e.space_w
+					runs[len(runs)-1].width += gap
 				}
 				for f in w.frags {
 					line_w += f.width
@@ -225,10 +231,28 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 						})
 					}
 				}
+				if preserve && s.wrap == .None && wi == br[0] &&
+				   w.space_before > 0 && len(runs) > 0 {
+					// Leading run (§3.18): extend the first run's
+					// bytes back over the spaces and price them at
+					// their measured width, so the words sit at
+					// their true positions.
+					runs[0].start = w.gap_start
+					runs[0].width += w.space_before
+					line_w += w.space_before
+				}
 			}
 
 			trims := s.wrap == .None && line_w > max_w
-			x0 := align_offset(s.align[0], max_w - line_w)
+			align_w := line_w
+			if preserve && br[1] == len(seg.words) {
+				// The segment's trailing run counts toward alignment
+				// (a centered Preserve line centers its spaces too),
+				// but never toward trims — invisible overflow must
+				// not ellipsize visible glyphs.
+				align_w += seg.trailing
+			}
+			x0 := align_offset(s.align[0], max_w - align_w)
 			if trims {
 				x0 = 0
 			}
