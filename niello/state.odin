@@ -43,16 +43,49 @@ Group_Rec :: struct {
 	name:    string, // debug/inspector only
 }
 
-Globals :: struct {
+// Store is the process-global half of the engine state (multi-window
+// plan, M1): the cold store every window shares. Units are minted
+// once, globally; groups are global; a style write lands here once
+// and every Context picks it up on its next frame — a broadcast
+// with no per-context copies and no surprises.
+Store :: struct {
 	// Cold store: units own their style values. Survives across frames.
 	// Index 0 is the NO_UNIT sentinel (§8).
-	units: [dynamic]Unit_Rec,
+	units:  [dynamic]Unit_Rec,
 	groups: [dynamic]Group_Rec,
 
-	// Change tracking (§8): global generation bumped by every set/set_many,
-	// per-unit dirty bitsets, O(touched) clearing at frame_end.
+	// Change tracking (§8): a global generation bumped by every
+	// set/set_many, per-unit dirty bitsets, and the write JOURNAL:
+	// every unit dirtied since the last journal GC, in order. Each
+	// Context consumes the journal from its own cursor at frame_end;
+	// a unit's dirty bitset clears only once EVERY live context has
+	// consumed its entry (journal_gc) — so a slow window never loses
+	// a change notice to a fast one. (Was `touched`, one global
+	// list cleared by the only frame_end there was.)
 	gen:     u64,
-	touched: [dynamic]Unit,
+	journal: [dynamic]Unit,
+
+	// Live contexts, in creation order: the journal GC reads their
+	// cursors, and tween() cancels a unit's tweens across all of
+	// them (animate.odin).
+	contexts: [dynamic]^Context,
+
+	// The word cache is content-addressed (font, style, text ->
+	// metrics), so it is shared by every window: a word measured
+	// for one window is a free hit for all the others.
+	text_cache:       map[u64]Text_Entry,
+	ellipsis_widths: map[u64]f32,
+}
+
+// Context is one window's frame state (multi-window plan, M1):
+// everything a single tree's frames own — nodes, instances,
+// interaction, scheduling, mutation — and nothing they share. The
+// package handle `g` (below) points at the currently bound
+// context; frame_begin binds, declare-time procs read the binding.
+Context :: struct {
+	// This context's position in the store's write journal: every
+	// entry below the cursor has been consumed by a frame_end here.
+	journal_cursor: int,
 
 	// Frame text arena: With.text copies land here at declare time.
 	// Chunked so a slice, once taken, never moves; rewound at
@@ -188,7 +221,7 @@ Globals :: struct {
 	time_ms:           u64,
 	wake_deadline:     u64,
 	wake_deadline_set: bool,
-	// Set by wake() from any thread (atomic access only), consumed at
+	// Set by context_wake() from any thread (atomic access only), consumed at
 	// frame_begin.
 	wake_requested: bool,
 
@@ -213,20 +246,30 @@ Globals :: struct {
 	eff:            [dynamic]Style,
 	disabled_flags: [dynamic]bool,
 
-	layout_gen: u32,
+	layout_gen:  u32,
 	frame_index: u64,
-	text_cache: map[u64]Text_Entry,
-	ellipsis_widths: map[u64]f32,
 
 	// Test-only hook: force the next begin() to report open=false.
 	test_force_cull: bool,
 }
 
 @(private)
-g: Globals
+store: Store
 
-// test_reset clears everything, including cold units, and re-seeds the
-// NO_UNIT sentinel: each test starts from a working empty engine.
+// g is the currently bound context (multi-window plan, M1). It is a
+// POINTER on purpose: Odin auto-dereferences field access through
+// it, so the ~700 `g.` sites in the package read exactly as they
+// did when g was the one global struct — only the declaration and
+// the lifecycle changed. nil until a context is bound; frame_begin
+// binds, context_destroy unbinds itself.
+g: ^Context
+
+// test_ctx is the harness's context: test_reset creates and binds
+// a fresh one per test, test_teardown destroys it.
+test_ctx: ^Context
+
+// test_reset clears everything, including cold units, and re-seeds
+// the NO_UNIT sentinel: each test starts from a working empty engine.
 // test_teardown is its exit-side pair: it frees the same containers but
 // leaves NO sentinel behind, so a test ends with zero engine allocations
 // live. Tests open with test_reset() and defer test_teardown(). The
@@ -236,23 +279,33 @@ g: Globals
 // as leaks (still live at test end) and bad frees (freed by a tracker
 // that never allocated them).
 test_reset :: proc() {
-	free_globals()
-	g = Globals{}
-	append(&g.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
-	append(&g.groups, Group_Rec{name = "NO_GROUP"})
+	if test_ctx != nil {
+		context_destroy(test_ctx)
+		test_ctx = nil
+	}
+	free_store()
+	store = Store{}
+	test_ctx = context_create()
+	g = test_ctx
+	append(&store.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
+	append(&store.groups, Group_Rec{name = "NO_GROUP"})
 }
 
 test_teardown :: proc() {
-	free_globals()
-	g = Globals{}
+	if test_ctx != nil {
+		context_destroy(test_ctx)
+		test_ctx = nil
+	}
+	free_store()
+	store = Store{}
+	g = nil
 }
 
-// free_globals deletes every heap-owning container in g: assigning
-// g = Globals{} alone would orphan all backing arrays.
+// free_store deletes every heap-owning container in the global store.
 @(private)
-free_globals :: proc() {
+free_store :: proc() {
 	// Free the text cache first (each Text_Entry owns segs -> words -> frags).
-	for _, entry in g.text_cache {
+	for _, entry in store.text_cache {
 		for seg in entry.segs {
 			for word in seg.words {
 				delete(word.frags)
@@ -261,13 +314,11 @@ free_globals :: proc() {
 		}
 		delete(entry.segs)
 	}
-	delete(g.text_cache)
-	delete(g.ellipsis_widths)
-	// Frame nodes' span slices point into the spans arena — freed
-	// with the chunks below, never per node.
+	delete(store.text_cache)
+	delete(store.ellipsis_widths)
 	// Unit styles own their reference-typed fields (cloned on write —
 	// see store_spans in public.odin).
-	for &rec in g.units {
+	for &rec in store.units {
 		if rec.style.text_spans != nil {
 			delete(rec.style.text_spans)
 		}
@@ -275,63 +326,106 @@ free_globals :: proc() {
 			delete(rec.style.text)
 		}
 	}
-	for chunk in g.text_chunks {
-		delete(chunk)
-	}
-	delete(g.text_chunks)
-	for chunk in g.spans_chunks {
-		delete(chunk)
-	}
-	delete(g.spans_chunks)
-	delete(g.emit_breaks)
-	delete(g.emit_runs)
-	delete(g.emit_scopes)
-	delete(g.units)
-	for &gr in g.groups {
+	delete(store.units)
+	for &gr in store.groups {
 		delete(gr.members)
 	}
-	delete(g.groups)
-	delete(g.touched)
-	delete(g.nodes)
-	delete(g.stack)
-	delete(g.child_counts)
-	delete(g.lay)
-	delete(g.first_child)
-	delete(g.next_sibling)
-	delete(g.wrap_list)
-	delete(g.subtree_end)
-	delete(g.scratch_a)
-	delete(g.scratch_b)
-	delete(g.scratch_ints)
-	delete(g.draw_cmds)
-	delete(g.instances)
-	delete(g.damage)
-	delete(g.popups)
-	delete(g.dismiss_flags)
-	delete(g.scroll_off)
-	delete(g.scroll_max)
-	delete(g.scroll_glides)
-	delete(g.tweens)
-	delete(g.transients)
-	for _, es in g.edits {
+	delete(store.groups)
+	delete(store.journal)
+	delete(store.contexts)
+}
+
+// free_context deletes every heap-owning container in one context.
+// (A context's frame nodes' span slices point into its spans arena —
+// freed with the chunks, never per node.)
+@(private)
+free_context :: proc(ctx: ^Context) {
+	for chunk in ctx.text_chunks {
+		delete(chunk)
+	}
+	delete(ctx.text_chunks)
+	for chunk in ctx.spans_chunks {
+		delete(chunk)
+	}
+	delete(ctx.spans_chunks)
+	delete(ctx.emit_breaks)
+	delete(ctx.emit_runs)
+	delete(ctx.emit_scopes)
+	delete(ctx.nodes)
+	delete(ctx.stack)
+	delete(ctx.child_counts)
+	delete(ctx.lay)
+	delete(ctx.first_child)
+	delete(ctx.next_sibling)
+	delete(ctx.wrap_list)
+	delete(ctx.subtree_end)
+	delete(ctx.scratch_a)
+	delete(ctx.scratch_b)
+	delete(ctx.scratch_ints)
+	delete(ctx.draw_cmds)
+	delete(ctx.instances)
+	delete(ctx.damage)
+	delete(ctx.popups)
+	delete(ctx.dismiss_flags)
+	delete(ctx.scroll_off)
+	delete(ctx.scroll_max)
+	delete(ctx.scroll_glides)
+	delete(ctx.tweens)
+	delete(ctx.transients)
+	for _, es in ctx.edits {
 		free(es)
 	}
-	delete(g.edits)
-	delete(g.hover_chain)
-	delete(g.hover_since)
+	delete(ctx.edits)
+	delete(ctx.hover_chain)
+	delete(ctx.hover_since)
 	for b in Mouse_Button {
-		delete(g.press_chains[b])
+		delete(ctx.press_chains[b])
 	}
-	delete(g.key_press_chain)
-	delete(g.frame_text)
-	delete(g.keys_scratch)
-	delete(g.seen_ids)
-	delete(g.dead_ids)
-	delete(g.clicked_chain)
-	delete(g.affected)
-	delete(g.pick_clip)
-	delete(g.eff)
-	delete(g.disabled_flags)
+	delete(ctx.key_press_chain)
+	delete(ctx.frame_text)
+	delete(ctx.keys_scratch)
+	delete(ctx.seen_ids)
+	delete(ctx.dead_ids)
+	delete(ctx.clicked_chain)
+	delete(ctx.affected)
+	delete(ctx.pick_clip)
+	delete(ctx.eff)
+	delete(ctx.disabled_flags)
+}
+
+// journal_gc retires the journal prefix every live context has
+// consumed, clearing those units' dirty bitsets. With no contexts
+// at all, nobody can ever consume the past, so everything retires.
+@(private)
+journal_gc :: proc() {
+	m := len(store.journal)
+	for c in store.contexts {
+		m = min(m, c.journal_cursor)
+	}
+	if m <= 0 {
+		return
+	}
+	for u in store.journal[:m] {
+		store.units[int(u)].dirty = {}
+	}
+	if m == len(store.journal) {
+		clear(&store.journal)
+	} else {
+		copy(store.journal[:], store.journal[m:])
+		resize(&store.journal, len(store.journal) - m)
+	}
+	for c in store.contexts {
+		c.journal_cursor -= m
+	}
+}
+
+// journal_consume marks the bound context current with the journal
+// (called from frame_end at the point the old touched list was
+// cleared) and retires whatever that unblocks.
+@(private)
+journal_consume :: proc() {
+	g.journal_cursor = len(store.journal)
+	journal_gc()
 }
 
 // ---------------------------------------------------------------------------
@@ -384,19 +478,19 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 }
 
 // touch bumps the global generation and marks the unit's dirty fields,
-// recording the unit for O(touched) clearing at frame_end. It also records
+// journaling the unit for per-context consumption at frame_end. It also records
 // the fields as explicit: every write through set/set_many is a deliberate
 // choice, and overlay resolution (input.odin) merges exactly the fields an
 // overlay unit explicitly set.
 @(private)
 touch :: proc(u: Unit, f: Fields) {
-	rec := &g.units[int(u)]
+	rec := &store.units[int(u)]
 	if card(rec.dirty) == 0 {
-		append(&g.touched, u)
+		append(&store.journal, u)
 	}
 	rec.dirty += f
 	rec.explicit += f
-	g.gen += 1
+	store.gen += 1
 }
 
 // touch_unmarked is touch without the explicit marking: propagate's
@@ -404,16 +498,16 @@ touch :: proc(u: Unit, f: Fields) {
 // marking them explicit would freeze the unit out of later propagates.
 @(private)
 touch_unmarked :: proc(u: Unit, f: Fields) {
-	rec := &g.units[int(u)]
+	rec := &store.units[int(u)]
 	if card(rec.dirty) == 0 {
-		append(&g.touched, u)
+		append(&store.journal, u)
 	}
 	rec.dirty += f
-	g.gen += 1
+	store.gen += 1
 }
 
 style_of :: proc(u: Unit) -> ^Style {
-	return &g.units[int(u)].style
+	return &store.units[int(u)].style
 }
 
 // ---------------------------------------------------------------------------
@@ -475,4 +569,5 @@ Scroll_Glide :: struct {
 Inst_Rec :: struct {
 	rect: Rect,
 	hash: u64,
+	unit: Unit, // the unit this instance instantiates (cross-context reads, M4)
 }

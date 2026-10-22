@@ -90,14 +90,14 @@ declare_nested_tree :: proc() {
 }
 
 plain_frame :: proc(declare: proc(), mouse: niello.Vec2) -> niello.Frame_Result {
-	niello.frame_begin(idle_input(mouse), 0.016)
+	niello.frame_begin(niello.test_context(), idle_input(mouse), 0.016)
 	return finish(declare)
 }
 
 wheel_frame :: proc(declare: proc(), mouse: niello.Vec2, wheel: niello.Vec2) -> niello.Frame_Result {
 	inp := idle_input(mouse)
 	inp.wheel = wheel
-	niello.frame_begin(inp, 0.016)
+	niello.frame_begin(niello.test_context(), inp, 0.016)
 	return finish(declare)
 }
 
@@ -416,7 +416,7 @@ declare_crush_tree :: proc() {
 sm_frame :: proc(wheel: niello.Vec2) {
 	inp := idle_input(OUTER_PT)
 	inp.wheel = wheel
-	niello.frame_begin(inp, 0.04)
+	niello.frame_begin(niello.test_context(), inp, 0.04)
 	declare_flat_tree()
 	niello.frame_end()
 }

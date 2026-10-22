@@ -164,5 +164,7 @@ declare :: proc() {
 
 main :: proc() {
 	mint_units()
-	niello_sdl.run({title = "Buttons — NielloUI input", width = 720, height = 480}, declare)
+	ctx := niello.context_create()
+	defer niello.context_destroy(ctx)
+	niello_sdl.run(ctx, {title = "Buttons — NielloUI input", width = 720, height = 480}, declare)
 }

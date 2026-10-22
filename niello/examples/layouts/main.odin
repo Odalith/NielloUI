@@ -216,5 +216,7 @@ declare :: proc() {
 
 main :: proc() {
 	mint_units()
-	niello_sdl.run({title = "NielloUI — Layout gallery", width = 880, height = 820}, declare)
+	ctx := niello.context_create()
+	defer niello.context_destroy(ctx)
+	niello_sdl.run(ctx, {title = "NielloUI — Layout gallery", width = 880, height = 820}, declare)
 }

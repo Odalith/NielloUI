@@ -79,11 +79,11 @@ test_input_hover :: proc(t: ^testing.T) {
 	mint_input_tree()
 
 	// Frame 1 builds the tree (dispatch saw an empty one: nothing hovered).
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	// Frame 2: dispatch hit-tests frame 1's tree.
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	testing.expect(t, niello.hovered(input_btn_i), "button hovered")
 	testing.expect(t, niello.hovered(input_root_i), "hover bubbles to the root")
 	testing.expect(t, !niello.hovered(input_lbl_i), "label not under the point")
@@ -91,12 +91,12 @@ test_input_hover :: proc(t: ^testing.T) {
 	testing.expect(t, res.changed, "hover change damages the frame")
 
 	// Frame 3: same input, nothing changed — the clean fast path survives.
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	res = finish(declare_input_tree)
 	testing.expect(t, !res.changed, "unchanged hover leaves the frame clean")
 
 	// Frame 4: cursor moves off the button.
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	testing.expect(t, !niello.hovered(input_btn_i), "hover lost on move-off")
 	testing.expect(t, niello.hovered(input_root_i), "root still hovered")
 	finish(declare_input_tree)
@@ -107,14 +107,14 @@ test_input_click :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	mint_input_tree()
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	// Press frame.
 	press := idle_input(BTN_PT)
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	testing.expect(t, niello.pressed(input_btn_i), "pressed after the press edge")
 	testing.expect(t, !niello.clicked(input_btn_i), "no click on press alone")
 	finish(declare_input_tree)
@@ -122,14 +122,14 @@ test_input_click :: proc(t: ^testing.T) {
 	// Release frame: the click lands, for this one declare.
 	rel := idle_input(BTN_PT)
 	rel.buttons_released = {.Left}
-	niello.frame_begin(rel, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel, 1.0 / 60.0)
 	testing.expect(t, niello.clicked(input_btn_i), "click completes on release")
 	testing.expect(t, niello.clicked(input_root_i), "click bubbles to ancestors")
 	testing.expect(t, !niello.pressed(input_btn_i), "press ends at release")
 	finish(declare_input_tree)
 
 	// Next frame: clicked is gone (one-declare lifetime).
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	testing.expect(t, !niello.clicked(input_btn_i), "clicked lasts exactly one frame")
 	finish(declare_input_tree)
 }
@@ -139,20 +139,20 @@ test_input_click_bubbles_from_label :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	mint_input_tree()
-	niello.frame_begin(idle_input(LBL_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(LBL_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	press := idle_input(LBL_PT)
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	testing.expect(t, niello.pressed(input_lbl_i), "label is the press target")
 	testing.expect(t, niello.pressed(input_btn_i), "press bubbles to the button")
 	finish(declare_input_tree)
 
 	rel := idle_input(LBL_PT)
 	rel.buttons_released = {.Left}
-	niello.frame_begin(rel, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel, 1.0 / 60.0)
 	testing.expect(t, niello.clicked(input_lbl_i), "label clicked")
 	testing.expect(t, niello.clicked(input_btn_i), "button clicked via its label")
 	finish(declare_input_tree)
@@ -163,19 +163,19 @@ test_input_press_capture :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	mint_input_tree()
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	press := idle_input(BTN_PT)
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	// Drag off while held: capture keeps pressed; hover follows the cursor.
 	drag := idle_input(AWAY_PT)
 	drag.buttons_down = {.Left}
-	niello.frame_begin(drag, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), drag, 1.0 / 60.0)
 	testing.expect(t, niello.pressed(input_btn_i), "capture holds pressed off-target")
 	testing.expect(t, !niello.hovered(input_btn_i), "hover follows the cursor, not the capture")
 	finish(declare_input_tree)
@@ -183,23 +183,23 @@ test_input_press_capture :: proc(t: ^testing.T) {
 	// Release off-target: no click.
 	rel := idle_input(AWAY_PT)
 	rel.buttons_released = {.Left}
-	niello.frame_begin(rel, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel, 1.0 / 60.0)
 	testing.expect(t, !niello.clicked(input_btn_i), "release off-target cancels the click")
 	testing.expect(t, !niello.pressed(input_btn_i), "capture ends at release")
 	finish(declare_input_tree)
 
 	// Press again, drag off, drag BACK on, release: the click completes.
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	finish(declare_input_tree)
-	niello.frame_begin(drag, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), drag, 1.0 / 60.0)
 	finish(declare_input_tree)
 	back := idle_input(BTN_PT)
 	back.buttons_down = {.Left}
-	niello.frame_begin(back, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), back, 1.0 / 60.0)
 	finish(declare_input_tree)
 	rel2 := idle_input(BTN_PT)
 	rel2.buttons_released = {.Left}
-	niello.frame_begin(rel2, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel2, 1.0 / 60.0)
 	testing.expect(t, niello.clicked(input_btn_i), "release back on target completes the click")
 	finish(declare_input_tree)
 }
@@ -209,16 +209,16 @@ test_input_hover_duration :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	mint_input_tree()
-	niello.frame_begin(idle_input(BTN_PT), 0.25)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 0.25)
 	finish(declare_input_tree)
 
 	// Entry: every chain member starts its own timer at 0.
-	niello.frame_begin(idle_input(BTN_PT), 0.25)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 0.25)
 	testing.expect(t, niello.hover_duration(input_btn_i) == 0, "duration starts at 0 on entry")
 	testing.expect(t, niello.hover_duration(input_root_i) == 0, "root entered the same frame")
 	finish(declare_input_tree)
 
-	niello.frame_begin(idle_input(BTN_PT), 0.25)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 0.25)
 	d := niello.hover_duration(input_btn_i)
 	testing.expect(t, d > 0.25 - EPS && d < 0.25 + EPS, "duration accumulates dt")
 	d = niello.hover_duration(input_root_i)
@@ -227,13 +227,13 @@ test_input_hover_duration :: proc(t: ^testing.T) {
 
 	// Crossing onto the label: the button's timer runs on (one session),
 	// the label's starts now.
-	niello.frame_begin(idle_input(LBL_PT), 0.25)
+	niello.frame_begin(niello.test_context(), idle_input(LBL_PT), 0.25)
 	d = niello.hover_duration(input_btn_i)
 	testing.expect(t, d > 0.5 - EPS && d < 0.5 + EPS, "button timer survives the label crossing")
 	testing.expect(t, niello.hover_duration(input_lbl_i) == 0, "label timer starts at the crossing")
 	finish(declare_input_tree)
 
-	niello.frame_begin(idle_input(LBL_PT), 0.25)
+	niello.frame_begin(niello.test_context(), idle_input(LBL_PT), 0.25)
 	d = niello.hover_duration(input_btn_i)
 	testing.expect(t, d > 0.75 - EPS && d < 0.75 + EPS, "button keeps accumulating over its label")
 	d = niello.hover_duration(input_lbl_i)
@@ -242,7 +242,7 @@ test_input_hover_duration :: proc(t: ^testing.T) {
 
 	// Leaving to root-only ground: button and label timers die with
 	// their chain membership; the root's session never broke.
-	niello.frame_begin(idle_input(AWAY_PT), 0.25)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 0.25)
 	testing.expect(t, niello.hover_duration(input_btn_i) == 0, "duration ends when the chain leaves")
 	testing.expect(t, niello.hover_duration(input_lbl_i) == 0, "label duration ends too")
 	d = niello.hover_duration(input_root_i)
@@ -255,13 +255,13 @@ test_input_focus_loss_drops_press :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	mint_input_tree()
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	press := idle_input(BTN_PT)
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	// The window loses focus mid-press, with the release in the same frame:
@@ -270,19 +270,19 @@ test_input_focus_loss_drops_press :: proc(t: ^testing.T) {
 	lost := idle_input(BTN_PT)
 	lost.window_focused = false
 	lost.buttons_released = {.Left}
-	niello.frame_begin(lost, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), lost, 1.0 / 60.0)
 	testing.expect(t, !niello.pressed(input_btn_i), "focus loss drops the press capture")
 	testing.expect(t, !niello.clicked(input_btn_i), "no click completes across focus loss")
 	testing.expect(t, niello.hovered(input_btn_i), "hover survives focus loss")
 	finish(declare_input_tree)
 
 	// Still unfocused: hover keeps tracking.
-	niello.frame_begin(lost, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), lost, 1.0 / 60.0)
 	testing.expect(t, niello.hovered(input_btn_i), "hover tracks while unfocused")
 	finish(declare_input_tree)
 
 	// Focus returns: the dropped press does not resurrect.
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	testing.expect(t, niello.hovered(input_btn_i), "hover still on the button")
 	testing.expect(t, !niello.pressed(input_btn_i), "press stays dropped")
 	finish(declare_input_tree)
@@ -299,23 +299,23 @@ test_input_unfocused_hover_and_click :: proc(t: ^testing.T) {
 	// (click-to-activate instead of click-to-focus-then-click-again).
 	unfocused := idle_input(BTN_PT)
 	unfocused.window_focused = false
-	niello.frame_begin(unfocused, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), unfocused, 1.0 / 60.0)
 	finish(declare_input_tree)
 
-	niello.frame_begin(unfocused, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), unfocused, 1.0 / 60.0)
 	testing.expect(t, niello.hovered(input_btn_i), "hover works on an unfocused window")
 	finish(declare_input_tree)
 
 	press := unfocused
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	testing.expect(t, niello.pressed(input_btn_i), "press registers while unfocused")
 	finish(declare_input_tree)
 
 	rel := unfocused
 	rel.buttons_released = {.Left}
-	niello.frame_begin(rel, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel, 1.0 / 60.0)
 	testing.expect(t, niello.clicked(input_btn_i), "the focusing click activates")
 	finish(declare_input_tree)
 }
@@ -325,20 +325,20 @@ test_input_cursor_through_label :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	mint_input_tree()
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	// Over the label (which sets no cursor): the button's Pointer speaks
 	// for the chain — the cursor must not drop to Arrow over the text.
-	niello.frame_begin(idle_input(LBL_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(LBL_PT), 1.0 / 60.0)
 	res := finish(declare_input_tree)
 	testing.expect(t, res.cursor == .Pointer, "button cursor shows through its label")
 
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	res = finish(declare_input_tree)
 	testing.expect(t, res.cursor == .Pointer, "button cursor over the button body")
 
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	res = finish(declare_input_tree)
 	testing.expect(t, res.cursor == .Arrow, "arrow off the button")
 }
@@ -351,13 +351,13 @@ test_input_rounded_corners :: proc(t: ^testing.T) {
 	mint_input_tree()
 	defer in_btn_radius = 0
 
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	finish(declare_input_tree)
 
 	// (2,30) is inside the button's rect but outside the bottom-left
 	// corner arc (center (20,20), r 20: dist^2 = 18^2 + 10^2 = 424 > 400).
 	miss := niello.Vec2{2, 30}
-	niello.frame_begin(idle_input(miss), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(miss), 1.0 / 60.0)
 	testing.expect(t, !niello.hovered(input_btn_i), "rounded corner does not hit")
 	testing.expect(t, niello.hovered(input_root_i), "the pick falls through to the root")
 	finish(declare_input_tree)
@@ -365,22 +365,22 @@ test_input_rounded_corners :: proc(t: ^testing.T) {
 	press := idle_input(miss)
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	finish(declare_input_tree)
 	rel := idle_input(miss)
 	rel.buttons_released = {.Left}
-	niello.frame_begin(rel, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel, 1.0 / 60.0)
 	testing.expect(t, !niello.clicked(input_btn_i), "no click from the corner cutout")
 	finish(declare_input_tree)
 
 	// (10,30) is inside the same corner's arc (dist^2 = 200 <= 400).
 	hit := niello.Vec2{10, 30}
-	niello.frame_begin(idle_input(hit), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(hit), 1.0 / 60.0)
 	testing.expect(t, niello.hovered(input_btn_i), "inside the arc hits")
 	finish(declare_input_tree)
 
 	// Top edge midpoint: outside every corner square.
-	niello.frame_begin(idle_input(niello.Vec2{60, 2}), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(niello.Vec2{60, 2}), 1.0 / 60.0)
 	testing.expect(t, niello.hovered(input_btn_i), "edge between corners hits")
 	finish(declare_input_tree)
 }
@@ -421,10 +421,10 @@ test_input_disabled_absorbs :: proc(t: ^testing.T) {
 	)
 
 	pt := niello.Vec2{100, 30} // covered by both stacked leaves
-	niello.frame_begin(idle_input(pt), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(pt), 1.0 / 60.0)
 	finish(declare_abs_tree)
 
-	niello.frame_begin(idle_input(pt), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(pt), 1.0 / 60.0)
 	testing.expect(t, niello.hovered(abs_dis_i), "disabled instance is the pick (absorbs)")
 	testing.expect(t, !niello.hovered(abs_under_i), "the covered button gets no hover")
 	finish(declare_abs_tree)
@@ -432,14 +432,14 @@ test_input_disabled_absorbs :: proc(t: ^testing.T) {
 	press := idle_input(pt)
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	testing.expect(t, !niello.pressed(abs_dis_i), "disabled never presses")
 	testing.expect(t, !niello.pressed(abs_under_i), "press does not fall through")
 	finish(declare_abs_tree)
 
 	rel := idle_input(pt)
 	rel.buttons_released = {.Left}
-	niello.frame_begin(rel, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel, 1.0 / 60.0)
 	testing.expect(t, !niello.clicked(abs_dis_i), "disabled never clicks")
 	testing.expect(t, !niello.clicked(abs_under_i), "click does not fall through")
 	finish(declare_abs_tree)
@@ -509,13 +509,13 @@ test_input_overlay_precedence :: proc(t: ^testing.T) {
 	ov_btn_disabled = false
 
 	// Base: mouse away.
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	res := finish(declare_ov_tree)
 	testing.expect(t, ov_btn_color() == [4]u8{10, 10, 10, 255}, "base color")
 	testing.expect(t, res.cursor == .Arrow, "no hover, arrow cursor")
 
 	// Hover: hover overlay wins over base; cursor follows the hover target.
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	res = finish(declare_ov_tree)
 	testing.expect(t, ov_btn_color() == [4]u8{20, 0, 0, 255}, "hover color")
 	testing.expect(t, res.cursor == .Pointer, "hovered button's cursor reported")
@@ -524,23 +524,23 @@ test_input_overlay_precedence :: proc(t: ^testing.T) {
 	press := idle_input(BTN_PT)
 	press.buttons_pressed = {.Left}
 	press.buttons_down = {.Left}
-	niello.frame_begin(press, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	res = finish(declare_ov_tree)
 	testing.expect(t, ov_btn_color() == [4]u8{30, 0, 0, 255}, "press beats hover")
 	rel := idle_input(BTN_PT)
 	rel.buttons_released = {.Left}
-	niello.frame_begin(rel, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), rel, 1.0 / 60.0)
 	finish(declare_ov_tree)
 
 	// Focus alone (mouse away): focus overlay applies.
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	niello.focus(ov_btn_i)
 	res = finish(declare_ov_tree)
 	testing.expect(t, niello.focused(ov_btn_i), "programmatic focus lands")
 	testing.expect(t, ov_btn_color() == [4]u8{40, 0, 0, 255}, "focus color")
 
 	// Focus + hover: hover wins over focus.
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	res = finish(declare_ov_tree)
 	testing.expect(t, ov_btn_color() == [4]u8{20, 0, 0, 255}, "hover beats focus")
 
@@ -548,7 +548,7 @@ test_input_overlay_precedence :: proc(t: ^testing.T) {
 	// Its Pointer base cursor is suppressed: the disabled overlay sets
 	// no cursor, so the frame reports Arrow, not an invitation to click.
 	ov_btn_disabled = true
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	res = finish(declare_ov_tree)
 	testing.expect(t, ov_btn_color() == [4]u8{50, 0, 0, 255}, "disabled beats hover+focus")
 	testing.expect(t, res.cursor == .Arrow, "disabled target's base cursor is suppressed")
@@ -595,9 +595,9 @@ test_input_cursor_disabled_overlay :: proc(t: ^testing.T) {
 		},
 	)
 
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	finish(declare_dc_tree)
-	niello.frame_begin(idle_input(BTN_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)
 	res := finish(declare_dc_tree)
 	testing.expect(
 		t,

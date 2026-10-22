@@ -212,7 +212,7 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 // ordinary write tail (dirty + explicit + generation).
 @(private)
 write_field :: proc(u: Unit, f: Field, src: ^Style) {
-	rec := &g.units[int(u)]
+	rec := &store.units[int(u)]
 	copy_field_owned(&rec.style, src, f)
 	touch(u, Fields{f})
 }
@@ -227,7 +227,7 @@ start_glide :: proc(u: Unit, fields: Fields, to: ^Style, ms: u32) {
 	if fields == {} {
 		return
 	}
-	rec := &g.units[int(u)]
+	rec := &store.units[int(u)]
 	if ms == 0 {
 		for f in fields {
 			write_field(u, f, to)
@@ -259,24 +259,33 @@ start_glide :: proc(u: Unit, fields: Fields, to: ^Style, ms: u32) {
 }
 
 // cancel_glide_fields removes the given fields from any tween running
-// on u (an explicit write supersedes the glide on those fields).
+// on u (an explicit write supersedes the glide on those fields). Styles
+// are global while tween registries are per-context (M1), so the
+// cancellation sweeps EVERY live context: a field has exactly one
+// writer, whichever window's tween or write claimed it last.
 @(private)
 cancel_glide_fields :: proc(u: Unit, fields: Fields) {
-	for i := len(g.tweens) - 1; i >= 0; i -= 1 {
-		if g.tweens[i].unit == u {
-			g.tweens[i].fields -= fields
-			if g.tweens[i].fields == {} {
-				unordered_remove(&g.tweens, i)
+	for ctx in store.contexts {
+		for i := len(ctx.tweens) - 1; i >= 0; i -= 1 {
+			if ctx.tweens[i].unit == u {
+				ctx.tweens[i].fields -= fields
+				if ctx.tweens[i].fields == {} {
+					unordered_remove(&ctx.tweens, i)
+				}
 			}
 		}
 	}
 }
 
+// field_gliding likewise looks across contexts: a field gliding under
+// another window's tween is still gliding (propagate must skip it).
 @(private)
 field_gliding :: proc(u: Unit, f: Field) -> bool {
-	for &tw in g.tweens {
-		if tw.unit == u && f in tw.fields {
-			return true
+	for ctx in store.contexts {
+		for &tw in ctx.tweens {
+			if tw.unit == u && f in tw.fields {
+				return true
+			}
 		}
 	}
 	return false
@@ -294,7 +303,7 @@ step_tweens :: proc() {
 		if tw.dur_ms > 0 {
 			t = clamp(f32(now - tw.start_ms) / f32(tw.dur_ms), 0, 1)
 		}
-		rec := &g.units[int(tw.unit)]
+		rec := &store.units[int(tw.unit)]
 		if t >= 1 {
 			for f in tw.fields {
 				copy_field(&rec.style, &tw.to, f)
@@ -322,7 +331,7 @@ step_tweens :: proc() {
 @(private)
 apply_edits :: proc() {
 	for u, es in g.edits {
-		rec := &g.units[int(u)]
+		rec := &store.units[int(u)]
 		for f in Field {
 			if field_equal(&es.base, &es.shadow, f) {
 				continue

@@ -7,17 +7,17 @@ package niello
 
 // test_generation returns the global mutation generation (§8).
 test_generation :: proc() -> u64 {
-	return g.gen
+	return store.gen
 }
 
 // test_dirty returns the unit's dirty field set (§8).
 test_dirty :: proc(u: Unit) -> Fields {
-	return g.units[int(u)].dirty
+	return store.units[int(u)].dirty
 }
 
 // test_proto returns the unit's prototype (NO_UNIT if none).
 test_proto :: proc(u: Unit) -> Unit {
-	return g.units[int(u)].proto
+	return store.units[int(u)].proto
 }
 
 // test_force_cull_next makes the next begin() report open = false.
@@ -61,5 +61,12 @@ test_overflow :: proc(i: Instance) -> Vec2 {
 // test_style returns a copy of a unit's live style (post any tween
 // steps / edit applies of the last frame_end).
 test_style :: proc(u: Unit) -> Style {
-	return g.units[int(u)].style
+	return store.units[int(u)].style
+}
+
+// test_context returns the harness's context (test_reset creates and
+// binds a fresh one per test). Tests pass it to frame_begin, whose
+// context parameter is explicit since M1.
+test_context :: proc() -> ^Context {
+	return test_ctx
 }

@@ -167,7 +167,7 @@ declare_as :: proc(
 			spans = spans,
 			spans_hash = spans_hash,
 			has_text = has_text,
-			focusable = with.focusable.? or_else g.units[int(unit)].focusable,
+			focusable = with.focusable.? or_else store.units[int(unit)].focusable,
 			anchored = with.anchored,
 			is_container = is_container,
 			culled = culled,

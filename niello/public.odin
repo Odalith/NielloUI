@@ -470,7 +470,7 @@ Frame_Result :: struct {
 	damage:       []Rect, // damaged regions, valid until the next frame_begin
 	next_wake_ms: u32,    // ms until the engine's nearest registered deadline
 	                      // (tween/transient/hover timers, §8); max(u32) = none
-	                      // pending, so the host may sleep until input or wake()
+	                      // pending, so the host may sleep until input or a context_wake
 	cursor:       Cursor_Kind, // the hovered instance's resolved cursor
 	                           // (.Arrow when nothing is hovered); the host
 	                           // applies it when it changes
@@ -484,14 +484,14 @@ Frame_Result :: struct {
 // default_style(). decl applies on top via set_many.
 mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
              name := #caller_expression(out), loc := #caller_location) {
-	if len(g.units) == 0 {
-		append(&g.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
+	if len(store.units) == 0 {
+		append(&store.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
 	}
-	u := Unit(u32(len(g.units)))
+	u := Unit(u32(len(store.units)))
 	rec := Unit_Rec{style = default_style(), name = name, loc = loc, proto = base}
 	if base != NO_UNIT {
-		assert(int(base) < len(g.units), "niello.mint: base is not a minted unit")
-		rec.style = g.units[int(base)].style
+		assert(int(base) < len(store.units), "niello.mint: base is not a minted unit")
+		rec.style = store.units[int(base)].style
 		// The base copy is a snapshot: clone the reference-typed
 		// fields so the new unit owns its copies (see store_spans).
 		rec.style.text_spans = clone_spans(rec.style.text_spans)
@@ -499,7 +499,7 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 			rec.style.text = strings.clone(rec.style.text)
 		}
 	}
-	append(&g.units, rec)
+	append(&store.units, rec)
 	out^ = u
 	// decl = {} is a no-op merge (set_many skips the generation bump when no
 	// explicit fields were set).
@@ -617,7 +617,7 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 
 set_any :: proc(u: Unit, f: Field, v: any) {
 	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
-	rec := &g.units[int(u)]
+	rec := &store.units[int(u)]
 	#partial switch f {
 	case .Text:
 		store_text(&rec.style.text, must(v, string))
@@ -637,7 +637,7 @@ set :: proc(u: Unit, f: Field, v: $T) {
 // set overwrite, the rest is untouched. Also records overlay units,
 // focusable, group memberships, and the explicit field set (for propagate).
 set_many :: proc(u: Unit, decl: Style_Decl) {
-	s := &g.units[int(u)].style
+	s := &store.units[int(u)].style
 	apply_opt(&s.color, decl.color)
 	apply_opt(&s.font_color, decl.font_color)
 	apply_opt(&s.border_color, decl.border_color)
@@ -674,7 +674,7 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.overscroll, decl.overscroll)
 	apply_opt(&s.overscroll_px, decl.overscroll_px)
 
-	rec := &g.units[int(u)]
+	rec := &store.units[int(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
 	// doesn't mention them leaves existing overlays alone.
 	if decl.hover != NO_UNIT    { rec.hover = decl.hover }
@@ -825,11 +825,64 @@ dismiss_requested :: proc(i: Instance) -> bool {
 	return ok
 }
 
-frame_begin :: proc(input: Input, dt: f32) {
+// ============ contexts ============
+// A Context is one window's frame state (multi-window plan, M1).
+// The cold store — units, groups — is global and context-free:
+// mint and set anywhere, any time. A context owns only what a
+// single tree's frames produce: nodes, instances, interaction,
+// damage. Apps create one context per window and hand it to the
+// glue (sdl.run(ctx, …)); there is no default context.
+
+// context_create makes a context with no tree yet. It consumes
+// the store's write journal from the current end: a fresh context
+// has no instances, so it has nothing to catch up on.
+context_create :: proc() -> ^Context {
+	ctx := new(Context)
+	ctx.journal_cursor = len(store.journal)
+	append(&store.contexts, ctx)
+	return ctx
+}
+
+// context_destroy frees a context and everything its frames owned.
+// The global store (units, groups) is untouched. If the context
+// was bound, the binding is cleared.
+context_destroy :: proc(ctx: ^Context) {
+	if ctx == nil {
+		return
+	}
+	for c, i in store.contexts {
+		if c == ctx {
+			ordered_remove(&store.contexts, i)
+			break
+		}
+	}
+	if g == ctx {
+		g = nil
+	}
+	free_context(ctx)
+	free(ctx)
+	journal_gc() // a departed consumer may unblock retirement
+}
+
+// set_current binds the context that declare-time procs operate
+// on. frame_begin binds its context itself; hosts and embedders
+// use this for work outside frames.
+set_current :: proc(ctx: ^Context) {
+	g = ctx
+}
+
+// current_context returns the bound context (nil if none).
+current_context :: proc() -> ^Context {
+	return g
+}
+
+frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
+	assert(ctx != nil, "frame_begin needs a context (context_create)")
+	g = ctx // bind: this frame's declare operates on ctx
 	// Engine time advances by the real frame delta; scheduling
 	// deadlines are stamped against it.
 	g.time_ms += u64(dt * 1000 + 0.5)
-	// A wake() since the last frame is consumed here — the frame it
+	// A context_wake() since the last frame is consumed here — the frame it
 	// asked for is this one, and pending changes are discovered by
 	// the ordinary diff machinery below.
 	if sync.atomic_load(&g.wake_requested) {
@@ -946,11 +999,10 @@ frame_end :: proc() -> Frame_Result {
 		}
 		g.input_dirty = false
 	}
-	// Clearing dirty is O(touched), not O(units) — §8.
-	for u in g.touched {
-		g.units[int(u)].dirty = {}
-	}
-	clear(&g.touched)
+	// Journal consumption is O(writes since this context's last
+	// frame), not O(units) — §8. Dirty bitsets clear inside
+	// journal_gc once every live context has consumed (§8, M1).
+	journal_consume()
 	update_animation_wake()
 	res := Frame_Result{
 		changed      = g.frame_index == 0 || len(g.damage) > 0,
@@ -968,6 +1020,43 @@ rect :: proc(i: Instance) -> (r: Rect, ok: bool) {
 	rec: Inst_Rec
 	rec, ok = g.instances[i]
 	return rec.rect, ok
+}
+
+// ============ cross-context reads ============
+// A context's committed state is readable WITHOUT binding it (M4):
+// while one window declares, every other window sits at a frame
+// boundary, so its instances map is stable to read. This is the
+// inspector-window story — a debug window renders a peer window's
+// committed tree (rects today; names and the overflow report join
+// when TODO #18 builds them).
+
+// rect_in reads instance i's committed rect in ctx (the peer form
+// of rect()). False when ctx has no such instance.
+rect_in :: proc(ctx: ^Context, i: Instance) -> (r: Rect, ok: bool) {
+	if ctx == nil {
+		return {}, false
+	}
+	rec: Inst_Rec
+	rec, ok = ctx.instances[i]
+	return rec.rect, ok
+}
+
+// unit_in reads which unit instance i instantiates in ctx.
+unit_in :: proc(ctx: ^Context, i: Instance) -> (u: Unit, ok: bool) {
+	if ctx == nil {
+		return NO_UNIT, false
+	}
+	rec: Inst_Rec
+	rec, ok = ctx.instances[i]
+	return rec.unit, ok
+}
+
+// instance_count is how many instances ctx committed last frame.
+instance_count :: proc(ctx: ^Context) -> int {
+	if ctx == nil {
+		return 0
+	}
+	return len(ctx.instances)
 }
 
 // mouse_position reads the cursor position as of this frame's
@@ -1161,30 +1250,46 @@ line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant
 // ============ scheduling ============
 // The idle-CPU contract (§3.3): changes are found by the next SCHEDULED
 // frame. frame_end reports the nearest engine deadline as next_wake_ms
-// and the host blocks on OS events until then. wake() is the escape
-// hatch for work that happens off the frame thread.
+// and the host blocks on OS events until then. context_wake() is the
+// escape hatch for work that happens off the frame thread.
 
-// wake_hook, when set, runs at the end of wake(). Host glue uses it to
-// interrupt its event wait (niello/sdl pushes an SDL user event). Set
-// once at startup, like the measure hooks. nil = wake() only flags the
-// core, and discovery waits for the next natural wake.
+// wake_hook, when set, runs at the end of context_wake(). Host glue
+// uses it to interrupt its event wait (niello/sdl pushes an SDL user
+// event). Set once at startup, like the measure hooks. nil =
+// context_wake() only flags the context, and discovery waits for the
+// next natural wake.
 wake_hook: proc()
 
-// wake schedules a frame from outside the loop — the one core entry
-// point that is safe to call from any thread. It flags the request
-// atomically and pokes the host through wake_hook; the frame it asked
-// for discovers pending changes through the ordinary diff machinery.
-wake :: proc() {
-	sync.atomic_store(&g.wake_requested, true)
+// context_wake schedules a frame of ctx from outside the loop — the
+// one core entry point that is safe to call from any thread. It flags
+// the request atomically and pokes the host through wake_hook; the
+// frame it asked for discovers pending changes through the ordinary
+// diff machinery. There is deliberately no context-free wake(): a
+// wake always names the window whose work is ready.
+context_wake :: proc(ctx: ^Context) {
+	if ctx == nil {
+		return
+	}
+	sync.atomic_store(&ctx.wake_requested, true)
 	if wake_hook != nil {
 		wake_hook()
 	}
 }
 
+// wake_pending reports whether a context_wake is still unconsumed.
+// Hosts use it to decide which window is due a frame; frame_begin
+// does the consuming.
+wake_pending :: proc(ctx: ^Context) -> bool {
+	if ctx == nil {
+		return false
+	}
+	return sync.atomic_load(&ctx.wake_requested)
+}
+
 // schedule_wake_in registers an engine deadline ms from now, in engine
 // time; frame_end reports the nearest pending deadline as
 // next_wake_ms. Engine subsystems register here — tweens, transients,
-// hover-delay thresholds (§8). Not app-facing API: apps use wake().
+// hover-delay thresholds (§8). Not app-facing API: apps use context_wake(ctx).
 // Until those subsystems land, the registry stays empty in a static
 // UI and next_wake_ms is max(u32).
 schedule_wake_in :: proc(ms: u32) {
@@ -1228,11 +1333,11 @@ compute_next_wake :: proc() -> u32 {
 
 // group_new creates an empty group. The name is debug metadata.
 group_new :: proc(name: string = "") -> Group {
-	if len(g.groups) == 0 {
-		append(&g.groups, Group_Rec{name = "NO_GROUP"}) // sentinel at index 0
+	if len(store.groups) == 0 {
+		append(&store.groups, Group_Rec{name = "NO_GROUP"}) // sentinel at index 0
 	}
-	append(&g.groups, Group_Rec{name = name})
-	return Group(len(g.groups) - 1)
+	append(&store.groups, Group_Rec{name = name})
+	return Group(len(store.groups) - 1)
 }
 
 // group_add registers units as members. The plain form masks in every
@@ -1261,9 +1366,9 @@ group_merge :: proc(grp, sub: Group) {
 	}
 	_ = group_rec(grp)
 	_ = group_rec(sub)
-	n := len(g.groups[int(sub)].members)
+	n := len(store.groups[int(sub)].members)
 	for i in 0 ..< n {
-		m := g.groups[int(sub)].members[i]
+		m := store.groups[int(sub)].members[i]
 		group_add_member(grp, m.unit, m.fields)
 	}
 }
@@ -1278,13 +1383,13 @@ group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 		if f not_in m.fields {
 			continue
 		}
-		if f in g.units[int(m.unit)].pinned {
+		if f in store.units[int(m.unit)].pinned {
 			continue
 		}
 		if ms == 0 {
 			set(m.unit, f, v)
 		} else {
-			target := g.units[int(m.unit)].style
+			target := store.units[int(m.unit)].style
 			style_set_any(&target, f, v)
 			start_glide(m.unit, Fields{f}, &target, ms)
 		}
@@ -1300,24 +1405,24 @@ group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 // group with ordinary actions. If you find yourself pinning routinely,
 // the group is drawn wrong: split it instead.
 pin :: proc(u: Unit, fields: Fields) {
-	assert(int(u) >= 1 && int(u) < len(g.units), "niello.pin: unit is not minted")
-	g.units[int(u)].pinned += fields
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.pin: unit is not minted")
+	store.units[int(u)].pinned += fields
 }
 
 unpin :: proc(u: Unit, fields: Fields) {
-	assert(int(u) >= 1 && int(u) < len(g.units), "niello.unpin: unit is not minted")
-	g.units[int(u)].pinned -= fields
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.unpin: unit is not minted")
+	store.units[int(u)].pinned -= fields
 }
 
 @(private)
 group_rec :: proc(grp: Group) -> ^Group_Rec {
-	assert(int(grp) >= 1 && int(grp) < len(g.groups), "niello: group handle is not a live group")
-	return &g.groups[int(grp)]
+	assert(int(grp) >= 1 && int(grp) < len(store.groups), "niello: group handle is not a live group")
+	return &store.groups[int(grp)]
 }
 
 @(private)
 group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
-	assert(int(u) >= 1 && int(u) < len(g.units), "niello.group_add: unit is not minted")
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.group_add: unit is not minted")
 	rec := group_rec(grp)
 	for &m in rec.members {
 		if m.unit == u {
@@ -1343,9 +1448,9 @@ group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
 // an explicit write (set/set_many/edit/group_set) to a gliding field
 // cancels that field's glide. ms == 0 is an immediate masked copy.
 tween :: proc(u: Unit, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
-	assert(int(u) >= 1 && int(u) < len(g.units), "niello.tween: unit is not minted")
-	assert(int(to) >= 1 && int(to) < len(g.units), "niello.tween: target unit is not minted")
-	target := g.units[int(to)].style
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.tween: unit is not minted")
+	assert(int(to) >= 1 && int(to) < len(store.units), "niello.tween: target unit is not minted")
+	target := store.units[int(to)].style
 	start_glide(u, fields, &target, ms)
 }
 
@@ -1353,12 +1458,12 @@ tween :: proc(u: Unit, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
 // style, gated per member by its mask (intersected with fields) and
 // its pins — the same gates as group_set.
 group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
-	assert(int(to) >= 1 && int(to) < len(g.units), "niello.group_tween: target unit is not minted")
+	assert(int(to) >= 1 && int(to) < len(store.units), "niello.group_tween: target unit is not minted")
 	rec := group_rec(grp)
-	target := g.units[int(to)].style
+	target := store.units[int(to)].style
 	for m in rec.members {
 		eff := fields & m.fields
-		for f in g.units[int(m.unit)].pinned {
+		for f in store.units[int(m.unit)].pinned {
 			eff -= Fields{f}
 		}
 		start_glide(m.unit, eff, &target, ms)
@@ -1374,7 +1479,7 @@ group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) 
 // valid until frame_end; holding it across frames is a contract
 // violation.
 edit :: proc(u: Unit) -> ^Style {
-	assert(int(u) >= 1 && int(u) < len(g.units), "niello.edit: unit is not minted")
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.edit: unit is not minted")
 	if g.edits == nil {
 		g.edits = make(map[Unit]^Edit_State)
 	}
@@ -1382,7 +1487,7 @@ edit :: proc(u: Unit) -> ^Style {
 		return &es.shadow
 	}
 	es := new(Edit_State)
-	es.base = g.units[int(u)].style
+	es.base = store.units[int(u)].style
 	es.shadow = es.base
 	g.edits[u] = es
 	return &es.shadow
@@ -1399,14 +1504,14 @@ edit :: proc(u: Unit) -> ^Style {
 // with a glide in flight on the target unit is skipped — the glide is
 // the more specific intent; call propagate again after it lands.
 propagate :: proc(proto: Unit, fields: Fields) {
-	assert(int(proto) >= 1 && int(proto) < len(g.units), "niello.propagate: unit is not minted")
+	assert(int(proto) >= 1 && int(proto) < len(store.units), "niello.propagate: unit is not minted")
 	if fields == {} {
 		return
 	}
 	updated: [dynamic]Unit
 	defer delete(updated)
-	for idx in 1 ..< len(g.units) {
-		rec := &g.units[idx]
+	for idx in 1 ..< len(store.units) {
+		rec := &store.units[idx]
 		if rec.proto == NO_UNIT {
 			continue
 		}
@@ -1424,7 +1529,7 @@ propagate :: proc(proto: Unit, fields: Fields) {
 			}
 		}
 		u := Unit(idx)
-		src := &g.units[int(src_unit)].style
+		src := &store.units[int(src_unit)].style
 		wrote := Fields{}
 		for f in fields {
 			if f in rec.explicit {
@@ -1461,7 +1566,7 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 	if i == 0 {
 		return
 	}
-	assert(int(style) >= 1 && int(style) < len(g.units), "niello.transient: style unit is not minted")
+	assert(int(style) >= 1 && int(style) < len(store.units), "niello.transient: style unit is not minted")
 	if prev, ok := g.transients[i]; ok {
 		if prev.src == style && prev.in_ms == in_ms && prev.out_ms == out_ms {
 			if _, active := transient_k(&prev); active {
@@ -1469,7 +1574,7 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 			}
 		}
 	}
-	src := &g.units[int(style)]
+	src := &store.units[int(style)]
 	fields := src.explicit & TRANSIENT_FIELDS
 	if fields == {} {
 		return

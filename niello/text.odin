@@ -95,13 +95,13 @@ ellipsis_width :: proc(s: ^Style) -> f32 {
 	key := hash_mix(u64(s.font), u64(transmute(u32)s.font_size))
 	key = hash_mix(key, u64(s.font_weight))
 	key = hash_mix(key, u64(s.font_slant))
-	if g.ellipsis_widths == nil {
-		g.ellipsis_widths = make(map[u64]f32)
-	} else if w, ok := g.ellipsis_widths[key]; ok {
+	if store.ellipsis_widths == nil {
+		store.ellipsis_widths = make(map[u64]f32)
+	} else if w, ok := store.ellipsis_widths[key]; ok {
 		return w
 	}
 	w := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, "…")
-	g.ellipsis_widths[key] = w
+	store.ellipsis_widths[key] = w
 	return w
 }
 
@@ -138,19 +138,19 @@ style_at :: proc(s: ^Style, spans: []Text_Span, at: int) -> (font: Font_Handle, 
 
 @(private)
 get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64, text: string) -> Text_Entry {
-	if g.text_cache == nil {
-		g.text_cache = make(map[u64]Text_Entry)
+	if store.text_cache == nil {
+		store.text_cache = make(map[u64]Text_Entry)
 	}
 	key := hash_mix(u64(s.font), text_hash)
 	key = hash_mix(key, u64(transmute(u32)s.font_size))
 	key = hash_mix(key, u64(s.font_weight))
 	key = hash_mix(key, u64(s.font_slant))
 	key = hash_mix(key, spans_hash)
-	if e, ok := g.text_cache[key]; ok {
+	if e, ok := store.text_cache[key]; ok {
 		return e
 	}
 	e := fill_entry(s, spans, text)
-	g.text_cache[key] = e
+	store.text_cache[key] = e
 	return e
 }
 

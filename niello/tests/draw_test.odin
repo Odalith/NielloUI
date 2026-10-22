@@ -30,7 +30,7 @@ test_draw_list_rect_and_text :: proc(t: ^testing.T) {
 	label: niello.Unit
 	niello.mint(&label, niello.NO_UNIT, {size = niello.Size{niello.fit(), niello.fit()}})
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(box)
 		niello.show(label, 0, niello.With{text = "Hi"})
@@ -74,7 +74,7 @@ test_draw_list_truncation :: proc(t: ^testing.T) {
 	// "Hello world" is 11 chars x 8px = 88px intrinsic; the 40px box truncates it.
 	niello.mint(&lbl, niello.NO_UNIT, {size = niello.Size{niello.fixed(40), niello.fit()}})
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(lbl, 0, niello.With{text = "Hello world"})
 	}
@@ -125,7 +125,7 @@ test_draw_list_clip_and_opacity :: proc(t: ^testing.T) {
 		},
 	)
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if _, ok := niello.begin(root); ok {
 		if _, ok2 := niello.begin(clipbox); ok2 {
 			niello.show(inner)
@@ -203,7 +203,7 @@ test_draw_list_overlay :: proc(t: ^testing.T) {
 		},
 	)
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(dbg)
 	}
@@ -260,7 +260,7 @@ test_draw_list_truncation_in_column :: proc(t: ^testing.T) {
 	lbl: niello.Unit
 	niello.mint(&lbl, niello.NO_UNIT, {}) // FIT text, wrap .None, ellipsis on
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(lbl, 0, niello.With{text = "Hello world"}) // 88px intrinsic
 	}
@@ -294,7 +294,7 @@ test_draw_list_truncation_nested_fit :: proc(t: ^testing.T) {
 	lbl: niello.Unit
 	niello.mint(&lbl, niello.NO_UNIT, {})
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if _, ok := niello.begin(root); ok {
 		if _, ok := niello.begin(card); ok {
 			niello.show(lbl, 0, niello.With{text = "Hello world"})
@@ -329,7 +329,7 @@ test_cross_fit_not_clamped_when_scrollable :: proc(t: ^testing.T) {
 	lbl: niello.Unit
 	niello.mint(&lbl, niello.NO_UNIT, {})
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(lbl, 0, niello.With{text = "Hello world"})
 	}
@@ -361,7 +361,7 @@ declare_dmg_tree :: proc() {
 }
 
 dmg_frame :: proc() -> niello.Frame_Result {
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	declare_dmg_tree()
 	return niello.frame_end()
 }

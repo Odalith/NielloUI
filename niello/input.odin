@@ -792,7 +792,7 @@ resolve_styles :: proc() {
 		if !hov && !prs && !foc && !dis && nd.with.variant == NO_UNIT && !has_tr {
 			continue
 		}
-		rec := &g.units[int(nd.unit)]
+		rec := &store.units[int(nd.unit)]
 		eff := rec.style
 		apply_overlay(&eff, nd.with.variant) // persistent per-instance overlay
 		if foc { apply_overlay(&eff, rec.focus) }
@@ -811,7 +811,7 @@ apply_overlay :: proc(dst: ^Style, overlay: Unit) {
 	if overlay == NO_UNIT {
 		return
 	}
-	rec := &g.units[int(overlay)]
+	rec := &store.units[int(overlay)]
 	for f in rec.explicit {
 		copy_field(dst, &rec.style, f)
 	}
@@ -872,9 +872,9 @@ current_cursor :: proc() -> Cursor_Kind {
 	for i in 0 ..< len(g.nodes) {
 		if g.nodes[i].identity == g.hover_id {
 			if i < len(g.disabled_flags) && g.disabled_flags[i] {
-				rec := &g.units[int(g.nodes[i].unit)]
+				rec := &store.units[int(g.nodes[i].unit)]
 				if rec.disabled != NO_UNIT {
-					drec := &g.units[int(rec.disabled)]
+					drec := &store.units[int(rec.disabled)]
 					if .Cursor in drec.explicit {
 						return node_style(i).cursor
 					}

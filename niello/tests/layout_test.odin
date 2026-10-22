@@ -46,7 +46,7 @@ test_toolbar_layout :: proc(t: ^testing.T) {
 	niello.mint(&title, niello.NO_UNIT, {size = niello.Size{niello.fit(), niello.fit()}})
 
 	i_win, i_tb, i_open, i_save, i_title: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if w, ok := niello.begin(window); ok {
 		i_win = w
 		if tb, ok2 := niello.begin(toolbar); ok2 {
@@ -85,7 +85,7 @@ test_waterfill_ceilings :: proc(t: ^testing.T) {
 	niello.mint(&c, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(20)}})
 
 	ia, ib, ic: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if _, ok2 := niello.begin(row); ok2 {
 			ia = niello.show(a)
@@ -125,7 +125,7 @@ test_shrink_to_floors :: proc(t: ^testing.T) {
 	niello.mint(&b, niello.NO_UNIT, {size = niello.Size{niello.fit(), niello.fit()}, wrap = .Word})
 
 	ia, ib: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if _, ok2 := niello.begin(row); ok2 {
 			ia = niello.show(a)
@@ -157,7 +157,7 @@ test_grow_in_fit_fallback :: proc(t: ^testing.T) {
 	niello.mint(&b, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(20)}})
 
 	irow, ib: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if r, ok2 := niello.begin(row); ok2 {
 			irow = r
@@ -189,7 +189,7 @@ test_word_wrap :: proc(t: ^testing.T) {
 	niello.mint(&desc, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fit()}, wrap = .Word})
 
 	idesc, icard: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if c, ok2 := niello.begin(card); ok2 {
 			icard = c
@@ -218,7 +218,7 @@ test_no_wrap_default :: proc(t: ^testing.T) {
 	niello.mint(&label, niello.NO_UNIT, {size = niello.Size{niello.fixed(100), niello.fit()}})
 
 	ilabel: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		ilabel = niello.show(label, 0, niello.With{text = "Hello world this is long"}) // 24ch = 192px
 	}
@@ -253,7 +253,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 	niello.mint(&b, niello.NO_UNIT, {size = niello.Size{niello.fixed(40), niello.fixed(20)}})
 
 	ia, irow: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if r, ok2 := niello.begin(row); ok2 {
 			irow = r
@@ -279,7 +279,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 	niello.mint(&b2, niello.NO_UNIT, {size = niello.Size{niello.fixed(40), niello.fixed(20)}})
 
 	ia2, irow2: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root2); ok {
 		if r, ok2 := niello.begin(row2); ok2 {
 			irow2 = r
@@ -315,7 +315,7 @@ test_stack_excluded_from_waterfill :: proc(t: ^testing.T) {
 	niello.mint(&c, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(30)}})
 
 	ib, ic: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if _, ok2 := niello.begin(st); ok2 {
 			_ = niello.show(a)
@@ -342,7 +342,7 @@ test_percent_sizing :: proc(t: ^testing.T) {
 	niello.mint(&a, niello.NO_UNIT, {size = niello.Size{niello.percent(0.5), niello.fixed(20)}})
 
 	ia: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		ia = niello.show(a)
 	}
@@ -370,17 +370,17 @@ test_damage_tracks_changes :: proc(t: ^testing.T) {
 		}
 	}
 
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	declare(root, title, "Hi")
 	res := niello.frame_end()
 	testing.expect(t, len(res.damage) > 0, "frame 1 (new instances) produces damage")
 
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	declare(root, title, "Hello")
 	res = niello.frame_end()
 	testing.expect(t, len(res.damage) > 0, "frame 2 (wider text) produces damage")
 
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	declare(root, title, "Hello")
 	res = niello.frame_end()
 	testing.expect(t, len(res.damage) == 0, "frame 3 (identical) is silent")
@@ -399,7 +399,7 @@ test_identity_stable_across_frames :: proc(t: ^testing.T) {
 	niello.mint(&item, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(20)}})
 
 	ids1: [3]niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		ids1[0] = niello.show(item, 7)
 		ids1[1] = niello.show(item, 8)
@@ -408,7 +408,7 @@ test_identity_stable_across_frames :: proc(t: ^testing.T) {
 	niello.frame_end()
 
 	ids2: [3]niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		ids2[0] = niello.show(item, 7)
 		ids2[1] = niello.show(item, 8)
@@ -432,7 +432,7 @@ test_cull_protocol :: proc(t: ^testing.T) {
 	v: niello.Unit
 	niello.mint(&v, niello.NO_UNIT, {size = niello.Size{niello.fixed(10), niello.fixed(10)}})
 
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	niello.test_force_cull_next()
 	culled_ok := false
 	if _, ok := niello.begin(u); ok {
@@ -489,7 +489,7 @@ test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	testing.expect(t, niello.key(0) == 0, "zero niello.key means sibling ordinal")
 
 	// niello.frame_end clears dirty sets O(touched).
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(child); ok {}
 	_ = niello.frame_end()
 	testing.expect(t, card(niello.test_dirty(child)) == 0, "dirty cleared at niello.frame_end")
@@ -641,7 +641,7 @@ test_layout_perf :: proc(t: ^testing.T) {
 
 	// Warmup: text cache, instance map, allocators.
 	for _ in 0 ..< 5 {
-		niello.frame_begin(niello.Input{viewport = {1200, 800}}, 1.0 / 60.0)
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {1200, 800}}, 1.0 / 60.0)
 		perf_declare(window, &sections, &cards, &leaves, &leaf_text,
 			stack_sec, &stack_kids, scroll_sec, &scroll_kids, texts[:])
 		_ = niello.frame_end()
@@ -651,7 +651,7 @@ test_layout_perf :: proc(t: ^testing.T) {
 	total := time.Duration(0)
 	worst := time.Duration(0)
 	for _ in 0 ..< N_FRAMES {
-		niello.frame_begin(niello.Input{viewport = {1200, 800}}, 1.0 / 60.0)
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {1200, 800}}, 1.0 / 60.0)
 		perf_declare(window, &sections, &cards, &leaves, &leaf_text,
 			stack_sec, &stack_kids, scroll_sec, &scroll_kids, texts[:])
 		start := time.tick_now()
@@ -767,7 +767,7 @@ test_grow_under_fit_root_column :: proc(t: ^testing.T) {
 	niello.mint(&filler, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(40)}})
 
 	icard: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {800, 600}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if _, ok2 := niello.begin(toolbar); ok2 {
 		}
@@ -796,7 +796,7 @@ test_grow_under_fit_root_row :: proc(t: ^testing.T) {
 	niello.mint(&b, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.grow()}})
 
 	ib: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		_ = niello.show(a)
 		ib = niello.show(b)
@@ -826,7 +826,7 @@ test_grow_with_content_split :: proc(t: ^testing.T) {
 	niello.mint(&fb, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(50)}})
 
 	ia, ib: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		if x, ok2 := niello.begin(a); ok2 {
 			ia = x

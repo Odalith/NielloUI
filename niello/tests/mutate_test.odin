@@ -13,7 +13,7 @@ m_input :: niello.Input{viewport = {400, 300}, window_focused = true}
 
 // mframe runs one frame with an explicit dt (seconds).
 mframe :: proc(declare: proc(), dt: f32) -> niello.Frame_Result {
-	niello.frame_begin(m_input, dt)
+	niello.frame_begin(niello.test_context(), m_input, dt)
 	declare()
 	return niello.frame_end()
 }

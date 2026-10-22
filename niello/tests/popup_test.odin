@@ -86,7 +86,7 @@ pp_declare :: proc() {
 }
 
 pp_frame :: proc(inp: niello.Input) {
-	niello.frame_begin(inp, 0.016)
+	niello.frame_begin(niello.test_context(), inp, 0.016)
 	pp_declare()
 	niello.frame_end()
 }
@@ -202,7 +202,7 @@ test_popup_anchor_gone_does_not_open :: proc(t: ^testing.T) {
 	pp_modal = false
 	pp_popup_i = 0
 	// Never declare the main tree: the anchor has no committed rect.
-	niello.frame_begin(pp_idle(), 0.016)
+	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
 	opened := true
 	if _, ok := niello.begin(pp_root_u); ok {
 		// (anchor deliberately not shown)
@@ -266,7 +266,7 @@ test_popup_placement_center :: proc(t: ^testing.T) {
 	pp_mint()
 	pp_popup_i = 0
 	frame_c :: proc() {
-		niello.frame_begin(pp_idle(), 0.016)
+		niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
 		if pi, ok := niello.begin_popup(pp_menu_u, 0, .Center, key = niello.key_int(7)); ok {
 			pp_popup_i = pi
 			for k in 0 ..< 3 {
@@ -318,7 +318,7 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 	pp_frame(pp_idle())
 	// A toast: stay = true. Declared via a local pattern — reuse the
 	// menu but keep it open manually.
-	niello.frame_begin(pp_idle(), 0.016)
+	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
 	if _, ok := niello.begin(pp_root_u); ok {
 		niello.show(pp_anchor_u, niello.key_int(1))
 		niello.show(pp_under_u, niello.key_int(2))
@@ -329,7 +329,7 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 	}
 	niello.frame_end()
 	inp := pp_at({200, 60}, true, false)
-	niello.frame_begin(inp, 0.016)
+	niello.frame_begin(niello.test_context(), inp, 0.016)
 	if pp_popup_i != 0 && niello.dismiss_requested(pp_popup_i) {
 		pp_dismiss_seen = true
 	}
@@ -378,7 +378,7 @@ pp_flip_declare :: proc() {
 }
 
 pp_flip_frame :: proc() {
-	niello.frame_begin(pp_idle(), 0.016)
+	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
 	pp_flip_declare()
 	niello.frame_end()
 }
