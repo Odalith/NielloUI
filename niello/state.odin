@@ -54,6 +54,13 @@ Globals :: struct {
 	gen:     u64,
 	touched: [dynamic]Unit,
 
+	// Frame text arena: With.text copies land here at declare time.
+	// Chunked so a slice, once taken, never moves; rewound at
+	// frame_begin and reused across frames (freed only at teardown).
+	text_chunks:  [dynamic][]u8,
+	text_chunk:   int,
+	text_off:     int,
+
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
 	stack:        [dynamic]int, // open container node indices
@@ -252,6 +259,10 @@ free_globals :: proc() {
 			delete(rec.style.text)
 		}
 	}
+	for chunk in g.text_chunks {
+		delete(chunk)
+	}
+	delete(g.text_chunks)
 	delete(g.units)
 	for &gr in g.groups {
 		delete(gr.members)

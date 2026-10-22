@@ -554,27 +554,31 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 		if inner < 0 {
 			inner = 0
 		}
+		// Anchored overlays (§3.20) resolve against the parent's FULL
+		// rect on every axis, whatever the layout: padding insets flow
+		// content, never overlays (a scrollbar hugs the panel edge).
+		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				resolve_cross(c, axis, g.lay[i].size[axis])
+			}
+		}
 		if s.layout == .Stack {
 			// Stack children are excluded from the waterfill: each resolves
 			// independently against the full content box.
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				resolve_cross(c, axis, inner)
+				if !g.nodes[c].anchored {
+					resolve_cross(c, axis, inner)
+				}
 			}
 			continue
 		}
 		if axis == main_axis(s.layout) {
-			// Anchored children (§3.20) resolve like Stack
-			// children — independently against the inner box —
-			// on every axis; the waterfill never sees them.
-			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				if g.nodes[c].anchored {
-					resolve_cross(c, axis, inner)
-				}
-			}
 			distribute_main(i, axis, inner)
 		} else {
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				resolve_cross(c, axis, inner)
+				if !g.nodes[c].anchored {
+					resolve_cross(c, axis, inner)
+				}
 			}
 		}
 	}
@@ -735,24 +739,23 @@ position_and_damage :: proc() {
 				p[cross] += align_offset(s.align[cross], free)
 			}
 			anchored := g.nodes[c].anchored
-			if anchored && s.layout != .Stack {
-				// Overlay (§3.20): positioned like a Stack child —
-				// the parent's content origin plus its align,
-				// with NO scroll applied and no flow slot consumed.
+			if anchored {
+				// Overlay (§3.20): positioned against the parent's
+				// FULL rect — its origin plus its align, no padding
+				// inset, NO scroll applied, no flow slot consumed.
 				// (A flow container's align is [main, cross], not
-				// the [x, y] stack_align_offset reads, so the
+				// the [x, y] stack_align_offset reads, so the flow
 				// translation is spelled out.)
-				inner_p := g.lay[i].size - Vec2{padding_sum(s, X_AXIS), padding_sum(s, Y_AXIS)}
-				ma := main_axis(s.layout)
-				ca := 1 - ma
-				off := Vec2{0, 0}
-				off[ma] = align_offset(s.align[0], inner_p[ma] - g.lay[c].size[ma])
-				off[ca] = align_offset(s.align[1], inner_p[ca] - g.lay[c].size[ca])
-				p = base + pad + off
-			} else if anchored {
-				// Stack parent: cancel the scroll offset the
-				// shared math baked in.
-				p += scroll
+				if s.layout == .Stack {
+					p = base + stack_align_offset(s, g.lay[c].size, g.lay[i].size)
+				} else {
+					ma := main_axis(s.layout)
+					ca := 1 - ma
+					off := Vec2{0, 0}
+					off[ma] = align_offset(s.align[0], g.lay[i].size[ma] - g.lay[c].size[ma])
+					off[ca] = align_offset(s.align[1], g.lay[i].size[ca] - g.lay[c].size[ca])
+					p = base + off
+				}
 			}
 			g.lay[c].pos = p
 			g.lay[c].gen = g.layout_gen

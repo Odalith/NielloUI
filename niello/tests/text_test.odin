@@ -6,6 +6,7 @@ package tests
 
 import niello ".."
 
+import "core:fmt"
 import "core:testing"
 
 hook_calls: int
@@ -529,4 +530,47 @@ test_whitespace_preserve_emission_positions :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, found, "a text command was emitted")
+}
+
+// ---------------------------------------------------------------------------
+// With.text is copied into the frame arena at declare time: a caller
+// may reuse ONE scratch buffer for every row (the virtualized-list
+// pattern). Before the copy existed, every row rendered the buffer's
+// final contents sliced to its own length.
+
+@(test)
+test_with_text_copied_at_declare :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	root := fixed_root()
+	leaf: niello.Unit
+	niello.mint(&leaf, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(120), niello.fixed(20)},
+	})
+	buf: [16]u8
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0.016)
+	if _, ok := niello.begin(root); ok {
+		for k in 0 ..< 3 {
+			n := len(fmt.bprintf(buf[:], "Row %d", k + 1))
+			niello.show(leaf, niello.key_int(k + 1), {text = string(buf[:n])})
+		}
+	}
+	niello.frame_end()
+	seen: [3]bool
+	for cmd in niello.draw_list() {
+		if cmd.tag != .Text {
+			continue
+		}
+		txt := string(cmd.text_ptr[:cmd.text_len])
+		switch txt {
+		case "Row 1":
+			seen[0] = true
+		case "Row 2":
+			seen[1] = true
+		case "Row 3":
+			seen[2] = true
+		}
+	}
+	testing.expect(t, seen[0] && seen[1] && seen[2],
+		"each row kept its own bytes despite the shared buffer")
 }

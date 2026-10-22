@@ -170,6 +170,7 @@ test_anchored_in_flow_scroller :: proc(t: ^testing.T) {
 		size = niello.Size{niello.fixed(200), niello.fixed(100)},
 		scroll = niello.Scroll.Vertical,
 		align = [2]niello.Align_Kind{.Start, .End},
+		padding = [4]u16{10, 10, 10, 10},
 	})
 	niello.mint(&fl_row_u, niello.NO_UNIT, {
 		size = niello.Size{niello.fixed(200), niello.fixed(30)},
@@ -181,16 +182,17 @@ test_anchored_in_flow_scroller :: proc(t: ^testing.T) {
 	sr, _ := niello.rect(fl_strip_i)
 	testing.expect(t, abs(sr.pos.x - 188) < EPS && abs(sr.pos.y - 0) < EPS &&
 		abs(sr.size.x - 12) < EPS && abs(sr.size.y - 100) < EPS,
-		"strip: right edge (cross align), full height, at the top")
+		"strip: flush with the panel edge — padding does not inset overlays")
 	r0, _ := niello.rect(fl_row_i[0])
-	testing.expect(t, abs(r0.pos.y - 0) < EPS, "first row undisplaced")
+	testing.expect(t, abs(r0.pos.x - 10) < EPS && abs(r0.pos.y - 10) < EPS,
+		"rows inset by the padding, undisplaced by the strip")
 	rng := niello.scroll_range(fl_scroll_i)
-	testing.expect(t, abs(rng.y - 200) < EPS, "range excludes the strip")
+	testing.expect(t, abs(rng.y - 220) < EPS, "range: content + padding, strip excluded")
 	niello.scroll_to(fl_scroll_i, {0, 50})
 	fl_frame()
 	r0, _ = niello.rect(fl_row_i[0])
 	r1, _ := niello.rect(fl_row_i[1])
-	testing.expect(t, abs(r0.pos.y - (-50)) < EPS && abs(r1.pos.y - (-20)) < EPS,
+	testing.expect(t, abs(r0.pos.y - (-40)) < EPS && abs(r1.pos.y - (-10)) < EPS,
 		"rows scroll normally, no slot was consumed")
 	sr, _ = niello.rect(fl_strip_i)
 	testing.expect(t, abs(sr.pos.y - 0) < EPS && abs(sr.size.y - 100) < EPS,

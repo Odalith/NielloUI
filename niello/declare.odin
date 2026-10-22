@@ -38,8 +38,8 @@ Frame_Node :: struct {
 }
 
 // resolve_text: per-frame With.text wins, then With.text_no_copy (borrowed),
-// then the unit's own style text. With.text is copied into the frame arena by
-// the real backend; the mock just holds the string.
+// then the unit's own style text. declare_as copies the With.text result
+// into the frame arena (copy_frame_text); the other two borrow on purpose.
 @(private)
 resolve_text :: proc(with: With, s: ^Style) -> string {
 	if t, ok := with.text.?; ok {
@@ -133,6 +133,16 @@ declare_as :: proc(
 	id := identity_of(parent_id, unit, k)
 
 	text := resolve_text(with, style_of(unit))
+	if _, ok := with.text.?; ok {
+		// The documented contract (§2 strings): With.text is COPIED
+		// into the frame arena at declare time. The caller's buffer
+		// may be a scratch reused for the very next sibling — a
+		// virtualized list formatting each row into one buffer is
+		// the canonical case — so the node must not borrow it.
+		// (This copy was designed but never implemented until a
+		// demo's rows all rendered the buffer's final contents.)
+		text = copy_frame_text(text)
+	}
 	has_text := len(text) > 0
 	text_hash := u64(0)
 	spans: []Text_Span
@@ -164,4 +174,41 @@ declare_as :: proc(
 		},
 	)
 	return id, len(g.nodes) - 1
+}
+
+// ---------------------------------------------------------------------------
+// Frame text arena
+
+TEXT_CHUNK :: 16 * 1024
+
+// copy_frame_text copies a string into the frame arena and returns the
+// arena slice. Chunks are never reallocated once made, so slices taken
+// earlier in the frame stay valid; frame_begin rewinds the cursor and
+// the chunks are reused next frame. A string larger than a chunk gets
+// a chunk of its own size.
+@(private)
+copy_frame_text :: proc(text: string) -> string {
+	if len(text) == 0 {
+		return text
+	}
+	need := len(text)
+	if len(g.text_chunks) == 0 {
+		append(&g.text_chunks, make([]u8, max(TEXT_CHUNK, need)))
+		g.text_chunk = 0
+		g.text_off = 0
+	} else if g.text_off + need > len(g.text_chunks[g.text_chunk]) {
+		g.text_chunk += 1
+		g.text_off = 0
+		if g.text_chunk == len(g.text_chunks) {
+			append(&g.text_chunks, make([]u8, max(TEXT_CHUNK, need)))
+		} else if len(g.text_chunks[g.text_chunk]) < need {
+			delete(g.text_chunks[g.text_chunk])
+			g.text_chunks[g.text_chunk] = make([]u8, max(TEXT_CHUNK, need))
+		}
+	}
+	chunk := g.text_chunks[g.text_chunk]
+	dst := chunk[g.text_off:g.text_off + need]
+	copy(dst, text)
+	g.text_off += need
+	return string(dst)
 }

@@ -340,9 +340,10 @@ With :: struct {
 	disabled: bool,
 	anchored: bool, // an overlay child (§3.20): removed from flow
 	                // in any container — no flow slot, no waterfill,
-	                // no content extent, no scroll offset — and
-	                // positioned at the parent's content origin by
-	                // its align. Scrollbar chrome, sticky headers.
+	                // no content extent, no scroll offset — sized
+	                // and positioned against the parent's full rect
+	                // by its align (padding never insets overlays).
+	                // Scrollbar chrome, sticky headers.
 	focusable: Maybe(bool), // per-instance focus participation; wins over
 	                        // the unit's Style_Decl.focusable, so one
 	                        // instance of a repeated unit can be the
@@ -821,6 +822,8 @@ frame_begin :: proc(input: Input, dt: f32) {
 		delete(nd.spans)
 	}
 	clear(&g.nodes)
+	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
+	g.text_off = 0
 	clear(&g.popups) // last frame's list; dispatch already read it
 	g.popup_ordinal = 0
 	clear(&g.stack)
