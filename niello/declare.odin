@@ -22,6 +22,13 @@ Frame_Node :: struct {
 	has_text:        bool,
 	focusable:       bool, // resolved at declare: With.focusable wins
 	                       // over the unit's Style_Decl.focusable
+	is_popup:        bool, // an overlay root (§3.19): parent is the
+	                       // layer (-1), positioned by placement in
+	                       // pass F, never by a parent's layout
+	popup_anchor:    Instance, // .At ignores it
+	popup_place:     Placement,
+	popup_at:        Vec2,
+	popup_gap:       f32,
 	is_container:    bool,
 	culled:          bool,
 	has_eff:         bool, // frame_end resolved an effective style into
@@ -71,6 +78,12 @@ resolve_spans :: proc(with: With, s: ^Style) -> (spans: []Text_Span, hash: u64) 
 	return spans, hash
 }
 
+// Popup roots hash against a fixed seed instead of a parent
+// identity (§3.19): a popup's identity is stable no matter where in
+// the tree it was declared from, and can never collide with a main
+// root built from the same unit and key.
+POPUP_PARENT_SEED :: u64(0xd1b54a32d192ed03)
+
 // declare appends one node; parents always precede children in the array.
 @(private)
 declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instance, int) {
@@ -87,14 +100,34 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instan
 		parent_culled = g.nodes[parent].culled
 	}
 
+	parent_id := u64(0)
+	if parent >= 0 {
+		parent_id = u64(g.nodes[parent].identity)
+	}
+	return declare_as(unit, key, with, is_container, parent, ord, parent_id, parent_culled)
+}
+
+// declare_as is declare with the parentage made explicit: popup
+// roots (§3.19) pass parent -1 with the layer seed, wherever the
+// declaring code sits in the tree.
+@(private)
+declare_as :: proc(
+	unit: Unit,
+	key: Key,
+	with: With,
+	is_container: bool,
+	parent: int,
+	ord: int,
+	parent_id: u64,
+	culled: bool,
+) -> (
+	Instance,
+	int,
+) {
 	// Key 0 falls back to the sibling ordinal.
 	k := u64(key)
 	if k == 0 {
 		k = u64(ord) + 0x9e3779b97f4a7c15 // domain-separate from explicit keys
-	}
-	parent_id := u64(0)
-	if parent >= 0 {
-		parent_id = u64(g.nodes[parent].identity)
 	}
 	id := identity_of(parent_id, unit, k)
 
@@ -124,7 +157,7 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instan
 			has_text = has_text,
 			focusable = with.focusable.? or_else g.units[int(unit)].focusable,
 			is_container = is_container,
-			culled = parent_culled,
+			culled = culled,
 			sibling_ordinal = ord,
 		},
 	)

@@ -80,6 +80,94 @@ resolve_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 	return clamp(v, sz.min, sz.max)
 }
 
+// Popup roots (§3.19) size like ordinary nodes, not viewport roots:
+// Fixed and Percent (of the viewport) as usual, but Fit — and Grow,
+// which has no parent to grow into — resolve to the content size.
+resolve_popup_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
+	sz := node_style(r).size[axis]
+	v := g.lay[r].content[axis]
+	switch sz.kind {
+	case .Fixed:
+		v = sz.value
+	case .Percent:
+		v = sz.value * viewport_extent
+	case .Fit, .Grow:
+	}
+	return clamp(v, sz.min, sz.max)
+}
+
+// popup_position resolves a popup root's top-left (§3.19): the
+// anchor's last committed rect (pass F commits after positioning,
+// so g.instances still holds it) plus this frame's resolved size.
+// The placement side flips when the content would leave the
+// viewport there and fits on the opposite side; the cross axis
+// clamps into the viewport. Nothing paints outside the viewport.
+popup_position :: proc(r: int) -> Vec2 {
+	nd := &g.nodes[r]
+	size := g.lay[r].size
+	vp := g.viewport
+	clamp_to_view :: proc(p: Vec2, size: Vec2, vp: Vec2) -> Vec2 {
+		return Vec2{
+			clamp(p.x, 0, max(0, vp.x - size.x)),
+			clamp(p.y, 0, max(0, vp.y - size.y)),
+		}
+	}
+	if nd.popup_place == .At {
+		p := nd.popup_at
+		// Reflect around the point on any axis that overflows,
+		// like a context menu opening up-left at the corner.
+		if p.x + size.x > vp.x {
+			p.x = nd.popup_at.x - size.x
+		}
+		if p.y + size.y > vp.y {
+			p.y = nd.popup_at.y - size.y
+		}
+		return clamp_to_view(p, size, vp)
+	}
+	a, ok := g.instances[nd.popup_anchor]
+	if !ok {
+		// begin_popup culled this root (no committed anchor), so
+		// the position is never painted or picked; park it at the
+		// origin rather than inventing a place.
+		return Vec2{0, 0}
+	}
+	gap := nd.popup_gap
+	p := Vec2{0, 0}
+	switch nd.popup_place {
+	case .Below, .Above:
+		p.x = a.pos.x
+		below := a.pos.y + a.size.y + gap
+		above := a.pos.y - size.y - gap
+		p.y = below
+		if nd.popup_place == .Above {
+			p.y = above
+		}
+		if nd.popup_place == .Below && below + size.y > vp.y && above >= 0 {
+			p.y = above
+		}
+		if nd.popup_place == .Above && above < 0 && below + size.y <= vp.y {
+			p.y = below
+		}
+	case .Left, .Right:
+		p.y = a.pos.y
+		right := a.pos.x + a.size.x + gap
+		left := a.pos.x - size.x - gap
+		p.x = right
+		if nd.popup_place == .Left {
+			p.x = left
+		}
+		if nd.popup_place == .Right && right + size.x > vp.x && left >= 0 {
+			p.x = left
+		}
+		if nd.popup_place == .Left && left < 0 && right + size.x <= vp.x {
+			p.x = right
+		}
+	case .At:
+		unreachable()
+	}
+	return clamp_to_view(p, size, vp)
+}
+
 floor_of :: proc(c: int, axis: int) -> f32 {
 	s := node_style(c)
 	// min_c is the true shrink floor: measure_text already folded the
@@ -431,7 +519,11 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 	n := len(g.nodes)
 	for i in 0 ..< n {
 		if g.nodes[i].parent == -1 {
-			g.lay[i].size[axis] = resolve_root(i, axis, viewport_extent)
+			if g.nodes[i].is_popup {
+				g.lay[i].size[axis] = resolve_popup_root(i, axis, viewport_extent)
+			} else {
+				g.lay[i].size[axis] = resolve_root(i, axis, viewport_extent)
+			}
 		}
 	}
 	for i in 0 ..< n {
@@ -557,7 +649,11 @@ position_and_damage :: proc() {
 	n := len(g.nodes)
 	for r in 0 ..< n {
 		if g.nodes[r].parent == -1 {
-			g.lay[r].pos = Vec2{0, 0}
+			if g.nodes[r].is_popup {
+				g.lay[r].pos = popup_position(r)
+			} else {
+				g.lay[r].pos = Vec2{0, 0}
+			}
 		}
 	}
 	for i in 0 ..< n {

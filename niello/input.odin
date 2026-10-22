@@ -130,6 +130,49 @@ pick_at :: proc(p: Vec2) -> int {
 }
 
 // ---------------------------------------------------------------------------
+// Popups (§3.19)
+
+// popup_containing returns the index into g.popups of the popup
+// whose subtree holds node idx, or -1. Popup subtrees are disjoint
+// node ranges (overlay roots are siblings in the array), so at
+// most one matches. Reads the tree g.popups was recorded against —
+// at dispatch time, last frame's.
+@(private)
+popup_containing :: proc(idx: int) -> int {
+	if idx < 0 {
+		return -1
+	}
+	for rec, k in g.popups {
+		if idx >= rec.root_idx && idx <= g.subtree_end[rec.root_idx] {
+			return k
+		}
+	}
+	return -1
+}
+
+// topmost_modal returns the g.popups index of the highest modal
+// popup, or -1.
+@(private)
+topmost_modal :: proc() -> int {
+	for k := len(g.popups) - 1; k >= 0; k -= 1 {
+		if g.popups[k].modal {
+			return k
+		}
+	}
+	return -1
+}
+
+// flag_dismiss records a dismissal request for one popup root; the
+// app reads it back with dismiss_requested during this declare.
+@(private)
+flag_dismiss :: proc(rec_idx: int) {
+	if g.dismiss_flags == nil {
+		g.dismiss_flags = make(map[Instance]bool)
+	}
+	g.dismiss_flags[g.popups[rec_idx].id] = true
+}
+
+// ---------------------------------------------------------------------------
 // Keyboard focus (§3.17)
 
 // set_focus_id is the one focus writer: it notes the transition for
@@ -170,15 +213,23 @@ focus_candidate :: proc(idx: int) -> bool {
 // declaration order (the node array IS declaration order) over the
 // focusable instances of the last completed tree, wrapping at the
 // ends. From no focus, forward lands on the first candidate and
-// reverse on the last. No candidates: focus is left alone.
+// reverse on the last. No candidates: focus is left alone. While a
+// modal popup is open (§3.19) the walk is scoped to its subtree —
+// the range restriction the flat array makes trivial.
 @(private)
 traverse_focus :: proc(dir: int) {
 	n := len(g.nodes)
 	if n == 0 {
 		return
 	}
+	lo, hi := 0, n - 1
+	if mk := topmost_modal(); mk >= 0 {
+		lo = g.popups[mk].root_idx
+		hi = g.subtree_end[lo]
+	}
+	span := hi - lo + 1
 	cur := -1
-	for i in 0 ..< n {
+	for i in lo ..= hi {
 		if g.nodes[i].identity == g.focus_id {
 			cur = i
 			break
@@ -186,10 +237,10 @@ traverse_focus :: proc(dir: int) {
 	}
 	origin := cur
 	if origin < 0 {
-		origin = dir > 0 ? -1 : 0
+		origin = dir > 0 ? lo - 1 : hi + 1
 	}
-	for step in 1 ..= n {
-		idx := (origin + dir * step) %% n
+	for step in 1 ..= span {
+		idx := lo + (origin - lo + dir * step) %% span
 		if focus_candidate(idx) {
 			set_focus_id(g.nodes[idx].identity)
 			return
@@ -302,6 +353,23 @@ dispatch_keys :: proc(input: Input) {
 
 	for k in 0 ..< g.frame_key_count {
 		ev := g.frame_keys[k]
+		if ev.scancode == SCANCODE_ESCAPE && ev.down && !ev.repeat {
+			// Esc light-dismisses the topmost dismissible popup
+			// (§3.19) and is consumed, like Tab; with no popup to
+			// dismiss it routes to the focused instance normally.
+			consumed := false
+			for j := len(g.popups) - 1; j >= 0; j -= 1 {
+				if !g.popups[j].stay {
+					flag_dismiss(j)
+					consumed = true
+					break
+				}
+			}
+			if consumed {
+				g.key_consumed[k] = true
+				continue
+			}
+		}
 		if ev.scancode == SCANCODE_TAB && ev.down {
 			// Traversal consumes Tab outright (repeats included:
 			// holding Tab keeps cycling, as everywhere else).
@@ -329,11 +397,17 @@ dispatch_keys :: proc(input: Input) {
 // It reads last frame's nodes/lay/pick_clip exactly as frame_end left them.
 @(private)
 dispatch_input :: proc(input: Input, dt: f32) {
+	g.pointer_pos = input.mouse
+	g.pointer_valid = input.mouse_valid
 	// clicked answers for exactly one declare: the one following the
 	// dispatch that produced it. Consumed or not, it ends here.
 	g.clicked_id = 0
 	clear(&g.clicked_chain)
 	clear(&g.affected)
+	// Dismissal requests (§3.19) live for one declare, like clicks.
+	if g.dismiss_flags != nil {
+		clear(&g.dismiss_flags)
+	}
 
 	// Focus loss drops press capture on the falling edge only, so no
 	// click can complete across an alt-tab. Hover is NOT focus-gated:
@@ -398,6 +472,43 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		}
 	}
 
+	// Popup rules (§3.19), against last frame's popup list:
+	//   - A modal popup makes its subtree the whole press surface:
+	//     a pick outside it is absorbed exactly like a disabled hit
+	//     (no hover, no press, no focus change, no wheel).
+	//   - Otherwise a left press light-dismisses: inside popup k it
+	//     flags every dismissible popup above k (a submenu chain
+	//     collapses toward the press); outside all popups it flags
+	//     the topmost dismissible one and CONSUMES the press, so
+	//     closing a menu never clicks what was underneath it.
+	press_consumed := false
+	if len(g.popups) > 0 {
+		if mk := topmost_modal(); mk >= 0 {
+			if popup_containing(pick) != mk {
+				pick = -1
+				clear(&chain_idx)
+				hover_len = 0
+				blocked = true
+			}
+		} else if .Left in input.buttons_pressed {
+			if k := popup_containing(pick); k >= 0 {
+				for j := len(g.popups) - 1; j > k; j -= 1 {
+					if !g.popups[j].stay {
+						flag_dismiss(j)
+					}
+				}
+			} else {
+				for j := len(g.popups) - 1; j >= 0; j -= 1 {
+					if !g.popups[j].stay {
+						flag_dismiss(j)
+						press_consumed = true
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// Hover follows the cursor, never the capture. Durations are per
 	// instance: every chain member stamps its entry time when it joins
 	// the chain and loses the stamp when it leaves, so a button keeps
@@ -445,7 +556,7 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// text field anywhere else. (First cut left focus in place; in
 	// use that read as focus getting stuck, so the rule flipped —
 	// §3.17.) A blocked press is absorbed before any of this.
-	if .Left in input.buttons_pressed && pick >= 0 && !blocked {
+	if .Left in input.buttons_pressed && pick >= 0 && !blocked && !press_consumed {
 		found := false
 		for j := len(chain_idx) - 1; j >= 0; j -= 1 {
 			if focus_candidate(chain_idx[j]) {
@@ -461,7 +572,8 @@ dispatch_input :: proc(input: Input, dt: f32) {
 
 	// Press capture and click completion, per button.
 	for b in Mouse_Button {
-		if b in input.buttons_pressed && pick >= 0 && !blocked {
+		if b in input.buttons_pressed && pick >= 0 && !blocked &&
+		   !(press_consumed && b == .Left) {
 			g.press_ids[b] = g.nodes[pick].identity
 			clear(&g.press_chains[b])
 			for idx in chain_idx {
