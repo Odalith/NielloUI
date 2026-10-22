@@ -301,6 +301,9 @@ accumulate :: proc(axis: int) {
 		if s.layout == .Stack {
 			m, mmin := f32(0), f32(0)
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // chrome is not content (§3.20)
+				}
 				m = max(m, accum_size(c, axis))
 				mmin = max(mmin, accum_min(c, axis))
 			}
@@ -310,6 +313,9 @@ accumulate :: proc(axis: int) {
 			total, mtotal := f32(0), f32(0)
 			nchild := 0
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // chrome is not content (§3.20)
+				}
 				total += accum_size(c, axis) + gap
 				mtotal += accum_min(c, axis) + gap
 				nchild += 1
@@ -323,6 +329,9 @@ accumulate :: proc(axis: int) {
 		} else {
 			m, mmin := f32(0), f32(0)
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // chrome is not content (§3.20)
+				}
 				m = max(m, accum_size(c, axis))
 				mmin = max(mmin, accum_min(c, axis))
 			}
@@ -710,14 +719,23 @@ position_and_damage :: proc() {
 				free := (g.lay[i].size[cross] - padding_sum(s, cross)) - g.lay[c].size[cross]
 				p[cross] += align_offset(s.align[cross], free)
 			}
+			anchored := g.nodes[c].anchored
+			if anchored {
+				// Chrome (§3.20): cancel the scroll offset the
+				// shared cursor math baked in, and keep the child
+				// out of the content extent below.
+				p += scroll
+			}
 			g.lay[c].pos = p
 			g.lay[c].gen = g.layout_gen
 			if s.layout != .Stack {
 				cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
 			}
-			ce := p + scroll + g.lay[c].size // content extent, pre-scroll
-			max_end.x = max(max_end.x, ce.x)
-			max_end.y = max(max_end.y, ce.y)
+			if !anchored {
+				ce := p + scroll + g.lay[c].size // content extent, pre-scroll
+				max_end.x = max(max_end.x, ce.x)
+				max_end.y = max(max_end.y, ce.y)
+			}
 		}
 		origin := base + pad
 		inner := Vec2{

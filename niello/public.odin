@@ -333,6 +333,11 @@ With :: struct {
 	                                // over Style.text_spans. Copied at declare
 	                                // time (small), so no borrow contract.
 	disabled: bool,
+	anchored: bool, // the instance does not scroll with a scrolling
+	                // parent and does not count in its content
+	                // extent (§3.20): scrollbar chrome, sticky
+	                // headers. Meaningful for children of a Stack
+	                // scroller, which is where overlays live.
 	focusable: Maybe(bool), // per-instance focus participation; wins over
 	                        // the unit's Style_Decl.focusable, so one
 	                        // instance of a repeated unit can be the
@@ -1066,6 +1071,18 @@ scroll_offset :: proc(i: Instance) -> Vec2 {
 		return {0, 0}
 	}
 	return g.scroll_off[i]
+}
+
+// scroll_range reports i's scrollable range in DIP per axis — how
+// far the content extends beyond the viewport (0 on an axis that
+// does not scroll or does not overflow). It is the range half of
+// scroll_offset, read from the same committed state; scrollbar
+// chrome (§3.20) sizes and positions its thumb from the pair.
+scroll_range :: proc(i: Instance) -> Vec2 {
+	if g.scroll_max == nil {
+		return Vec2{0, 0}
+	}
+	return g.scroll_max[i] or_else Vec2{0, 0}
 }
 
 // scroll_to sets i's scroll offset in DIP (back-to-top is

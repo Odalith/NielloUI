@@ -22,6 +22,7 @@ Frame_Node :: struct {
 	has_text:        bool,
 	focusable:       bool, // resolved at declare: With.focusable wins
 	                       // over the unit's Style_Decl.focusable
+	anchored:        bool, // With.anchored, resolved at declare (§3.20)
 	is_popup:        bool, // an overlay root (§3.19): parent is the
 	                       // layer (-1), positioned by placement in
 	                       // pass F, never by a parent's layout
@@ -156,6 +157,7 @@ declare_as :: proc(
 			spans_hash = spans_hash,
 			has_text = has_text,
 			focusable = with.focusable.? or_else g.units[int(unit)].focusable,
+			anchored = with.anchored,
 			is_container = is_container,
 			culled = culled,
 			sibling_ordinal = ord,
