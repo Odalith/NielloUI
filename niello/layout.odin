@@ -112,6 +112,11 @@ popup_position :: proc(r: int) -> Vec2 {
 			clamp(p.y, 0, max(0, vp.y - size.y)),
 		}
 	}
+	if nd.popup_place == .Center {
+		return clamp_to_view(
+			Vec2{(vp.x - size.x) / 2, (vp.y - size.y) / 2}, size, vp,
+		)
+	}
 	if nd.popup_place == .At {
 		p := nd.popup_at
 		// Reflect around the point on any axis that overflows,
@@ -162,7 +167,7 @@ popup_position :: proc(r: int) -> Vec2 {
 		if nd.popup_place == .Left && left < 0 && right + size.x <= vp.x {
 			p.x = right
 		}
-	case .At:
+	case .At, .Center:
 		unreachable()
 	}
 	return clamp_to_view(p, size, vp)

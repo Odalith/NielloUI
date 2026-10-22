@@ -704,13 +704,15 @@ end :: proc(i: Instance, open: bool) {
 }
 
 // Placement picks where a popup root sits relative to its anchor
-// (§3.19). At ignores the anchor and uses Popup_Opts.at.
+// (§3.19). At ignores the anchor and uses Popup_Opts.at; Center
+// ignores it too and centers on the viewport (dialogs).
 Placement :: enum {
 	Below,
 	Above,
 	Left,
 	Right,
 	At,
+	Center,
 }
 
 // Popup_Opts tunes a popup root (§3.19). The zero value is a plain
@@ -755,7 +757,7 @@ begin_popup :: proc(
 	i:    Instance,
 	open: bool,
 ) {
-	anchor_ok := placement == .At || anchor in g.instances
+	anchor_ok := placement == .At || placement == .Center || anchor in g.instances
 	// A popup declared from inside a culled subtree stays culled,
 	// like any other declaration there.
 	decl_culled := len(g.stack) > 0 && g.nodes[g.stack[len(g.stack) - 1]].culled

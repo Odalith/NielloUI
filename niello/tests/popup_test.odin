@@ -18,6 +18,7 @@ pp_anchor_i, pp_under_i, pp_popup_i: niello.Instance
 pp_item_i: [3]niello.Instance
 pp_ok_i, pp_cancel_i: niello.Instance
 pp_open, pp_modal: bool
+pp_modal_stay: bool
 pp_dismiss_seen: bool
 
 pp_mint :: proc() {
@@ -76,7 +77,7 @@ pp_declare :: proc() {
 	}
 	if pp_modal {
 		if pi, ok := niello.begin_popup(pp_dialog_u, pp_anchor_i, .At,
-			{modal = true, at = niello.Vec2{100, 80}}, key = niello.key_int(9)); ok {
+			{modal = true, stay = pp_modal_stay, at = niello.Vec2{100, 80}}, key = niello.key_int(9)); ok {
 			pp_popup_i = pi
 			pp_ok_i = niello.show(pp_ok_u, niello.key_int(1))
 			pp_cancel_i = niello.show(pp_cancel_u, niello.key_int(2))
@@ -118,6 +119,7 @@ pp_setup :: proc() {
 	pp_mint()
 	pp_open = false
 	pp_modal = false
+	pp_modal_stay = false
 	pp_dismiss_seen = false
 	pp_popup_i = 0
 	pp_frame(pp_idle()) // settle: anchor + under committed
@@ -215,7 +217,7 @@ test_popup_anchor_gone_does_not_open :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_popup_modal_absorbs_outside_press :: proc(t: ^testing.T) {
+test_popup_modal_outside_press_absorbs_and_dismisses :: proc(t: ^testing.T) {
 	pp_setup()
 	defer niello.test_teardown()
 	pp_modal = true
@@ -225,18 +227,60 @@ test_popup_modal_absorbs_outside_press :: proc(t: ^testing.T) {
 	testing.expect(t, abs(r.pos.x - 100) < EPS && abs(r.pos.y - 80) < EPS &&
 		abs(r.size.x - 160) < EPS && abs(r.size.y - 100) < EPS,
 		"dialog placed At the point")
-	// Press the under button, far outside the dialog.
-	pp_frame(pp_at({200, 60}, true, false))
-	testing.expect(t, !niello.pressed(pp_under_i), "absorbed: no press under a modal")
-	testing.expect(t, !pp_dismiss_seen, "absorbed is not a dismissal")
-	pp_frame(pp_at({200, 60}, false, true))
-	testing.expect(t, !niello.clicked(pp_under_i), "no click completes")
-	testing.expect(t, pp_modal, "the modal stays open")
-	// A press inside the dialog works.
+	// Press the under button, far outside the dialog: the press is
+	// absorbed (nothing underneath ever sees it) AND the modal is
+	// light-dismissed — the backdrop-click-cancels rule. A press
+	// inside the dialog still lands normally (checked pre-dismiss:
+	// reopen for the inside half).
 	pp_frame(pp_at({150, 100}, true, false))
 	testing.expect(t, niello.pressed(pp_ok_i), "inside the modal, presses land")
 	pp_frame(pp_at({150, 100}, false, true))
 	testing.expect(t, niello.clicked(pp_ok_i), "and click")
+	pp_frame(pp_at({200, 60}, true, false))
+	testing.expect(t, !niello.pressed(pp_under_i), "absorbed: no press under a modal")
+	testing.expect(t, pp_dismiss_seen, "and the modal is dismissed")
+	testing.expect(t, !pp_modal, "the app closed it")
+	pp_frame(pp_at({200, 60}, false, true))
+	testing.expect(t, !niello.clicked(pp_under_i), "no click completes either")
+}
+
+@(test)
+test_popup_stay_modal_absorbs_without_dismissing :: proc(t: ^testing.T) {
+	pp_setup()
+	defer niello.test_teardown()
+	pp_modal = true
+	pp_modal_stay = true
+	pp_frame(pp_idle())
+	pp_frame(pp_at({200, 60}, true, false))
+	testing.expect(t, !niello.pressed(pp_under_i), "absorbed, as any modal")
+	testing.expect(t, !pp_dismiss_seen, "but a stay modal is never light-dismissed")
+	pp_frame(pp_at({200, 60}, false, true))
+	testing.expect(t, pp_modal, "the stay modal survives outside presses")
+	testing.expect(t, !niello.clicked(pp_under_i), "and nothing underneath clicks")
+}
+
+@(test)
+test_popup_placement_center :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	pp_mint()
+	pp_popup_i = 0
+	frame_c :: proc() {
+		niello.frame_begin(pp_idle(), 0.016)
+		if pi, ok := niello.begin_popup(pp_menu_u, 0, .Center, key = niello.key_int(7)); ok {
+			pp_popup_i = pi
+			for k in 0 ..< 3 {
+				niello.show(pp_item_u, niello.key_int(k + 1))
+			}
+		}
+		niello.frame_end()
+	}
+	frame_c()
+	r, ok := niello.rect(pp_popup_i)
+	testing.expect(t, ok, "popup committed")
+	// (400-120)/2, (300-72)/2.
+	testing.expect(t, abs(r.pos.x - 140) < EPS && abs(r.pos.y - 114) < EPS,
+		"Center places the popup on the viewport center")
 }
 
 @(test)
@@ -268,6 +312,7 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 	pp_mint()
 	pp_open = false
 	pp_modal = false
+	pp_modal_stay = false
 	pp_dismiss_seen = false
 	pp_popup_i = 0
 	pp_frame(pp_idle())

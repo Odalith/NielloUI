@@ -31,7 +31,7 @@ root_u, bar_u, status_u: niello.Unit
 btn_u, btn_label_u, btn_hover_u, btn_press_u, btn_focus_u: niello.Unit
 canvas_u: niello.Unit
 menu_u, item_u, item_label_u, item_hover_u: niello.Unit
-dlg_root_u, backdrop_u, panel_u, msg_u: niello.Unit
+backdrop_u, panel_u, msg_u: niello.Unit
 
 mint :: proc() {
 	niello.mint(&root_u, niello.NO_UNIT, {
@@ -83,13 +83,11 @@ mint :: proc() {
 		hover = item_hover_u, focus = btn_focus_u,
 	})
 	niello.mint(&item_label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
-	niello.mint(&dlg_root_u, niello.NO_UNIT, {
-		layout = niello.Layout.Stack,
-		size = niello.Size{niello.fixed(680), niello.fixed(520)},
-		align = [2]niello.Align_Kind{.Center, .Center},
-	})
+	// The backdrop is a popup root of its own, sized by Percent so
+	// it tracks the live viewport on resize (a Fixed root would
+	// freeze it at the mint-time window size).
 	niello.mint(&backdrop_u, niello.NO_UNIT, {
-		size = niello.Size{niello.grow(1), niello.grow(1)},
+		size = niello.Size{niello.percent(1), niello.percent(1)},
 		color = SHADE,
 	})
 	niello.mint(&panel_u, niello.NO_UNIT, {
@@ -144,7 +142,7 @@ declare :: proc() {
 	}
 	if dlg_i != 0 && niello.dismiss_requested(dlg_i) {
 		dlg_open = false
-		set_status("Delete cancelled (Esc).")
+		set_status("Delete cancelled.")
 	}
 
 	if _, ok := niello.begin(root_u); ok {
@@ -241,25 +239,27 @@ declare :: proc() {
 		}
 	}
 	if dlg_open {
-		pi, open := niello.begin_popup(dlg_root_u, 0, .At, {modal = true, at = {0, 0}}, key = niello.key_int(400))
+		// The backdrop declares first (below the dialog): a stay
+		// popup that only shades. Presses on it land outside the
+		// modal, so they absorb and light-dismiss the dialog —
+		// backdrop click = cancel.
+		niello.begin_popup(backdrop_u, 0, .At, {stay = true, at = {0, 0}}, key = niello.key_int(399))
+		pi, open := niello.begin_popup(panel_u, 0, .Center, {modal = true}, key = niello.key_int(400))
 		dlg_i = pi
 		if open {
-			niello.show(backdrop_u, niello.key_int(1))
-			if _, pok := niello.begin(panel_u, niello.key_int(2)); pok {
-				niello.show(msg_u, niello.key_int(1), {
-					text = "Delete \"untitled.txt\"?",
-				})
-				if _, rok := niello.begin(bar_u, niello.key_int(3)); rok {
-					ok_i := button(11, "Delete")
-					cancel_i := button(12, "Cancel")
-					if niello.clicked(ok_i) {
-						dlg_open = false
-						set_status("Deleted (not really).")
-					}
-					if niello.clicked(cancel_i) {
-						dlg_open = false
-						set_status("Delete cancelled.")
-					}
+			niello.show(msg_u, niello.key_int(1), {
+				text = "Delete \"untitled.txt\"?",
+			})
+			if _, rok := niello.begin(bar_u, niello.key_int(3)); rok {
+				ok_i := button(11, "Delete")
+				cancel_i := button(12, "Cancel")
+				if niello.clicked(ok_i) {
+					dlg_open = false
+					set_status("Deleted (not really).")
+				}
+				if niello.clicked(cancel_i) {
+					dlg_open = false
+					set_status("Delete cancelled.")
 				}
 			}
 		}

@@ -475,7 +475,12 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// Popup rules (§3.19), against last frame's popup list:
 	//   - A modal popup makes its subtree the whole press surface:
 	//     a pick outside it is absorbed exactly like a disabled hit
-	//     (no hover, no press, no focus change, no wheel).
+	//     (no hover, no press, no focus change, no wheel) — and,
+	//     unless the modal stays, the press also light-dismisses
+	//     the modal itself: absorbed AND flagged, so a backdrop
+	//     click cancels without ever reaching what is underneath.
+	//     A press inside a popup above the modal (a menu the modal
+	//     opened) follows the ordinary chain rule below.
 	//   - Otherwise a left press light-dismisses: inside popup k it
 	//     flags every dismissible popup above k (a submenu chain
 	//     collapses toward the press); outside all popups it flags
@@ -484,7 +489,19 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	press_consumed := false
 	if len(g.popups) > 0 {
 		if mk := topmost_modal(); mk >= 0 {
-			if popup_containing(pick) != mk {
+			cont := popup_containing(pick)
+			if cont > mk {
+				if .Left in input.buttons_pressed {
+					for j := len(g.popups) - 1; j > cont; j -= 1 {
+						if !g.popups[j].stay {
+							flag_dismiss(j)
+						}
+					}
+				}
+			} else if cont != mk {
+				if .Left in input.buttons_pressed && !g.popups[mk].stay {
+					flag_dismiss(mk)
+				}
 				pick = -1
 				clear(&chain_idx)
 				hover_len = 0
