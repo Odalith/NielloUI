@@ -188,6 +188,15 @@ when NIELLO_DEBUG {
 		return store.contexts[:]
 	}
 
+	// debug_unit_name returns a unit's mint debug name ("" for an
+	// unknown unit) — tree labels for the debugger window.
+	debug_unit_name :: proc(u: Unit) -> string {
+		if int(u) < 0 || int(u) >= len(store.units) {
+			return ""
+		}
+		return store.units[u].name
+	}
+
 	// debug_tree returns ctx's last-frame snapshot. Borrowed;
 	// valid until ctx's next frame_end. Nil-safe: a nil context
 	// or a context that never framed yields an empty slice.

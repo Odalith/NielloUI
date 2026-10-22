@@ -565,10 +565,25 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 			}
 		}
 	case .KEY_DOWN, .KEY_UP:
+		// Debug summon (TODO #18): in a NIELLO_DEBUG build, F12
+		// opens (or retargets) the debugger window for THIS
+		// window's context and is consumed — the app never sees
+		// it. The hook is niello.debug_summon_hook, set by
+		// niello/debugui's install(); with no debugger installed
+		// the key is an ordinary key.
+		summoned := false
+		when niello.NIELLO_DEBUG {
+			if event.key.down && !event.key.repeat &&
+			   event.key.scancode == .F12 &&
+			   niello.debug_summon_hook != nil {
+				niello.debug_summon_hook(win.ctx)
+				summoned = true
+			}
+		}
 		// Collected now, consumed by the focus pass later. Overflow past
 		// the ring is dropped: 16 key events in one frame is a flood, and
 		// the oldest are the ones that matter.
-		if win.key_count < len(win.keys) {
+		if !summoned && win.key_count < len(win.keys) {
 			win.keys[win.key_count] = niello.Key_Event{
 				scancode = u32(event.key.scancode),
 				keycode  = u32(event.key.key),
