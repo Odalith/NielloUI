@@ -839,14 +839,13 @@ frame_begin :: proc(input: Input, dt: f32) {
 	// (nodes/lay/pick_clip still hold it). Queries during this frame's
 	// declare answer from that hit test: one frame of latency (§3.8).
 	dispatch_input(input, dt)
-	// resolve_spans copies per declare; free them before dropping the nodes,
-	// or every frame using text_spans leaks.
-	for nd in g.nodes {
-		delete(nd.spans)
-	}
+	// Nodes' span slices live in the frame spans arena (declare.odin);
+	// the cursor rewind below retires them all at once.
 	clear(&g.nodes)
 	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
 	g.text_off = 0
+	g.spans_chunk = 0 // and the spans arena beside it
+	g.spans_off = 0
 	clear(&g.popups) // last frame's list; dispatch already read it
 	g.popup_ordinal = 0
 	clear(&g.stack)

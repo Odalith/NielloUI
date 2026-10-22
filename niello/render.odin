@@ -69,21 +69,21 @@ draw_list :: proc() -> []Draw_Cmd {
 	// Iterative pre-order walk over the flat node array, which is already in
 	// depth-first declaration order: node i's subtree is the contiguous range
 	// [i, subtree_end[i]].
-	scopes := make([dynamic]int)
-	defer delete(scopes)
+	scopes := &g.emit_scopes
+	clear(scopes)
 	for i in 0 ..< len(g.nodes) {
-		for len(scopes) > 0 && g.subtree_end[scopes[len(scopes)-1]] < i {
-			emit_node_close(pop(&scopes))
+		for len(scopes) > 0 && g.subtree_end[scopes[len(scopes) - 1]] < i {
+			emit_node_close(pop(scopes))
 		}
 		if g.nodes[i].culled {
 			continue
 		}
 		if emit_node_open(i) {
-			append(&scopes, i)
+			append(scopes, i)
 		}
 	}
 	for len(scopes) > 0 {
-		emit_node_close(pop(&scopes))
+		emit_node_close(pop(scopes))
 	}
 	return g.draw_cmds[:]
 }
@@ -174,10 +174,12 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 	e := get_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text)
 	max_w := g.lay[i].size.x
 
-	breaks: [dynamic][2]int
-	defer delete(breaks)
-	runs: [dynamic]Text_Run
-	defer delete(runs)
+	// Shared scratch (state.odin): cleared here, reused for every
+	// text node in this call and every later call — no allocation.
+	breaks := &g.emit_breaks
+	clear(breaks)
+	runs := &g.emit_runs
+	clear(runs)
 
 	preserve := s.whitespace == .Preserve
 	line_idx := 0
@@ -187,12 +189,12 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 			continue
 		}
 		if s.wrap == .Word {
-			pack_line_breaks(seg.words, e.space_w, max_w, &breaks, preserve)
+			pack_line_breaks(seg.words, e.space_w, max_w, breaks, preserve)
 		} else {
-			clear(&breaks)
-			append(&breaks, [2]int{0, len(seg.words)})
+			clear(breaks)
+			append(breaks, [2]int{0, len(seg.words)})
 		}
-		for br in breaks {
+		for br in breaks^ {
 			// Build merged runs: fragments in word order; inter-word gaps
 			// are attributed to the preceding fragment's style (gaps are
 			// invisible, so color is irrelevant; this keeps runs maximal
@@ -201,15 +203,15 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 			// measured space_before in Preserve — the run's bytes carry
 			// the actual spaces either way (its end extends to the next
 			// word's start), so Preserve's width is the drawn truth.
-			clear(&runs)
+			clear(runs)
 			line_w := f32(0)
 			for wi in br[0] ..< br[1] {
 				w := &seg.words[wi]
 				if wi > br[0] {
 					gap := preserve ? w.space_before : e.space_w
 					line_w += gap
-					runs[len(runs)-1].end = w.start
-					runs[len(runs)-1].width += gap
+					runs^[len(runs^) - 1].end = w.start
+					runs^[len(runs^) - 1].width += gap
 				}
 				for f in w.frags {
 					line_w += f.width
@@ -219,11 +221,11 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 					// (it is not in the cache key), so a Font_Color write
 					// recolors already-cached text on the next frame.
 					f_color := f.span_color.? or_else s.font_color
-					if len(runs) > 0 && same_run_style(runs[len(runs)-1], f, f_color) && runs[len(runs)-1].end == f.start {
-						runs[len(runs)-1].end = f.end
-						runs[len(runs)-1].width += f.width
+					if len(runs) > 0 && same_run_style(runs^[len(runs^) - 1], f, f_color) && runs^[len(runs^) - 1].end == f.start {
+						runs^[len(runs^) - 1].end = f.end
+						runs^[len(runs^) - 1].width += f.width
 					} else {
-						append(&runs, Text_Run{
+						append(runs, Text_Run{
 							start = f.start, end = f.end, width = f.width,
 							font = f.font, font_size = f.font_size,
 							font_weight = f.font_weight, font_slant = f.font_slant,
@@ -237,8 +239,8 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 					// bytes back over the spaces and price them at
 					// their measured width, so the words sit at
 					// their true positions.
-					runs[0].start = w.gap_start
-					runs[0].width += w.space_before
+					runs^[0].start = w.gap_start
+					runs^[0].width += w.space_before
 					line_w += w.space_before
 				}
 			}
@@ -258,7 +260,7 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 			}
 			y := r.pos.y + f32(line_idx) * e.line_h
 			x := x0
-			for rn in runs {
+			for rn in runs^ {
 				if trims {
 					if x >= max_w {
 						break // past the edge; drop the rest

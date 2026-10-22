@@ -52,8 +52,10 @@ resolve_text :: proc(with: With, s: ^Style) -> string {
 }
 
 // resolve_spans: per-frame With.text_spans wins over the unit's style spans.
-// The result is copied (spans are small) so the caller keeps no borrow
-// contract, and hashed once for the text cache key.
+// The result is copied into the frame spans arena (small slices, but one
+// heap copy + a next-frame free PER NODE was the second-biggest churn in
+// the 2026-10-21 perf analysis) so the caller keeps no borrow contract,
+// and hashed once for the text cache key.
 @(private)
 resolve_spans :: proc(with: With, s: ^Style) -> (spans: []Text_Span, hash: u64) {
 	src := s.text_spans
@@ -63,8 +65,7 @@ resolve_spans :: proc(with: With, s: ^Style) -> (spans: []Text_Span, hash: u64) 
 	if len(src) == 0 {
 		return nil, 0
 	}
-	spans = make([]Text_Span, len(src))
-	copy(spans, src)
+	spans = copy_frame_spans(src)
 	hash = 14695981039346656037 // FNV-1a offset basis
 	for sp in spans {
 		hash = hash_mix(hash, u64(sp.start))
@@ -211,4 +212,35 @@ copy_frame_text :: proc(text: string) -> string {
 	copy(dst, text)
 	g.text_off += need
 	return string(dst)
+}
+
+// copy_frame_spans copies a span slice into the frame spans arena and
+// returns the arena slice — the Text_Span twin of copy_frame_text,
+// same chunk discipline (chunks never move; frame_begin rewinds).
+@(private)
+copy_frame_spans :: proc(src: []Text_Span) -> []Text_Span {
+	if len(src) == 0 {
+		return nil
+	}
+	SPAN_CHUNK :: 256
+	need := len(src)
+	if len(g.spans_chunks) == 0 {
+		append(&g.spans_chunks, make([]Text_Span, max(SPAN_CHUNK, need)))
+		g.spans_chunk = 0
+		g.spans_off = 0
+	} else if g.spans_off + need > len(g.spans_chunks[g.spans_chunk]) {
+		g.spans_chunk += 1
+		g.spans_off = 0
+		if g.spans_chunk == len(g.spans_chunks) {
+			append(&g.spans_chunks, make([]Text_Span, max(SPAN_CHUNK, need)))
+		} else if len(g.spans_chunks[g.spans_chunk]) < need {
+			delete(g.spans_chunks[g.spans_chunk])
+			g.spans_chunks[g.spans_chunk] = make([]Text_Span, max(SPAN_CHUNK, need))
+		}
+	}
+	chunk := g.spans_chunks[g.spans_chunk]
+	dst := chunk[g.spans_off:g.spans_off + need]
+	copy(dst, src)
+	g.spans_off += need
+	return dst
 }

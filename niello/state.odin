@@ -60,6 +60,22 @@ Globals :: struct {
 	text_chunks:  [dynamic][]u8,
 	text_chunk:   int,
 	text_off:     int,
+	// The same arena idea for span slices (declare.odin's
+	// copy_frame_spans): chunked so slices never move, rewound at
+	// frame_begin. Was one heap copy per span node per frame, freed
+	// at the NEXT frame_begin — the same churn class as emit's.
+	spans_chunks: [dynamic][]Text_Span,
+	spans_chunk:  int,
+	spans_off:    int,
+
+	// Emit scratch (render.odin): shared by every text node and
+	// every draw_list call, cleared per use. emit_text used to make
+	// + delete two arrays PER TEXT NODE PER CALL — 2 allocations
+	// per text node per frame, the engine's largest churn (2026-10-21
+	// perf analysis, finding 1).
+	emit_breaks: [dynamic][2]int,
+	emit_runs:   [dynamic]Text_Run,
+	emit_scopes: [dynamic]int,
 
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
@@ -247,10 +263,8 @@ free_globals :: proc() {
 	}
 	delete(g.text_cache)
 	delete(g.ellipsis_widths)
-	// Per-declare span copies (resolve_spans) live on the frame nodes.
-	for nd in g.nodes {
-		delete(nd.spans)
-	}
+	// Frame nodes' span slices point into the spans arena — freed
+	// with the chunks below, never per node.
 	// Unit styles own their reference-typed fields (cloned on write —
 	// see store_spans in public.odin).
 	for &rec in g.units {
@@ -265,6 +279,13 @@ free_globals :: proc() {
 		delete(chunk)
 	}
 	delete(g.text_chunks)
+	for chunk in g.spans_chunks {
+		delete(chunk)
+	}
+	delete(g.spans_chunks)
+	delete(g.emit_breaks)
+	delete(g.emit_runs)
+	delete(g.emit_scopes)
 	delete(g.units)
 	for &gr in g.groups {
 		delete(gr.members)
