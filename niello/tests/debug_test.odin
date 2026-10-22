@@ -201,6 +201,42 @@ when niello.NIELLO_DEBUG {
 		testing.expect(t, !ok2, "unknown unit has no location")
 	}
 
+	@(private)
+	dbg_frame_res :: proc(ctx: ^niello.Context) -> niello.Frame_Result {
+		niello.frame_begin(ctx, niello.Input{viewport = {400, 300}}, 0.016)
+		dbg_declare()
+		return niello.frame_end()
+	}
+
+	@(test)
+	test_debug_channel_marks_changed :: proc(t: ^testing.T) {
+		niello.test_reset()
+		defer niello.test_teardown()
+		ctx1 := niello.test_context()
+		dbg_mint()
+		dbg_frame_res(ctx1) // first frame always changes
+		testing.expect(t, !dbg_frame_res(ctx1).changed, "a settled static scene reports unchanged")
+
+		// Paint: the highlight is foreign to this tree's change
+		// model, but the frame must still report changed or the
+		// glue never repaints it.
+		niello.debug_highlight(ctx1, dbg_leaf_inst)
+		testing.expect(t, dbg_frame_res(ctx1).changed, "highlight paint marks the frame changed")
+		testing.expect(t, !dbg_frame_res(ctx1).changed, "a steady highlight costs no further changes")
+
+		// Erase is a transition too.
+		niello.debug_highlight(nil, 0)
+		testing.expect(t, dbg_frame_res(ctx1).changed, "highlight erase marks the frame changed")
+		testing.expect(t, !dbg_frame_res(ctx1).changed, "and then it settles again")
+
+		// Same for the overflow tint.
+		niello.debug_show_overflows(ctx1, true)
+		testing.expect(t, dbg_frame_res(ctx1).changed, "tint on marks the frame changed")
+		testing.expect(t, !dbg_frame_res(ctx1).changed, "tint steady is free")
+		niello.debug_show_overflows(ctx1, false)
+		testing.expect(t, dbg_frame_res(ctx1).changed, "tint off marks the frame changed")
+	}
+
 	@(test)
 	test_debug_overflow_overlay :: proc(t: ^testing.T) {
 		niello.test_reset()

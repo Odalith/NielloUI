@@ -162,6 +162,15 @@ Context :: struct {
 	// that reads it are what the NIELLO_DEBUG gate removes.
 	debug_nodes: [dynamic]Debug_Node,
 
+	// What the debug channel painted into this context's last
+	// presented frame (debug.odin): frame_end compares the live
+	// channel against these to damage exactly the transitions —
+	// a highlight appearing, moving, or clearing changes the
+	// pixels even when nothing in this tree changed, and the
+	// glue only repaints frames that report changed.
+	debug_painted_inst: Instance,
+	debug_painted_ovf:  bool,
+
 	// Scroll offsets by identity: written by wheel dispatch at
 	// frame_begin and by scroll_to, read and re-clamped by pass F every
 	// frame (the stored value is the offset the last frame rendered

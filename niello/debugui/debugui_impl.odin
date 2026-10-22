@@ -40,7 +40,7 @@ when niello.NIELLO_DEBUG {
 
 	// ---- units (fixed neutral look) -----------------------------
 
-	root_u, bar_u, mid_u, title_u, section_u, chip_u, chip_on_u: niello.Unit
+	root_u, bar_u, mid_u, title_u, section_u, chip_u, chip_on_u, chip_label_u, chip_label_on_u: niello.Unit
 	panel_u, tree_scroll_u, tree_col_u: niello.Unit
 	row_u, row_hover_u, row_sel_u, row_sel_hover_u: niello.Unit
 	label_u, alert_u, info_u, krow_u, key_u, val_u, ovf_u, ovf_head_u: niello.Unit
@@ -67,23 +67,29 @@ when niello.NIELLO_DEBUG {
 			gap = 8,
 		})
 		niello.mint(&title_u, niello.NO_UNIT, {font_size = 14, font_color = niello.Color{232, 230, 224, 255}})
+		// Chips are containers with a centered label child:
+		// leaf text has no vertical centering, so a text-leaf
+		// chip can never center its caption. Padding is
+		// {left, top, right, bottom}.
 		niello.mint(&chip_u, niello.NO_UNIT, {
 			size = niello.Size{niello.fit(), niello.fixed(26)},
 			color = niello.Color{44, 44, 54, 255}, corner_radius = 5,
-			padding = [4]u16{3, 8, 3, 8},
-			font_size = 12, font_color = niello.Color{200, 200, 208, 255},
+			padding = [4]u16{8, 3, 8, 3},
+			align = [2]niello.Align_Kind{.Center, .Center},
 		})
 		niello.mint(&chip_on_u, niello.NO_UNIT, {
 			size = niello.Size{niello.fit(), niello.fixed(26)},
 			color = niello.Color{70, 92, 140, 255}, corner_radius = 5,
-			padding = [4]u16{3, 8, 3, 8},
-			font_size = 12, font_color = niello.Color{238, 240, 246, 255},
+			padding = [4]u16{8, 3, 8, 3},
+			align = [2]niello.Align_Kind{.Center, .Center},
 		})
+		niello.mint(&chip_label_u, niello.NO_UNIT, {font_size = 12, font_color = niello.Color{200, 200, 208, 255}})
+		niello.mint(&chip_label_on_u, niello.NO_UNIT, {font_size = 12, font_color = niello.Color{238, 240, 246, 255}})
 		niello.mint(&panel_u, niello.NO_UNIT, {
 			layout = .Top_To_Bottom,
 			size = niello.Size{niello.percent(0.52), niello.grow(1)},
 			color = niello.Color{29, 29, 34, 255}, corner_radius = 6,
-			padding = [4]u16{7, 8, 7, 8}, gap = 4,
+			padding = [4]u16{8, 7, 8, 7}, gap = 4,
 		})
 		niello.mint(&tree_scroll_u, niello.NO_UNIT, {
 			size = niello.Size{niello.percent(1), niello.grow(1)},
@@ -131,7 +137,7 @@ when niello.NIELLO_DEBUG {
 			layout = .Top_To_Bottom,
 			size = niello.Size{niello.percent(1), niello.fixed(132)},
 			color = niello.Color{29, 29, 34, 255}, corner_radius = 6,
-			padding = [4]u16{7, 8, 7, 8}, gap = 2,
+			padding = [4]u16{8, 7, 8, 7}, gap = 2,
 		})
 		niello.mint(&ovf_head_u, niello.NO_UNIT, {
 			layout = .Left_To_Right,
@@ -304,7 +310,12 @@ when niello.NIELLO_DEBUG {
 					buf: [128]u8
 					name := w.title if w.title != "" else "window"
 					txt := fmt.bprintf(buf[:], "%s · %d nodes", name, len(niello.debug_tree(w.ctx)))
-					chip := niello.show(chip_on_u if w.ctx == target else chip_u, niello.key_int(wi + 1), {text = txt})
+					on := w.ctx == target
+					chip: niello.Instance
+					if c, openC := niello.begin(chip_on_u if on else chip_u, niello.key_int(wi + 1)); openC {
+						chip = c
+						niello.show(chip_label_on_u if on else chip_label_u, 0, {text = txt})
+					}
 					if niello.clicked(chip) && w.ctx != target {
 						clear_hl()
 						target = w.ctx
@@ -389,8 +400,12 @@ when niello.NIELLO_DEBUG {
 			// tint toggle lives here — it is this panel's switch.
 			if _, open8 := niello.begin(ovf_u); open8 {
 				if _, open9 := niello.begin(ovf_head_u); open9 {
-					niello.show(title_u, 0, {text = "Overflows"})
-					tog := niello.show(chip_on_u if show_ovf else chip_u, niello.key_int(900), {text = "tint: on" if show_ovf else "tint"})
+					niello.show(section_u, 0, {text = "OVERFLOWS"})
+					tog: niello.Instance
+					if c, openT := niello.begin(chip_on_u if show_ovf else chip_u, niello.key_int(900)); openT {
+						tog = c
+						niello.show(chip_label_on_u if show_ovf else chip_label_u, 0, {text = "tint: on" if show_ovf else "tint"})
+					}
 					if niello.clicked(tog) {
 						show_ovf = !show_ovf
 						if target != nil {

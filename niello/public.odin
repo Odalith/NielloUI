@@ -1024,6 +1024,30 @@ frame_end :: proc() -> Frame_Result {
 	debug_snapshot_build()
 	journal_consume()
 	update_animation_wake()
+	// Debug channel transitions (TODO #18): a highlight or tint
+	// aimed at this context changes the presented pixels without
+	// touching this tree's change model — left out, the glue
+	// would frame on the debugger's wake, report unchanged, and
+	// never repaint. Damage exactly the transitions (paint,
+	// move, erase), so a steady highlight costs nothing and the
+	// context still idles with it on screen.
+	when NIELLO_DEBUG {
+		cur_hl: Instance = store.debug_hl_ctx == g ? store.debug_hl_inst : 0
+		if cur_hl != g.debug_painted_inst {
+			if rec, ok := g.instances[g.debug_painted_inst]; ok {
+				append(&g.damage, rec.rect)
+			}
+			if rec, ok := g.instances[cur_hl]; ok {
+				append(&g.damage, rec.rect)
+			}
+			g.debug_painted_inst = cur_hl
+		}
+		cur_ovf := store.debug_ovf_on && store.debug_ovf_ctx == g
+		if cur_ovf != g.debug_painted_ovf {
+			append(&g.damage, Rect{{0, 0}, g.viewport})
+			g.debug_painted_ovf = cur_ovf
+		}
+	}
 	res := Frame_Result{
 		changed      = g.frame_index == 0 || len(g.damage) > 0,
 		damage       = g.damage[:],
