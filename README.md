@@ -13,8 +13,11 @@ chaining, smooth glides, overscroll with spring-back); a popup layer
 (dropdowns, context menus, modal dialogs); and scrollbar chrome as a
 component; and multi-window: one engine context per window, units and
 groups global (mint once — a broadcast re-themes every window), windows
-opened and closed from inside declare procs. A headless suite (129
-tests) covers the core, and the SDL loop idles at ~0 CPU — it blocks on
+opened and closed from inside declare procs. A debug window
+(Clay/Avalonia-style: live node tree, hover-to-highlight, the
+overflow report) ships as a package in debug builds only
+(-define:NIELLO_DEBUG=true, F12 in any window) at zero prod cost.
+A headless suite (129 tests; 134 in debug builds) covers the core, and the SDL loop idles at ~0 CPU — it blocks on
 OS events and wakes on the nearest engine deadline across windows.
 Still ahead: prebuilt releases, a packaged component collection, and
 the remaining parity work in `TODO.md`.
@@ -75,6 +78,8 @@ odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/
 - `examples/multiwindow` — multi-window: a main window whose button
   opens inspector windows that render its committed tree live through
   the cross-context read API.
+- `examples/debugger` — the debug window's host: a scene with
+  deliberate layout defects; F12 opens the debugger on it.
 
 ## Fonts
 

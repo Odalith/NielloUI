@@ -138,6 +138,10 @@ emit_node_open :: proc(i: int) -> bool {
 		)
 	}
 
+	// Debug highlight / overflow tint (TODO #18): no-op unless
+	// built with NIELLO_DEBUG.
+	emit_debug_overlay(i, nd, s, r)
+
 	return scoped
 }
 

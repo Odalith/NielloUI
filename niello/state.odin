@@ -70,6 +70,16 @@ Store :: struct {
 	// them (animate.odin).
 	contexts: [dynamic]^Context,
 
+	// Debug tooling state (TODO #18, debug.odin): the highlight
+	// channel and the overflow-report scratch. Inert in prod
+	// builds; written and read only under the NIELLO_DEBUG gate.
+	debug_hl_ctx:      ^Context,
+	debug_hl_inst:     Instance,
+	debug_hl_color:    Color,
+	debug_ovf_ctx:     ^Context,
+	debug_ovf_on:      bool,
+	debug_ovf_scratch: [dynamic]Overflow_Rec,
+
 	// The word cache is content-addressed (font, style, text ->
 	// metrics), so it is shared by every window: a word measured
 	// for one window is a free hit for all the others.
@@ -145,6 +155,21 @@ Context :: struct {
 	// second op was the input pass's single biggest cost — one op now.
 	instances: map[Instance]Inst_Rec,
 	damage:    [dynamic]Rect,
+
+	// Debug snapshot (TODO #18, debug.odin): this context's last
+	// completed frame as a flat Debug_Node array. The field is an
+	// inert header in prod builds — the snapshot work and the API
+	// that reads it are what the NIELLO_DEBUG gate removes.
+	debug_nodes: [dynamic]Debug_Node,
+
+	// What the debug channel painted into this context's last
+	// presented frame (debug.odin): frame_end compares the live
+	// channel against these to damage exactly the transitions —
+	// a highlight appearing, moving, or clearing changes the
+	// pixels even when nothing in this tree changed, and the
+	// glue only repaints frames that report changed.
+	debug_painted_inst: Instance,
+	debug_painted_ovf:  bool,
 
 	// Scroll offsets by identity: written by wheel dispatch at
 	// frame_begin and by scroll_to, read and re-clamped by pass F every
@@ -333,6 +358,7 @@ free_store :: proc() {
 	delete(store.groups)
 	delete(store.journal)
 	delete(store.contexts)
+	delete(store.debug_ovf_scratch)
 }
 
 // free_context deletes every heap-owning container in one context.
@@ -363,6 +389,9 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.scratch_b)
 	delete(ctx.scratch_ints)
 	delete(ctx.draw_cmds)
+	when NIELLO_DEBUG {
+		delete(ctx.debug_nodes)
+	}
 	delete(ctx.instances)
 	delete(ctx.damage)
 	delete(ctx.popups)

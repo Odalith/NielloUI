@@ -23,6 +23,16 @@ Rect :: struct {
 
 INF :: max(f32) // standing in for +infinity
 
+// ============ debug builds ============
+
+// NIELLO_DEBUG is the build gate for all debug tooling (TODO #18:
+// the frame snapshot, the overflow report, the debugger window).
+// Build with -define:NIELLO_DEBUG=true to get it; without the
+// define, the tooling compiles out entirely — no API, no
+// per-frame work, no state. (ODIN_DEBUG was rejected as the gate:
+// it is false under a plain `odin run`, the everyday dev loop.)
+NIELLO_DEBUG :: #config(NIELLO_DEBUG, false)
+
 // ============ identity ============
 
 // NO_UNIT is the §8 cold-store sentinel (index 0). Passing it as mint's base
@@ -487,8 +497,15 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	if len(store.units) == 0 {
 		append(&store.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
 	}
+	// The name is debug metadata (§3.13): the caller expression
+	// for an out-param is "&foo" — strip the & so tree displays
+	// and the overflow report read "foo".
+	nm := name
+	if strings.has_prefix(nm, "&") {
+		nm = nm[1:]
+	}
 	u := Unit(u32(len(store.units)))
-	rec := Unit_Rec{style = default_style(), name = name, loc = loc, proto = base}
+	rec := Unit_Rec{style = default_style(), name = nm, loc = loc, proto = base}
 	if base != NO_UNIT {
 		assert(int(base) < len(store.units), "niello.mint: base is not a minted unit")
 		rec.style = store.units[int(base)].style
@@ -1002,8 +1019,35 @@ frame_end :: proc() -> Frame_Result {
 	// Journal consumption is O(writes since this context's last
 	// frame), not O(units) — §8. Dirty bitsets clear inside
 	// journal_gc once every live context has consumed (§8, M1).
+	// Debug snapshot (TODO #18): after the commit, before the
+	// journal settles — a no-op unless built with NIELLO_DEBUG.
+	debug_snapshot_build()
 	journal_consume()
 	update_animation_wake()
+	// Debug channel transitions (TODO #18): a highlight or tint
+	// aimed at this context changes the presented pixels without
+	// touching this tree's change model — left out, the glue
+	// would frame on the debugger's wake, report unchanged, and
+	// never repaint. Damage exactly the transitions (paint,
+	// move, erase), so a steady highlight costs nothing and the
+	// context still idles with it on screen.
+	when NIELLO_DEBUG {
+		cur_hl: Instance = store.debug_hl_ctx == g ? store.debug_hl_inst : 0
+		if cur_hl != g.debug_painted_inst {
+			if rec, ok := g.instances[g.debug_painted_inst]; ok {
+				append(&g.damage, rec.rect)
+			}
+			if rec, ok := g.instances[cur_hl]; ok {
+				append(&g.damage, rec.rect)
+			}
+			g.debug_painted_inst = cur_hl
+		}
+		cur_ovf := store.debug_ovf_on && store.debug_ovf_ctx == g
+		if cur_ovf != g.debug_painted_ovf {
+			append(&g.damage, Rect{{0, 0}, g.viewport})
+			g.debug_painted_ovf = cur_ovf
+		}
+	}
 	res := Frame_Result{
 		changed      = g.frame_index == 0 || len(g.damage) > 0,
 		damage       = g.damage[:],

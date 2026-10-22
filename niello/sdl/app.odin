@@ -63,6 +63,7 @@ Glue_Window :: struct {
 	sdl_win:  ^sdl.Window,
 	sdl_id:   sdl.WindowID,
 	ctx:      ^niello.Context,
+	title:    string, // the config title (window_list's label)
 	nui:      Window, // backend handle (ffi.odin)
 	declare:  Declare_Proc,
 	// input accumulators, consumed by this window's next frame
@@ -96,6 +97,33 @@ Glue_Window :: struct {
 // Package state, owned by the loop below.
 @(private)
 g_windows: [dynamic]^Glue_Window
+
+// Window_Info is one live window as tooling sees it: its engine
+// context and its title.
+Window_Info :: struct {
+	ctx:   ^niello.Context,
+	title: string,
+}
+
+@(private)
+g_window_infos: [dynamic]Window_Info
+
+// window_list returns the live windows in creation order
+// (closing ones excluded) as borrowed scratch — valid until the
+// next call. Its consumer is the debugger (niello/debugui):
+// targets are WINDOWS, not contexts. A closed window's context
+// can outlive it in the engine registry (contexts are the app's
+// to destroy), and the debugger must stop offering the window
+// the moment it closes.
+window_list :: proc() -> []Window_Info {
+	clear(&g_window_infos)
+	for win in g_windows {
+		if !win.dead {
+			append(&g_window_infos, Window_Info{ctx = win.ctx, title = win.title})
+		}
+	}
+	return g_window_infos[:]
+}
 @(private)
 Pending_Open :: struct {
 	id:      Window_Id,
@@ -209,6 +237,7 @@ create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Confi
 	win := new(Glue_Window)
 	win^ = Glue_Window{
 		id             = id,
+		title          = title,
 		sdl_win        = sdl_win,
 		sdl_id         = sdl.GetWindowID(sdl_win),
 		ctx            = ctx,
@@ -565,10 +594,25 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 			}
 		}
 	case .KEY_DOWN, .KEY_UP:
+		// Debug summon (TODO #18): in a NIELLO_DEBUG build, F12
+		// opens (or retargets) the debugger window for THIS
+		// window's context and is consumed — the app never sees
+		// it. The hook is niello.debug_summon_hook, set by
+		// niello/debugui's install(); with no debugger installed
+		// the key is an ordinary key.
+		summoned := false
+		when niello.NIELLO_DEBUG {
+			if event.key.down && !event.key.repeat &&
+			   event.key.scancode == .F12 &&
+			   niello.debug_summon_hook != nil {
+				niello.debug_summon_hook(win.ctx)
+				summoned = true
+			}
+		}
 		// Collected now, consumed by the focus pass later. Overflow past
 		// the ring is dropped: 16 key events in one frame is a flood, and
 		// the oldest are the ones that matter.
-		if win.key_count < len(win.keys) {
+		if !summoned && win.key_count < len(win.keys) {
 			win.keys[win.key_count] = niello.Key_Event{
 				scancode = u32(event.key.scancode),
 				keycode  = u32(event.key.key),
