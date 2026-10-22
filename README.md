@@ -3,11 +3,18 @@
 A cross-platform desktop UI framework in Odin — retained styling, immediate-mode
 declaration, and a Skia Graphite render backend behind SDL3.
 
-**Status:** working in real windows on Linux (X11 and Wayland). Layout, text,
-input, scheduling, and groups are implemented and covered by a headless suite
-(62 tests). Still ahead for v1: scrolling, focus traversal + text input, the
-tween/transient layer, more examples, prebuilt releases, and a component
-collection.
+**Status:** working in real windows on Linux (X11 and Wayland). Implemented:
+the layout engine (row/column/stack, waterfill grow/shrink); rich text
+(fragment-aware word cache, styled spans, wrap + paint-time ellipsis,
+collapse/preserve whitespace); input (state overlays, press capture, click
+and hover queries); focus traversal and text input; groups; the mutation
+layer (`tween`, `edit`, `propagate`, `transient`); scrolling (wheel
+chaining, smooth glides, overscroll with spring-back); a popup layer
+(dropdowns, context menus, modal dialogs); and scrollbar chrome as a
+component. A headless suite (123 tests) covers the core, and the SDL loop
+idles at ~0 CPU — it blocks on OS events and wakes on the engine's next
+deadline. Still ahead: prebuilt releases, a packaged component
+collection, and the remaining parity work in `TODO.md`.
 
 ## The model in one paragraph
 
@@ -49,6 +56,19 @@ odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/
 - `examples/groups` — theming with groups: one broadcast recolors the app,
   a pinned button keeps its color, and cards minted at runtime are born in
   the base palette — locating is not applying.
+- `examples/scroll` — scrolling: wheel chaining between nested scrollers,
+  scroll ranges, programmatic `scroll_to`.
+- `examples/animate` — the mutation layer: tweens, edit handles, style
+  propagation, and transient pulses.
+- `examples/text` — rich text: styled spans (weight, slant, color) inside
+  a single string, measured and drawn as one flow.
+- `examples/form` — focus and text input: two editable fields with
+  traversal, a layout-positioned caret, Clear/Submit.
+- `examples/popups` — the popup layer: dropdown menus, a canvas context
+  menu, and a modal dialog — dismiss is reported, never automatic.
+- `examples/scrollbars` — scrollbar chrome as a component: drag the
+  thumb, page from the track, plus a restyled bar with smooth scrolling
+  and overscroll on the same scroller.
 
 ## Fonts
 
@@ -79,8 +99,10 @@ NielloUI/
     layout.odin         the layout passes + waterfill distribution
     render.odin         Draw_Cmd command buffer + emitter
     input.odin          hit-testing + dispatch, overlay resolution
+    animate.odin        the mutation layer: tweens, edits, transients
     tests/              headless test suite (odin test)
-    examples/           hello, buttons, layouts, groups
+    examples/           hello, layouts, buttons, groups, scroll, animate,
+                        text, form, popups, scrollbars
     sdl/                package sdl — SDL3 app glue + FFI to the backend
       app.odin          run(): the hand-driven loop — blocks on OS events
                         when idle, wakes on the engine's next deadline
