@@ -1,6 +1,6 @@
 // twowin_smoke — multi-window M2 verification, NOT a pattern to copy.
 //
-// The shipped glue (niello/sdl's run) is still single-window until M3.
+// The shipped niello_sdl (niello/sdl's run) is still single-window until M3.
 // This example hand-rolls a minimal two-window loop directly on the
 // M1/M2 primitives to prove them end to end on real surfaces:
 //
@@ -12,20 +12,20 @@
 //   - units are minted ONCE, globally — both windows show the same
 //     `chip` unit; one group_set recolors it in both (fork 5).
 //
-// M3 replaces this loop with the real window table in the glue; M5's
+// M3 replaces this loop with the real window table in the niello_sdl; M5's
 // multiwindow example will use that. Delete this once M5 lands.
 package main
 
 import "core:fmt"
 import sdl "vendor:sdl3"
-import niello "../../"
-import glue "../../sdl"
+import niello "../.."
+import niello_sdl "../../sdl"
 
 Win :: struct {
 	sdl_win:  ^sdl.Window,
 	id:       sdl.WindowID,
 	ctx:      ^niello.Context,
-	nui:      glue.Window,
+	nui:      niello_sdl.Window,
 	px_w:     i32,
 	px_h:     i32,
 	log_w:    i32,
@@ -73,10 +73,10 @@ make_win :: proc(title: cstring, w, h: i32, ctx: ^niello.Context) -> (Win, bool)
 		fmt.println("CreateWindow failed:", sdl.GetError())
 		return {}, false
 	}
-	handles := glue.native_handles_for_window(sw)
+	handles := niello_sdl.native_handles_for_window(sw)
 	px_w, px_h: i32
 	sdl.GetWindowSizeInPixels(sw, &px_w, &px_h)
-	nui := glue.create_window(&handles, u32(max(px_w, 0)), u32(max(px_h, 0)))
+	nui := niello_sdl.create_window(&handles, u32(max(px_w, 0)), u32(max(px_h, 0)))
 	if nui == nil {
 		fmt.println("nui_create_window failed")
 		return {}, false
@@ -89,7 +89,7 @@ make_win :: proc(title: cstring, w, h: i32, ctx: ^niello.Context) -> (Win, bool)
 	display := sdl.GetDisplayForWindow(sw)
 	if display != 0 {
 		if mode := sdl.GetCurrentDisplayMode(display); mode != nil && mode.refresh_rate > 0 {
-			glue.set_refresh_rate(nui, mode.refresh_rate)
+			niello_sdl.set_refresh_rate(nui, mode.refresh_rate)
 		}
 	}
 	return win, true
@@ -112,9 +112,9 @@ frame_win :: proc(win: ^Win, declare: proc()) {
 	win.released = {}
 	cmds := niello.draw_list()
 	if res.changed {
-		glue.render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.scale)
+		niello_sdl.render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.scale)
 	} else {
-		glue.present_cached(win.nui)
+		niello_sdl.present_cached(win.nui)
 	}
 }
 
@@ -125,8 +125,8 @@ main :: proc() {
 	}
 	defer sdl.Quit()
 
-	niello.measure_word_hook = glue.hook_measure_word
-	niello.line_height_hook = glue.hook_line_height
+	niello.measure_word_hook = niello_sdl.hook_measure_word
+	niello.line_height_hook = niello_sdl.hook_line_height
 
 	// Global minting, once, before any window exists (fork 5).
 	niello.mint(&root_a, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.percent(1), niello.percent(1)}, color = niello.Color{24, 24, 32, 255}, padding = [4]u16{16, 16, 16, 16}, gap = 12})
@@ -138,11 +138,11 @@ main :: proc() {
 	theme = niello.group_new("theme")
 	niello.group_add(theme, chip)
 
-	if glue.init() != 0 {
+	if niello_sdl.init() != 0 {
 		fmt.println("nui_init failed")
 		return
 	}
-	defer glue.shutdown()
+	defer niello_sdl.shutdown()
 
 	ctx_a := niello.context_create()
 	ctx_b := niello.context_create()
@@ -175,13 +175,13 @@ main :: proc() {
 						sdl.GetWindowSize(win.sdl_win, &win.log_w, &win.log_h)
 						sdl.GetWindowSizeInPixels(win.sdl_win, &win.px_w, &win.px_h)
 						win.scale = sdl.GetWindowDisplayScale(win.sdl_win)
-						glue.resize(win.nui, u32(max(win.px_w, 0)), u32(max(win.px_h, 0)))
+						niello_sdl.resize(win.nui, u32(max(win.px_w, 0)), u32(max(win.px_h, 0)))
 					}
 				}
 			case .WINDOW_CLOSE_REQUESTED:
 				for win in wins {
 					if win.alive && ev.window.windowID == win.id {
-						glue.destroy_window(win.nui)
+						niello_sdl.destroy_window(win.nui)
 						sdl.DestroyWindow(win.sdl_win)
 						win.alive = false
 					}
@@ -199,7 +199,7 @@ main :: proc() {
 			case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
 				for win in wins {
 					if win.alive && ev.button.windowID == win.id {
-						if ev.button.button == 1 { // SDL_BUTTON_LEFT (the glue maps 1/2/3 the same way)
+						if ev.button.button == 1 { // SDL_BUTTON_LEFT (the niello_sdl maps 1/2/3 the same way)
 							if ev.button.down {
 								win.down += {.Left}
 								win.pressed += {.Left}

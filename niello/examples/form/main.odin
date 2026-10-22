@@ -13,7 +13,7 @@ package main
 
 import "core:fmt"
 import niello "../.."
-import sdl "../../sdl"
+import niello_sdl "../../sdl"
 
 BG :: niello.Color{24, 25, 32, 255}
 PANEL :: niello.Color{38, 41, 54, 255}
@@ -262,5 +262,5 @@ main :: proc() {
 	mint()
 	ctx := niello.context_create()
 	defer niello.context_destroy(ctx)
-	sdl.run(ctx, {title = "NielloUI — form", width = 680, height = 520}, declare)
+	niello_sdl.run(ctx, {title = "NielloUI — form", width = 680, height = 520}, declare)
 }

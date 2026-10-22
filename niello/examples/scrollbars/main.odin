@@ -27,7 +27,7 @@ package main
 
 import "core:fmt"
 import niello "../.."
-import sdl "../../sdl"
+import niello_sdl "../../sdl"
 
 // =====================================================================
 // The default scrollbar component.
@@ -325,5 +325,5 @@ main :: proc() {
 	mint()
 	ctx := niello.context_create()
 	defer niello.context_destroy(ctx)
-	sdl.run(ctx, {title = "NielloUI — scrollbars", width = 720, height = 520}, declare)
+	niello_sdl.run(ctx, {title = "NielloUI — scrollbars", width = 720, height = 520}, declare)
 }
