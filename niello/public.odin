@@ -271,7 +271,12 @@ default_style :: proc() -> Style {
 		ellipsis    = true,
 		overflow    = .Spill,
 		scroll      = .None,
-		opacity     = 255, // opaque; colors default to transparent black (paint TBD)
+		opacity     = 255, // opaque; fill/border colors default to
+		                   // transparent black, but text defaults to
+		                   // opaque black ink — text that renders
+		                   // invisible unless colored is a footgun,
+		                   // and nothing can be relying on it
+		font_color  = Color{0, 0, 0, 255},
 		font_size   = 16,
 		font_weight = .Regular,
 		font_slant  = .Upright,
@@ -333,6 +338,12 @@ With :: struct {
 	                                // over Style.text_spans. Copied at declare
 	                                // time (small), so no borrow contract.
 	disabled: bool,
+	anchored: bool, // an overlay child (§3.20): removed from flow
+	                // in any container — no flow slot, no waterfill,
+	                // no content extent, no scroll offset — sized
+	                // and positioned against the parent's full rect
+	                // by its align (padding never insets overlays).
+	                // Scrollbar chrome, sticky headers.
 	focusable: Maybe(bool), // per-instance focus participation; wins over
 	                        // the unit's Style_Decl.focusable, so one
 	                        // instance of a repeated unit can be the
@@ -811,6 +822,8 @@ frame_begin :: proc(input: Input, dt: f32) {
 		delete(nd.spans)
 	}
 	clear(&g.nodes)
+	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
+	g.text_off = 0
 	clear(&g.popups) // last frame's list; dispatch already read it
 	g.popup_ordinal = 0
 	clear(&g.stack)
@@ -1066,6 +1079,18 @@ scroll_offset :: proc(i: Instance) -> Vec2 {
 		return {0, 0}
 	}
 	return g.scroll_off[i]
+}
+
+// scroll_range reports i's scrollable range in DIP per axis — how
+// far the content extends beyond the viewport (0 on an axis that
+// does not scroll or does not overflow). It is the range half of
+// scroll_offset, read from the same committed state; scrollbar
+// chrome (§3.20) sizes and positions its thumb from the pair.
+scroll_range :: proc(i: Instance) -> Vec2 {
+	if g.scroll_max == nil {
+		return Vec2{0, 0}
+	}
+	return g.scroll_max[i] or_else Vec2{0, 0}
 }
 
 // scroll_to sets i's scroll offset in DIP (back-to-top is

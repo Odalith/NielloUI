@@ -301,6 +301,9 @@ accumulate :: proc(axis: int) {
 		if s.layout == .Stack {
 			m, mmin := f32(0), f32(0)
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // chrome is not content (§3.20)
+				}
 				m = max(m, accum_size(c, axis))
 				mmin = max(mmin, accum_min(c, axis))
 			}
@@ -310,6 +313,9 @@ accumulate :: proc(axis: int) {
 			total, mtotal := f32(0), f32(0)
 			nchild := 0
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // chrome is not content (§3.20)
+				}
 				total += accum_size(c, axis) + gap
 				mtotal += accum_min(c, axis) + gap
 				nchild += 1
@@ -323,6 +329,9 @@ accumulate :: proc(axis: int) {
 		} else {
 			m, mmin := f32(0), f32(0)
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // chrome is not content (§3.20)
+				}
 				m = max(m, accum_size(c, axis))
 				mmin = max(mmin, accum_min(c, axis))
 			}
@@ -460,6 +469,10 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	// case the GROW-in-FIT fallback below exists for.
 	parent_fit := s.size[axis].kind == .Fit && g.nodes[i].parent >= 0
 	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+		if g.nodes[c].anchored {
+			continue // overlays are not flow (§3.20): distribute
+			// resolves them against the inner box directly
+		}
 		nchild += 1
 		sz := node_style(c).size[axis]
 		switch sz.kind {
@@ -541,11 +554,21 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 		if inner < 0 {
 			inner = 0
 		}
+		// Anchored overlays (§3.20) resolve against the parent's FULL
+		// rect on every axis, whatever the layout: padding insets flow
+		// content, never overlays (a scrollbar hugs the panel edge).
+		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				resolve_cross(c, axis, g.lay[i].size[axis])
+			}
+		}
 		if s.layout == .Stack {
 			// Stack children are excluded from the waterfill: each resolves
 			// independently against the full content box.
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				resolve_cross(c, axis, inner)
+				if !g.nodes[c].anchored {
+					resolve_cross(c, axis, inner)
+				}
 			}
 			continue
 		}
@@ -553,7 +576,9 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 			distribute_main(i, axis, inner)
 		} else {
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				resolve_cross(c, axis, inner)
+				if !g.nodes[c].anchored {
+					resolve_cross(c, axis, inner)
+				}
 			}
 		}
 	}
@@ -690,6 +715,9 @@ position_and_damage :: proc() {
 			used := f32(0)
 			nchild := 0
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // overlays take no flow slot (§3.20)
+				}
 				used += g.lay[c].size[axis]
 				nchild += 1
 			}
@@ -710,14 +738,35 @@ position_and_damage :: proc() {
 				free := (g.lay[i].size[cross] - padding_sum(s, cross)) - g.lay[c].size[cross]
 				p[cross] += align_offset(s.align[cross], free)
 			}
+			anchored := g.nodes[c].anchored
+			if anchored {
+				// Overlay (§3.20): positioned against the parent's
+				// FULL rect — its origin plus its align, no padding
+				// inset, NO scroll applied, no flow slot consumed.
+				// (A flow container's align is [main, cross], not
+				// the [x, y] stack_align_offset reads, so the flow
+				// translation is spelled out.)
+				if s.layout == .Stack {
+					p = base + stack_align_offset(s, g.lay[c].size, g.lay[i].size)
+				} else {
+					ma := main_axis(s.layout)
+					ca := 1 - ma
+					off := Vec2{0, 0}
+					off[ma] = align_offset(s.align[0], g.lay[i].size[ma] - g.lay[c].size[ma])
+					off[ca] = align_offset(s.align[1], g.lay[i].size[ca] - g.lay[c].size[ca])
+					p = base + off
+				}
+			}
 			g.lay[c].pos = p
 			g.lay[c].gen = g.layout_gen
-			if s.layout != .Stack {
+			if s.layout != .Stack && !anchored {
 				cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
 			}
-			ce := p + scroll + g.lay[c].size // content extent, pre-scroll
-			max_end.x = max(max_end.x, ce.x)
-			max_end.y = max(max_end.y, ce.y)
+			if !anchored {
+				ce := p + scroll + g.lay[c].size // content extent, pre-scroll
+				max_end.x = max(max_end.x, ce.x)
+				max_end.y = max(max_end.y, ce.y)
+			}
 		}
 		origin := base + pad
 		inner := Vec2{
