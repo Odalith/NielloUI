@@ -128,12 +128,12 @@ main :: proc() {
 	niello.line_height_hook = glue.hook_line_height
 
 	// Global minting, once, before any window exists (fork 5).
-	niello.mint(&root_a, niello.NO_UNIT, {layout = .Top_To_Bottom, size = {niello.percent(1), niello.percent(1)}, color = {24, 24, 32, 255}, padding = [4]u16{16, 16, 16, 16}, gap = 12})
-	niello.mint(&panel_a, niello.NO_UNIT, {layout = .Left_To_Right, size = {niello.percent(1), niello.fixed(64)}, color = {38, 38, 52, 255}, padding = [4]u16{12, 12, 12, 12}, gap = 12, corner_radius = 8})
-	niello.mint(&chip, niello.NO_UNIT, {size = {niello.fixed(40), niello.fixed(40)}, color = {90, 160, 250, 255}, corner_radius = 8})
-	niello.mint(&label_a, niello.NO_UNIT, {font_size = 15, font_color = {230, 230, 240, 255}})
-	niello.mint(&root_b, niello.NO_UNIT, {layout = .Left_To_Right, size = {niello.percent(1), niello.percent(1)}, color = {30, 22, 18, 255}, padding = [4]u16{16, 16, 16, 16}, gap = 12})
-	niello.mint(&counter_u, niello.NO_UNIT, {font_size = 15, font_color = {240, 220, 200, 255}})
+	niello.mint(&root_a, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.percent(1), niello.percent(1)}, color = niello.Color{24, 24, 32, 255}, padding = [4]u16{16, 16, 16, 16}, gap = 12})
+	niello.mint(&panel_a, niello.NO_UNIT, {layout = .Left_To_Right, size = niello.Size{niello.percent(1), niello.fixed(64)}, color = niello.Color{38, 38, 52, 255}, padding = [4]u16{12, 12, 12, 12}, gap = 12, corner_radius = 8})
+	niello.mint(&chip, niello.NO_UNIT, {size = niello.Size{niello.fixed(40), niello.fixed(40)}, color = niello.Color{90, 160, 250, 255}, corner_radius = 8})
+	niello.mint(&label_a, niello.NO_UNIT, {font_size = 15, font_color = niello.Color{230, 230, 240, 255}})
+	niello.mint(&root_b, niello.NO_UNIT, {layout = .Left_To_Right, size = niello.Size{niello.percent(1), niello.percent(1)}, color = niello.Color{30, 22, 18, 255}, padding = [4]u16{16, 16, 16, 16}, gap = 12})
+	niello.mint(&counter_u, niello.NO_UNIT, {font_size = 15, font_color = niello.Color{240, 220, 200, 255}})
 	theme = niello.group_new("theme")
 	niello.group_add(theme, chip)
 
