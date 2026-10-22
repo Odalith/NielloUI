@@ -10,7 +10,7 @@ import "core:testing"
 
 // sched_frame runs an empty declare: scheduling is declare-independent.
 sched_frame :: proc(dt: f32) -> niello.Frame_Result {
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, dt)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, dt)
 	return niello.frame_end()
 }
 
@@ -58,7 +58,7 @@ test_sched_hover_duration_arms_refresh :: proc(t: ^testing.T) {
 	mint_input_tree()
 
 	// Not hovered: asking for the duration arms nothing.
-	niello.frame_begin(idle_input(AWAY_PT), 0.05)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 0.05)
 	_ = niello.hover_duration(input_btn_i)
 	res := finish(declare_input_tree)
 	testing.expect(t, res.next_wake_ms == max(u32),
@@ -66,19 +66,19 @@ test_sched_hover_duration_arms_refresh :: proc(t: ^testing.T) {
 
 	// Hovered and displayed: the query arms the 50ms refresh, and it
 	// re-arms on every frame the cursor stays parked.
-	niello.frame_begin(idle_input(BTN_PT), 0.05)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 0.05)
 	_ = niello.hover_duration(input_btn_i)
 	res = finish(declare_input_tree)
 	testing.expect(t, res.next_wake_ms == 50,
 		"displayed hover duration schedules a refresh")
-	niello.frame_begin(idle_input(BTN_PT), 0.05)
+	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 0.05)
 	_ = niello.hover_duration(input_btn_i)
 	res = finish(declare_input_tree)
 	testing.expect(t, res.next_wake_ms == 50,
 		"the refresh re-arms while hovered")
 
 	// Cursor leaves: back to sleeping at infinity.
-	niello.frame_begin(idle_input(AWAY_PT), 0.05)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 0.05)
 	_ = niello.hover_duration(input_btn_i)
 	res = finish(declare_input_tree)
 	testing.expect(t, res.next_wake_ms == max(u32),
@@ -96,11 +96,11 @@ test_wake_hook :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	wake_hook_calls = 0
-	niello.wake() // no hook installed: flags the core, must not crash
+	niello.context_wake(niello.test_context()) // no hook installed: flags the core, must not crash
 	niello.wake_hook = counting_wake_hook
-	niello.wake()
+	niello.context_wake(niello.test_context())
 	testing.expect(t, wake_hook_calls == 1, "wake() runs the host hook")
-	niello.wake()
+	niello.context_wake(niello.test_context())
 	testing.expect(t, wake_hook_calls == 2, "every wake() pokes the host")
 	niello.wake_hook = nil
 }

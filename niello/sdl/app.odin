@@ -43,6 +43,9 @@ g_config:  App_Config
 @(private)
 g_declare:  Declare_Proc
 @(private)
+g_ctx:      ^niello.Context // the window's engine context (M1; the app
+                            // supplies it instead from M3 on)
+@(private)
 g_window:   ^sdl.Window
 @(private)
 g_mouse:    niello.Vec2
@@ -166,6 +169,10 @@ sdl_init :: proc "c" (appstate: ^rawptr, argc: i32, argv: [^]cstring) -> sdl.App
 		return .FAILURE
 	}
 
+	// One engine context for this window (M1 transitional wiring:
+	// multi-window glue gives every window its own at M3).
+	g_ctx = niello.context_create()
+
 	// Wire text measurement to the native backend (Skia), then init it.
 	// The C++ side takes raw platform handles, not the SDL_Window: query
 	// them here so the native lib never touches SDL.
@@ -272,7 +279,7 @@ app_iterate :: proc "c" (appstate: rawptr) -> sdl.AppResult {
 	g_wheel = {}
 	g_key_count = 0
 
-	niello.frame_begin(input, dt)
+	niello.frame_begin(g_ctx, input, dt)
 	// frame_begin copied the committed text into the core's own
 	// buffer; the accumulation starts over.
 	clear(&g_text_buf)
@@ -402,6 +409,10 @@ event_callback :: proc "c" (appstate: rawptr, event: ^sdl.Event) -> sdl.AppResul
 app_quit :: proc "c" (appstate: rawptr, result: sdl.AppResult) {
 	context = runtime.default_context()
 	destroy()
+	if g_ctx != nil {
+		niello.context_destroy(g_ctx)
+		g_ctx = nil
+	}
 }
 
 // mouse_button maps SDL's button index (1/2/3) to niello's button enum.

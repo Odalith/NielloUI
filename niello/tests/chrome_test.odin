@@ -52,7 +52,7 @@ ch_declare :: proc() {
 }
 
 ch_frame :: proc() {
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0.016)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
 	ch_declare()
 	niello.frame_end()
 }
@@ -117,7 +117,7 @@ test_anchored_child_is_not_content_for_fit :: proc(t: ^testing.T) {
 		size = niello.Size{niello.fixed(20), niello.fixed(500)},
 	})
 	scroll_i: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0.016)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
 	if _, ok := niello.begin(ch_root_u); ok {
 		if si, ok2 := niello.begin(fit_stack); ok2 {
 			scroll_i = si
@@ -155,7 +155,7 @@ fl_declare :: proc() {
 }
 
 fl_frame :: proc() {
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0.016)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
 	fl_declare()
 	niello.frame_end()
 }

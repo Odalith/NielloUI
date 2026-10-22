@@ -67,7 +67,7 @@ fo_frame :: proc(keys: []niello.Key_Event = nil, text: string = "") {
 	}
 	inp.key_count = len(keys)
 	inp.text = text
-	niello.frame_begin(inp, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	finish(fo_declare)
 }
 
@@ -131,7 +131,7 @@ test_click_to_focus :: proc(t: ^testing.T) {
 	inp := idle_input(center)
 	inp.buttons_pressed = {.Left}
 	inp.buttons_down = {.Left}
-	niello.frame_begin(inp, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	finish(fo_declare)
 	testing.expect(t, niello.focused(fo_b), "pressing a focusable instance focuses it")
 	// Pressing unfocusable ground clears focus (rule flipped after
@@ -139,7 +139,7 @@ test_click_to_focus :: proc(t: ^testing.T) {
 	inp2 := idle_input({350, 285}) // below every control, root only
 	inp2.buttons_pressed = {.Left}
 	inp2.buttons_down = {.Left}
-	niello.frame_begin(inp2, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp2, 1.0 / 60.0)
 	finish(fo_declare)
 	testing.expect(t, !niello.focused(fo_b), "pressing empty space clears focus")
 	// Refocus B for the disabled check below.
@@ -147,7 +147,7 @@ test_click_to_focus :: proc(t: ^testing.T) {
 	inp2b := idle_input(rb2.pos + rb2.size / 2)
 	inp2b.buttons_pressed = {.Left}
 	inp2b.buttons_down = {.Left}
-	niello.frame_begin(inp2b, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp2b, 1.0 / 60.0)
 	finish(fo_declare)
 	testing.expect(t, niello.focused(fo_b), "B refocused")
 	// Pressing disabled D does not focus it.
@@ -155,7 +155,7 @@ test_click_to_focus :: proc(t: ^testing.T) {
 	inp3 := idle_input(rd.pos + rd.size / 2)
 	inp3.buttons_pressed = {.Left}
 	inp3.buttons_down = {.Left}
-	niello.frame_begin(inp3, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp3, 1.0 / 60.0)
 	finish(fo_declare)
 	testing.expect(t, niello.focused(fo_b), "pressing a disabled control does not focus it")
 	testing.expect(t, !niello.focused(fo_d), "D never takes focus")
@@ -262,20 +262,20 @@ test_with_focusable_override :: proc(t: ^testing.T) {
 		color = niello.Color{70, 60, 60, 255},
 		focusable = true,
 	})
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	finish(fw_declare) // settle
 	// Tab: candidates in declaration order are r2 (With on) and b1
 	// (unit on, not overridden off). Everything else is skipped.
 	inp := idle_input(AWAY_PT)
 	inp.keys[0] = kev(TAB_EV, true)
 	inp.key_count = 1
-	niello.frame_begin(inp, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	finish(fw_declare)
 	testing.expect(t, niello.focused(fw_r2), "only the With-enabled row instance is a tab stop")
-	niello.frame_begin(inp, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	finish(fw_declare)
 	testing.expect(t, niello.focused(fw_b1), "then the focusable unit's plain instance")
-	niello.frame_begin(inp, 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	finish(fw_declare)
 	testing.expect(t, niello.focused(fw_r2), "wrap: the With-disabled instance never joins")
 	testing.expect(t, !niello.focused(fw_r1) && !niello.focused(fw_r3) && !niello.focused(fw_b2), "non-stops stay unfocused")
@@ -315,14 +315,14 @@ test_instance_death_damages :: proc(t: ^testing.T) {
 	niello.mint(&dd_a, niello.NO_UNIT, {font_size = 16})
 	niello.mint(&dd_b, niello.NO_UNIT, {font_size = 16})
 	dd_show_a = false
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	finish(dd_declare) // settle with B (B enters the instance map)
 	dd_show_a = true // B dies, A appears
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	res := finish(dd_declare)
 	testing.expect(t, res.changed, "a death + birth frame is changed")
 	dd_show_a = false // A dies; B returns with its settle rect+hash
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	res = finish(dd_declare)
 	testing.expect(t, res.changed, "the returning instance's frame still damages (the death)")
 	covered := false
@@ -334,7 +334,7 @@ test_instance_death_damages :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, covered, "damage covers the dead instance's rect")
-	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 1.0 / 60.0)
 	res = finish(dd_declare)
 	testing.expect(t, !res.changed, "steady state again: no phantom damage")
 }

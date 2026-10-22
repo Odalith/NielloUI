@@ -33,7 +33,7 @@ declare_group_tree :: proc() {
 }
 
 grp_frame :: proc() -> niello.Frame_Result {
-	niello.frame_begin(idle_input(AWAY_PT), 0.016)
+	niello.frame_begin(niello.test_context(), idle_input(AWAY_PT), 0.016)
 	return finish(declare_group_tree)
 }
 
