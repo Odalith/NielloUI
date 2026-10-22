@@ -153,6 +153,54 @@ when niello.NIELLO_DEBUG {
 		testing.expect_value(t, dbg_overlay_count(niello.DEBUG_HIGHLIGHT_COLOR), 0)
 	}
 
+	@(private)
+	dbg_wleaf: niello.Unit
+
+	@(test)
+	test_debug_with_summary_and_loc :: proc(t: ^testing.T) {
+		niello.test_reset()
+		defer niello.test_teardown()
+		ctx1 := niello.test_context()
+		dbg_mint()
+		niello.mint(&dbg_wleaf, niello.NO_UNIT, {size = niello.Size{niello.fixed(30), niello.fixed(20)}})
+
+		niello.frame_begin(ctx1, niello.Input{viewport = {400, 300}}, 0.016)
+		if _, open := niello.begin(dbg_root); open {
+			niello.show(dbg_wleaf, 0, {
+				text = "override",
+				disabled = true,
+				variant = dbg_wide,
+				focusable = true,
+				label = "greeting",
+			})
+		}
+		niello.frame_end()
+
+		tree := niello.debug_tree(ctx1)
+		found := false
+		for dn in tree {
+			if dn.unit == dbg_wleaf {
+				found = true
+				w := dn.with
+				testing.expect(t, .Text in w.present && w.text == "override", "With.text captured with its arena value")
+				testing.expect(t, .Disabled in w.present, "With.disabled captured")
+				testing.expect(t, .Variant in w.present && w.variant == dbg_wide, "With.variant captured")
+				testing.expect(t, .Focusable in w.present && w.focusable, "With.focusable captured")
+				testing.expect(t, .Label in w.present && w.label == "greeting", "With.label captured")
+			}
+			if dn.unit == dbg_wide {
+				testing.expect(t, dn.with.present == {}, "an unoverridden instance reports an empty With")
+			}
+		}
+		testing.expect(t, found, "the overridden node is in the snapshot")
+
+		file, line, ok := niello.debug_unit_loc(dbg_root)
+		testing.expect(t, ok && line > 0, "mint location resolves")
+		testing.expect(t, len(file) > 15 && file[len(file) - 15:] == "debug_test.odin", "and names the minting file")
+		_, _, ok2 := niello.debug_unit_loc(niello.Unit(9999))
+		testing.expect(t, !ok2, "unknown unit has no location")
+	}
+
 	@(test)
 	test_debug_overflow_overlay :: proc(t: ^testing.T) {
 		niello.test_reset()

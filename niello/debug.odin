@@ -54,6 +54,8 @@ Debug_Node :: struct {
 	                 // (text truncation, crushed containers — cases
 	                 // child-extent overflow cannot see)
 	flags:    Debug_Flags,
+	with:     Debug_With, // the With overrides this instance was
+	                      // declared with
 }
 
 Overflow_Axis :: enum u8 {
@@ -71,6 +73,31 @@ Overflow_Rec :: struct {
 	name:     string, // the unit's mint debug name
 	axis:     Overflow_Axis,
 	px:       f32,
+}
+
+// Which per-instance With overrides a node was declared with —
+// the Details panel's WITH section. Values are captured at
+// snapshot time (frame_end), from the frame node's stored With.
+Debug_With_Flag :: enum {
+	Text,         // With.text (arena copy: the value is safe to keep)
+	Text_Borrowed, // With.text_no_copy (flag only; the bytes are
+	               // borrowed past their contract, so no value)
+	Spans,
+	Disabled,
+	Anchored,
+	Focusable,
+	Variant,
+	Label,
+}
+Debug_With_Flags :: bit_set[Debug_With_Flag]
+
+Debug_With :: struct {
+	present:   Debug_With_Flags,
+	text:      string, // when .Text
+	spans:     int, // span count when .Spans
+	focusable: bool, // value when .Focusable
+	variant:   Unit, // value when .Variant
+	label:     string, // value when .Label
 }
 
 // debug_snapshot_build refreshes the bound context's snapshot.
@@ -111,6 +138,38 @@ debug_snapshot_build :: proc() {
 			if rec, ok := g.instances[nd.identity]; ok {
 				r = rec.rect
 			}
+			dw: Debug_With
+			{
+				w := &nd.with
+				if w.text != nil {
+					dw.present += {.Text}
+					dw.text = nd.text // declare's arena copy
+				} else if w.text_no_copy != nil {
+					dw.present += {.Text_Borrowed}
+				}
+				if w.text_spans != nil {
+					dw.present += {.Spans}
+					dw.spans = len(nd.spans)
+				}
+				if w.disabled {
+					dw.present += {.Disabled}
+				}
+				if w.anchored {
+					dw.present += {.Anchored}
+				}
+				if fv, ok := w.focusable.?; ok {
+					dw.present += {.Focusable}
+					dw.focusable = fv
+				}
+				if w.variant != 0 {
+					dw.present += {.Variant}
+					dw.variant = w.variant
+				}
+				if lb, ok := w.label.?; ok {
+					dw.present += {.Label}
+					dw.label = lb
+				}
+			}
 			spill: Vec2
 			if !nd.culled {
 				spill = Vec2{
@@ -128,6 +187,7 @@ debug_snapshot_build :: proc() {
 					overfl = g.lay[i].overfl,
 					spill = spill,
 					flags = flags,
+					with = dw,
 				},
 			)
 		}
@@ -195,6 +255,17 @@ when NIELLO_DEBUG {
 			return ""
 		}
 		return store.units[u].name
+	}
+
+	// debug_unit_loc returns where a unit was minted (the
+	// #caller_location mint stores): file path + line. The
+	// Details panel shows it for the selected node's unit.
+	debug_unit_loc :: proc(u: Unit) -> (file: string, line: i32, ok: bool) {
+		if int(u) < 0 || int(u) >= len(store.units) {
+			return "", 0, false
+		}
+		loc := store.units[u].loc
+		return loc.file_path, loc.line, true
 	}
 
 	// debug_tree returns ctx's last-frame snapshot. Borrowed;

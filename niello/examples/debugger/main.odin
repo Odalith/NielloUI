@@ -17,6 +17,9 @@
 // text in a 120px label (intrinsic spill on the label), and a
 // scroller whose 300px content is NOT a defect (scrollable axes
 // are ranges, not overflows — it must not appear in the report).
+// Closing the second window drops it from the debugger's
+// target bar; closing every app window closes the debugger
+// too, so the app can exit. The debugger never targets itself.
 // Built without the define, install() is a no-op and the app
 // has no debugger at all.
 package main

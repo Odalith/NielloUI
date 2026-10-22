@@ -30,9 +30,11 @@
 // still costs a 24k-row declare in this window — dev tooling,
 // accepted cost). Selection is by instance: if the app's tree
 // reshapes, the selection may point at a different node until
-// re-clicked. If the debugger window is closed from the OS,
-// the package still believes it is open (window lifecycle
-// events are TODO #26) — reopen by restarting the app for now.
+// re-clicked. Targeting follows the glue's live window list:
+// closed windows drop out of the target bar at once, and when
+// no app window remains the debugger closes itself (otherwise
+// it would keep the app alive). If the debugger's own window
+// is closed from the OS, the next F12 notices and reopens it.
 package debugui
 
 import niello ".."
