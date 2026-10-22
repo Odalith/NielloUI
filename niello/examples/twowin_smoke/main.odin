@@ -46,9 +46,11 @@ theme: niello.Group
 frame_no: int
 
 declare_a :: proc() {
-	niello.show(root_a)
+	// Containers are declared by begin ALONE: a show() on the same
+	// unit first would declare it twice (an empty leaf sibling, then
+	// the container) — window A showed exactly that as a doubled
+	// panel in the first M2 run.
 	if _, open := niello.begin(root_a); open {
-		niello.show(panel_a)
 		if _, open2 := niello.begin(panel_a); open2 {
 			niello.show(chip)
 			niello.show(label_a, 0, {text = "Window A — hello tree"})
@@ -57,7 +59,6 @@ declare_a :: proc() {
 }
 
 declare_b :: proc() {
-	niello.show(root_b)
 	if _, open := niello.begin(root_b); open {
 		niello.show(chip) // the SAME unit as window A shows
 		buf: [32]u8
