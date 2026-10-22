@@ -13,14 +13,16 @@
 // run() returns when the last window closes.
 //
 // Two honest demo simplifications:
-//   - The inspector re-reads on its own frame cadence. While the
-//     main window changes (this demo's counter changes it every
-//     frame), the readouts change with it, so the inspector stays
-//     hot and every open inspector adds its own render load; a
-//     static scene would let all of them idle at ~0 CPU. A
-//     production inspector would throttle its read rate; apps have
-//     no public periodic-wake API yet — context_wake from a timer
-//     thread is the current escape hatch.
+//   - Change detection is per-context: the main window changing
+//     does NOT wake the inspector (no cross-context propagation —
+//     by design). Left alone, an inspector would only refresh when
+//     the cursor targets it. So the main window's declare wakes
+//     each live inspector every WAKE_EVERY frames via
+//     context_wake, the designed cross-context signal; between
+//     wakes inspectors sleep at ~0 CPU. The wake rate is the
+//     inspector fleet's CPU dial: every woken inspector re-reads
+//     and re-renders. (A timer thread calling context_wake is the
+//     other source — apps have no periodic-wake API yet.)
 //   - A context whose window was OS-closed is reaped only if the
 //     inspector used its own Close button (which marks it); an
 //     OS-closed inspector's context lives until exit. Window
@@ -70,9 +72,21 @@ reap_inspectors :: proc() {
 
 pulse_was_hovered: bool
 
+// How often (in main-window frames) the main declare wakes the
+// inspectors. At a present-paced main window this is a few Hz —
+// live enough to watch rects move, cheap enough to open several.
+WAKE_EVERY :: 15
+
 declare_main :: proc() {
 	reap_inspectors()
 	main_frames += 1
+	if main_frames % WAKE_EVERY == 0 {
+		for rec in inspectors {
+			if !rec.reap {
+				niello.context_wake(rec.ctx)
+			}
+		}
+	}
 	// Declare pattern: every container's begin goes in an if
 	// initializer, so its deferred end() pops at that statement's
 	// scope exit. A begin written as a plain statement inside a
