@@ -109,6 +109,10 @@ Globals :: struct {
 	// clamp against this — g.lay is zeroed by pass 0 each frame, so the
 	// range needs a persistent home of its own.
 	scroll_max: map[Instance]Vec2,
+	// Wheel glides in flight (§3.21): from/to offsets, elapsed ms,
+	// duration. Stepped at frame_end before layout; scroll_to and a
+	// fresh wheel tick rewrite the entry. Absence = not gliding.
+	scroll_glides: map[Instance]Scroll_Glide,
 
 	// Interaction state (input.odin): written by dispatch at frame_begin,
 	// read by the queries during declare and by overlay resolution at
@@ -288,6 +292,7 @@ free_globals :: proc() {
 	delete(g.dismiss_flags)
 	delete(g.scroll_off)
 	delete(g.scroll_max)
+	delete(g.scroll_glides)
 	delete(g.tweens)
 	delete(g.transients)
 	for _, es in g.edits {
@@ -353,6 +358,8 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	if d.overlay_border_width  != nil { f += {.Overlay_Border_Width} }
 	if d.cursor       != nil { f += {.Cursor} }
 	if d.scroll_chain != nil { f += {.Scroll_Chain} }
+	if d.smooth_scroll != nil { f += {.Smooth_Scroll} }
+	if d.smooth_ms != nil { f += {.Smooth_Ms} }
 	return f
 }
 
@@ -421,4 +428,15 @@ Popup_Rec :: struct {
 	id:       Instance,
 	modal:    bool,
 	stay:     bool, // no light dismiss (toasts, pinned panels)
+}
+
+// One wheel glide in flight (§3.21): the offset eases from `from` to
+// `to` over `dur` ms of engine time (cubic ease-out, the house easing).
+// A fresh wheel tick restarts the glide from the CURRENT offset to the
+// accumulated target, so rapid ticks feel like one continuous glide.
+Scroll_Glide :: struct {
+	from: Vec2,
+	to:   Vec2,
+	t:    f32, // ms elapsed
+	dur:  f32, // ms
 }

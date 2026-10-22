@@ -662,11 +662,33 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 			}
 			id := g.nodes[idx].identity
 			off := g.scroll_off[id]
-			clamped := clamp(off[axis] + rem, 0, g.scroll_max[id][axis])
-			used := clamped - off[axis]
+			// Smooth scrollers (§3.21) accumulate onto the glide
+			// TARGET, not the rendered offset: consumption is
+			// judged by where the scroll is heading, so rapid
+			// ticks stack into one glide instead of chaining
+			// away while the offset is still catching up.
+			target := off[axis]
+			if gl, ok := g.scroll_glides[id]; ok {
+				target = gl.to[axis]
+			}
+			clamped := clamp(target + rem, 0, g.scroll_max[id][axis])
+			used := clamped - target
 			if used != 0 {
-				off[axis] = clamped
-				g.scroll_off[id] = off
+				if s.smooth_scroll && s.smooth_ms > 0 {
+					if g.scroll_glides == nil {
+						g.scroll_glides = make(map[Instance]Scroll_Glide)
+					}
+					gl := g.scroll_glides[id]
+					gl.from = off
+					gl.to = off
+					gl.to[axis] = clamped
+					gl.t = 0
+					gl.dur = f32(s.smooth_ms)
+					g.scroll_glides[id] = gl
+				} else {
+					off[axis] = clamped
+					g.scroll_off[id] = off
+				}
 			}
 			rem -= used
 			if rem == 0 {
@@ -782,6 +804,8 @@ copy_field :: proc(dst, src: ^Style, f: Field) {
 	case .Overlay_Border_Width: dst.overlay_border_width = src.overlay_border_width
 	case .Cursor:       dst.cursor       = src.cursor
 	case .Scroll_Chain: dst.scroll_chain = src.scroll_chain
+	case .Smooth_Scroll: dst.smooth_scroll = src.smooth_scroll
+	case .Smooth_Ms: dst.smooth_ms = src.smooth_ms
 	}
 }
 
@@ -827,4 +851,41 @@ current_cursor :: proc() -> Cursor_Kind {
 		}
 	}
 	return .Arrow
+}
+
+// step_scroll_glides advances every wheel glide by this frame's dt,
+// writing the eased offset scroll_off holds (pass F renders it like
+// any other offset). Runs at frame_end after step_tweens, before
+// layout. A completed glide lands exactly on its target and removes
+// itself; update_animation_wake keeps frames coming while any exist.
+@(private)
+step_scroll_glides :: proc() {
+	if len(g.scroll_glides) == 0 {
+		return
+	}
+	if g.scroll_off == nil {
+		g.scroll_off = make(map[Instance]Vec2)
+	}
+	done: [dynamic]Instance
+	defer delete(done)
+	for id, &gl in g.scroll_glides {
+		gl.t += g.dt * 1000
+		p := gl.dur <= 0 ? f32(1) : min(gl.t / gl.dur, 1)
+		e := ease_out_cubic(p)
+		// Re-clamp the target against the live range every step:
+		// content may have shrunk since the tick that set it.
+		to := gl.to
+		if mx, ok := g.scroll_max[id]; ok {
+			to.x = clamp(to.x, 0, mx.x)
+			to.y = clamp(to.y, 0, mx.y)
+		}
+		g.scroll_off[id] = gl.from + (to - gl.from) * e
+		if p >= 1 {
+			g.scroll_off[id] = to
+			append(&done, id)
+		}
+	}
+	for id in done {
+		delete_key(&g.scroll_glides, id)
+	}
 }

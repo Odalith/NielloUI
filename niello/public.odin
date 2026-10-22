@@ -45,7 +45,7 @@ Field :: enum u8 {
 	Padding, Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
-	Text_Spans, Cursor, Scroll_Chain,
+	Text_Spans, Cursor, Scroll_Chain, Smooth_Scroll, Smooth_Ms,
 }
 // Text_Wrap is layout-invalidating (controls pass-C participation);
 // Align is layout-invalidating (controls child positioning);
@@ -68,7 +68,7 @@ ALL_FIELDS :: Fields{
 	.Padding, .Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
-	.Text_Spans, .Cursor, .Scroll_Chain,
+	.Text_Spans, .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
 }
 
 Layout :: enum u8 {
@@ -259,6 +259,9 @@ Style :: struct {
 
 	cursor:       Cursor_Kind, // host-facing; default .Arrow
 	scroll_chain: bool,        // wheel dispatch: hand leftover delta to the next
+	smooth_scroll: bool,       // wheel glides to its target over smooth_ms
+	                           // instead of landing instantly (§3.21)
+	smooth_ms:    u16,         // glide duration when smooth_scroll is on
 	                           // scrollable ancestor; default true
 }
 
@@ -282,6 +285,7 @@ default_style :: proc() -> Style {
 		font_slant  = .Upright,
 		cursor      = .Arrow,
 		scroll_chain = true,
+		smooth_ms    = 150,
 	}
 }
 
@@ -319,6 +323,8 @@ Style_Decl :: struct {
 
 	cursor:       Maybe(Cursor_Kind),
 	scroll_chain: Maybe(bool), // default true
+	smooth_scroll: Maybe(bool),
+	smooth_ms:    Maybe(u16), // default 150
 
 	hover, press, focus, disabled: Unit, // automatic state overlays, declared as data
 	focusable: bool,                     // reserved seam: participates in keyboard focus traversal
@@ -542,6 +548,8 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	case .Overlay_Border_Width: s.overlay_border_width = must(v, u16)
 	case .Cursor:       s.cursor       = must(v, Cursor_Kind)
 	case .Scroll_Chain: s.scroll_chain = must(v, bool)
+	case .Smooth_Scroll: s.smooth_scroll = must(v, bool)
+	case .Smooth_Ms: s.smooth_ms = must(v, u16)
 	}
 }
 
@@ -650,6 +658,8 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.overlay_border_width, decl.overlay_border_width)
 	apply_opt(&s.cursor, decl.cursor)
 	apply_opt(&s.scroll_chain, decl.scroll_chain)
+	apply_opt(&s.smooth_scroll, decl.smooth_scroll)
+	apply_opt(&s.smooth_ms, decl.smooth_ms)
 
 	rec := &g.units[int(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
@@ -845,6 +855,7 @@ frame_end :: proc() -> Frame_Result {
 	// apply (winning over glides on the fields they changed), expired
 	// transients are swept — all before resolution reads any style.
 	step_tweens()
+	step_scroll_glides()
 	apply_edits()
 	sweep_transients()
 	resolve_styles()
@@ -1103,6 +1114,11 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 	}
 	if g.scroll_off == nil {
 		g.scroll_off = make(map[Instance]Vec2)
+	}
+	// A programmatic jump is instant by definition: it cancels any
+	// wheel glide in flight on this scroller (§3.21).
+	if g.scroll_glides != nil {
+		delete_key(&g.scroll_glides, i)
 	}
 	g.scroll_off[i] = offset
 }

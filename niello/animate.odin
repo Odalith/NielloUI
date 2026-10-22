@@ -150,7 +150,7 @@ lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
 		}
 	case .Text, .Font, .Font_Weight, .Font_Slant, .Text_Spans,
 	     .Text_Wrap, .Whitespace, .Ellipsis, .Layout, .Align, .Scroll, .Overflow,
-	     .Cursor, .Scroll_Chain:
+	     .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms:
 		copy_field(dst, b, f)
 	}
 }
@@ -196,6 +196,8 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 	case .Overlay_Border_Width: return a.overlay_border_width == b.overlay_border_width
 	case .Cursor:       return a.cursor == b.cursor
 	case .Scroll_Chain: return a.scroll_chain == b.scroll_chain
+	case .Smooth_Scroll: return a.smooth_scroll == b.smooth_scroll
+	case .Smooth_Ms: return a.smooth_ms == b.smooth_ms
 	}
 	return true
 }
@@ -391,7 +393,7 @@ sweep_transients :: proc() {
 // infinity for a static UI.
 @(private)
 update_animation_wake :: proc() {
-	if len(g.tweens) > 0 || len(g.transients) > 0 {
+	if len(g.tweens) > 0 || len(g.transients) > 0 || len(g.scroll_glides) > 0 {
 		schedule_wake_in(ANIM_WAKE_MS)
 	}
 }

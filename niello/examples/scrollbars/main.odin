@@ -251,6 +251,8 @@ mint :: proc() {
 		layout = niello.Layout.Top_To_Bottom,
 		size = niello.Size{niello.grow(1), niello.grow(1)},
 		scroll = niello.Scroll.Vertical,
+		smooth_scroll = true, smooth_ms = 150, // wheel glides (§3.21);
+		// thumb drags stay instant (they go through scroll_to)
 		align = [2]niello.Align_Kind{.Start, .End},
 		color = PANEL, corner_radius = 8,
 		gap = 4, padding = [4]u16{6, 6, 6, 6},
@@ -293,7 +295,7 @@ declare :: proc() {
 				scrollbar_declare(&both_vbar, si)
 				scrollbar_declare(&both_hbar, si)
 			}
-			niello.show(label_u, niello.key_int(3), {text = "Same component, custom mint (18px, accent)"})
+			niello.show(label_u, niello.key_int(3), {text = "Same component, custom mint (18px, accent, smooth wheel)"})
 			if si, ok3 := niello.begin(cust_scroll_u, niello.key_int(4)); ok3 {
 				cust_i = si
 				for k in 0 ..< 30 {

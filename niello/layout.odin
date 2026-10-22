@@ -621,9 +621,9 @@ wrap_text :: proc() {
 // content_hash fingerprints everything about a node that reaches the draw
 // list: the resolved style's value fields plus the declare-time text and
 // span hashes. The string/slice fields are covered by those hashes rather
-// than by their headers. Cursor and Scroll_Chain are deliberately
-// excluded: neither is visual (cursor is host state; scroll_chain steers
-// dispatch), so changing them must not repaint.
+// than by their headers. Cursor, Scroll_Chain and the Smooth_* pair are
+// deliberately excluded: none is visual (cursor is host state; the rest
+// steer dispatch and glides), so changing them must not repaint.
 @(private)
 content_hash :: proc(i: int) -> u64 {
 	s := node_style(i)

@@ -406,3 +406,73 @@ declare_crush_tree :: proc() {
 		sc_crush_foot_i = niello.show(sc_crush_foot)
 	}
 }
+
+// ---- smooth scrolling (§3.21) ----------------------------------------------
+//
+// The flat tree with smoothing on: outer 200x100, 6 rows of 30, range
+// [0, 80], glide duration 100ms. Frames run at dt=40ms so the easing
+// arithmetic is checkable: after the tick frame p=0.4, ease=0.784.
+
+sm_frame :: proc(wheel: niello.Vec2) {
+	inp := idle_input(OUTER_PT)
+	inp.wheel = wheel
+	niello.frame_begin(inp, 0.04)
+	declare_flat_tree()
+	niello.frame_end()
+}
+
+mint_smooth_tree :: proc() {
+	mint_flat_tree()
+	niello.set_many(sc_outer, {smooth_scroll = true, smooth_ms = u16(100)})
+}
+
+@(test)
+test_smooth_wheel_glides :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_smooth_tree()
+	sm_frame({}) // settle: the tree exists for dispatch
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 0)
+	sm_frame({0, -2}) // 96px of wheel, clamped to the 80 range
+	off := niello.scroll_offset(sc_outer_i).y
+	testing.expect(t, off > 40 && off < 79,
+		"mid-glide: eased toward the target, not landed")
+	sm_frame({})
+	sm_frame({})
+	off = niello.scroll_offset(sc_outer_i).y
+	testing.expect(t, off == 80, "the glide lands exactly on its target")
+	sm_frame({})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
+		"and stays there (the glide removed itself)")
+}
+
+@(test)
+test_smooth_ticks_accumulate_on_target :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_smooth_tree()
+	sm_frame({})
+	sm_frame({0, -1}) // target 48, rendered still catching up (~38)
+	sm_frame({0, -1}) // consumes against the TARGET: 48 + 48 -> 80,
+	// not against the rendered offset (~61 would result)
+	sm_frame({})
+	sm_frame({})
+	sm_frame({})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
+		"rapid ticks stack into one glide to the accumulated target")
+}
+
+@(test)
+test_scroll_to_cancels_glide :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_smooth_tree()
+	sm_frame({})
+	sm_frame({0, -2})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y > 0, "glide in flight")
+	niello.scroll_to(sc_outer_i, {0, 0})
+	sm_frame({})
+	sm_frame({})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 0,
+		"a programmatic jump is instant and the glide stays cancelled")
+}
