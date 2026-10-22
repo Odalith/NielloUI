@@ -18,12 +18,11 @@
 // bars never share style state (the spacer and thumb sizes are set
 // per frame from the live geometry).
 //
-// Host contract: the scroller is a Stack (scroll style on the
-// stack) whose content child is fit-sized on the scroll axis; the
-// bar is declared inside it after the content, anchored. The
-// stack's align places the bar (End/End = right + bottom); content
-// that fills or overflows is align-invariant, so this costs the
-// content nothing.
+// Host contract: the bar is declared inside its scroller, after
+// the content, anchored. The scroller's own align places it
+// (cross End = right edge, main End = bottom edge); anchored
+// children take no flow slot, so a plain Column scroller hosts its
+// bar directly — no wrapper containers.
 package main
 
 import "core:fmt"
@@ -198,8 +197,8 @@ ACCENT :: niello.Color{96, 165, 250, 255}
 ACCENT_HOT :: niello.Color{147, 197, 253, 255}
 
 root_u, col_u, label_u, status_u: niello.Unit
-list_scroll_u, list_content_u, row_u: niello.Unit
-both_scroll_u, both_content_u, wide_row_u: niello.Unit
+list_scroll_u, row_u: niello.Unit
+both_scroll_u, wide_row_u: niello.Unit
 cust_scroll_u: niello.Unit
 
 list_bar, both_vbar, both_hbar, cust_bar: Scrollbar
@@ -221,32 +220,27 @@ mint :: proc() {
 	})
 	niello.mint(&label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
 	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13, font_color = DIM})
+	// One unit is the whole scroller: the rows flow in it and the
+	// bar is an anchored child of it.
 	niello.mint(&list_scroll_u, niello.NO_UNIT, {
-		layout = niello.Layout.Stack,
+		layout = niello.Layout.Top_To_Bottom,
 		size = niello.Size{niello.grow(1), niello.grow(1)},
 		scroll = niello.Scroll.Vertical,
-		align = [2]niello.Align_Kind{.End, .End},
+		align = [2]niello.Align_Kind{.Start, .End},
 		color = PANEL, corner_radius = 8,
-	})
-	niello.mint(&list_content_u, niello.NO_UNIT, {
-		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.grow(1), niello.fit()},
 		gap = 4, padding = [4]u16{6, 6, 6, 6},
 	})
 	niello.mint(&row_u, niello.NO_UNIT, {
 		size = niello.Size{niello.grow(1), niello.fixed(32)},
 		color = ROW, corner_radius = 4,
+		font_size = 14, font_color = INK,
 	})
 	niello.mint(&both_scroll_u, niello.NO_UNIT, {
-		layout = niello.Layout.Stack,
+		layout = niello.Layout.Top_To_Bottom,
 		size = niello.Size{niello.grow(1), niello.fixed(216)},
 		scroll = niello.Scroll.Both,
 		align = [2]niello.Align_Kind{.End, .End},
 		color = PANEL, corner_radius = 8,
-	})
-	niello.mint(&both_content_u, niello.NO_UNIT, {
-		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.fit(), niello.fit()},
 		gap = 4, padding = [4]u16{6, 6, 6, 6},
 	})
 	niello.mint(&wide_row_u, niello.NO_UNIT, {
@@ -254,11 +248,12 @@ mint :: proc() {
 		color = ROW, corner_radius = 4,
 	})
 	niello.mint(&cust_scroll_u, niello.NO_UNIT, {
-		layout = niello.Layout.Stack,
+		layout = niello.Layout.Top_To_Bottom,
 		size = niello.Size{niello.grow(1), niello.grow(1)},
 		scroll = niello.Scroll.Vertical,
-		align = [2]niello.Align_Kind{.End, .End},
+		align = [2]niello.Align_Kind{.Start, .End},
 		color = PANEL, corner_radius = 8,
+		gap = 4, padding = [4]u16{6, 6, 6, 6},
 	})
 	scrollbar_init(&list_bar, .Vertical, 12, STRIP, THUMB, HOT, 6)
 	scrollbar_init(&both_vbar, .Vertical, 12, STRIP, THUMB, HOT, 6)
@@ -275,13 +270,11 @@ declare :: proc() {
 			niello.show(label_u, niello.key_int(1), {text = "Reading list"})
 			if si, ok3 := niello.begin(list_scroll_u, niello.key_int(2)); ok3 {
 				list_i = si
-				if _, ok4 := niello.begin(list_content_u); ok4 {
-					for k in 0 ..< 30 {
-						n := len(fmt.bprintf(row_text_buf[:], "Chapter %d", k + 1))
-						niello.show(row_u, niello.key_int(k + 1), {
-							text = string(row_text_buf[:n]),
-						})
-					}
+				for k in 0 ..< 30 {
+					n := len(fmt.bprintf(row_text_buf[:], "Chapter %d", k + 1))
+					niello.show(row_u, niello.key_int(k + 1), {
+						text = string(row_text_buf[:n]),
+					})
 				}
 				scrollbar_declare(&list_bar, si)
 			}
@@ -291,13 +284,11 @@ declare :: proc() {
 			niello.show(label_u, niello.key_int(1), {text = "Both axes (wide rows)"})
 			if si, ok3 := niello.begin(both_scroll_u, niello.key_int(2)); ok3 {
 				both_i = si
-				if _, ok4 := niello.begin(both_content_u); ok4 {
-					for k in 0 ..< 8 {
-						n := len(fmt.bprintf(row_text_buf[:], "Wide row %d — lorem ipsum dolor sit amet", k + 1))
-						niello.show(wide_row_u, niello.key_int(k + 1), {
-							text = string(row_text_buf[:n]),
-						})
-					}
+				for k in 0 ..< 8 {
+					n := len(fmt.bprintf(row_text_buf[:], "Wide row %d — lorem ipsum dolor sit amet", k + 1))
+					niello.show(wide_row_u, niello.key_int(k + 1), {
+						text = string(row_text_buf[:n]),
+					})
 				}
 				scrollbar_declare(&both_vbar, si)
 				scrollbar_declare(&both_hbar, si)
@@ -305,13 +296,11 @@ declare :: proc() {
 			niello.show(label_u, niello.key_int(3), {text = "Same component, custom mint (18px, accent)"})
 			if si, ok3 := niello.begin(cust_scroll_u, niello.key_int(4)); ok3 {
 				cust_i = si
-				if _, ok4 := niello.begin(list_content_u, niello.key_int(5)); ok4 {
-					for k in 0 ..< 30 {
-						n := len(fmt.bprintf(row_text_buf[:], "Entry %d", k + 1))
-						niello.show(row_u, niello.key_int(k + 1), {
-							text = string(row_text_buf[:n]),
-						})
-					}
+				for k in 0 ..< 30 {
+					n := len(fmt.bprintf(row_text_buf[:], "Entry %d", k + 1))
+					niello.show(row_u, niello.key_int(k + 1), {
+						text = string(row_text_buf[:n]),
+					})
 				}
 				scrollbar_declare(&cust_bar, si)
 			}

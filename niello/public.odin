@@ -271,7 +271,12 @@ default_style :: proc() -> Style {
 		ellipsis    = true,
 		overflow    = .Spill,
 		scroll      = .None,
-		opacity     = 255, // opaque; colors default to transparent black (paint TBD)
+		opacity     = 255, // opaque; fill/border colors default to
+		                   // transparent black, but text defaults to
+		                   // opaque black ink — text that renders
+		                   // invisible unless colored is a footgun,
+		                   // and nothing can be relying on it
+		font_color  = Color{0, 0, 0, 255},
 		font_size   = 16,
 		font_weight = .Regular,
 		font_slant  = .Upright,
@@ -333,11 +338,11 @@ With :: struct {
 	                                // over Style.text_spans. Copied at declare
 	                                // time (small), so no borrow contract.
 	disabled: bool,
-	anchored: bool, // the instance does not scroll with a scrolling
-	                // parent and does not count in its content
-	                // extent (§3.20): scrollbar chrome, sticky
-	                // headers. Meaningful for children of a Stack
-	                // scroller, which is where overlays live.
+	anchored: bool, // an overlay child (§3.20): removed from flow
+	                // in any container — no flow slot, no waterfill,
+	                // no content extent, no scroll offset — and
+	                // positioned at the parent's content origin by
+	                // its align. Scrollbar chrome, sticky headers.
 	focusable: Maybe(bool), // per-instance focus participation; wins over
 	                        // the unit's Style_Decl.focusable, so one
 	                        // instance of a repeated unit can be the

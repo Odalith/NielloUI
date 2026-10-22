@@ -132,3 +132,67 @@ test_anchored_child_is_not_content_for_fit :: proc(t: ^testing.T) {
 	rng := niello.scroll_range(scroll_i)
 	testing.expect(t, rng.y == 0, "and it contributes no scroll range")
 }
+
+// ---------------------------------------------------------------------------
+// Anchored in a FLOW scroller (§3.20 generalized): the bar is a
+// direct child of the Column scroller — no Stack wrapper. It takes
+// no flow slot, positions like a Stack child, and does not scroll.
+
+fl_scroll_u, fl_row_u, fl_strip_u: niello.Unit
+fl_scroll_i, fl_strip_i: niello.Instance
+fl_row_i: [10]niello.Instance
+
+fl_declare :: proc() {
+	if _, ok := niello.begin(ch_root_u); ok {
+		if si, ok2 := niello.begin(fl_scroll_u); ok2 {
+			fl_scroll_i = si
+			for k in 0 ..< 10 {
+				fl_row_i[k] = niello.show(fl_row_u, niello.key_int(k + 1))
+			}
+			fl_strip_i = niello.show(fl_strip_u, niello.key_int(99), {anchored = true})
+		}
+	}
+}
+
+fl_frame :: proc() {
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0.016)
+	fl_declare()
+	niello.frame_end()
+}
+
+@(test)
+test_anchored_in_flow_scroller :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ch_root_u = fixed_root()
+	niello.mint(&fl_scroll_u, niello.NO_UNIT, {
+		layout = niello.Layout.Top_To_Bottom,
+		size = niello.Size{niello.fixed(200), niello.fixed(100)},
+		scroll = niello.Scroll.Vertical,
+		align = [2]niello.Align_Kind{.Start, .End},
+	})
+	niello.mint(&fl_row_u, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(200), niello.fixed(30)},
+	})
+	niello.mint(&fl_strip_u, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(12), niello.grow(1)},
+	})
+	fl_frame()
+	sr, _ := niello.rect(fl_strip_i)
+	testing.expect(t, abs(sr.pos.x - 188) < EPS && abs(sr.pos.y - 0) < EPS &&
+		abs(sr.size.x - 12) < EPS && abs(sr.size.y - 100) < EPS,
+		"strip: right edge (cross align), full height, at the top")
+	r0, _ := niello.rect(fl_row_i[0])
+	testing.expect(t, abs(r0.pos.y - 0) < EPS, "first row undisplaced")
+	rng := niello.scroll_range(fl_scroll_i)
+	testing.expect(t, abs(rng.y - 200) < EPS, "range excludes the strip")
+	niello.scroll_to(fl_scroll_i, {0, 50})
+	fl_frame()
+	r0, _ = niello.rect(fl_row_i[0])
+	r1, _ := niello.rect(fl_row_i[1])
+	testing.expect(t, abs(r0.pos.y - (-50)) < EPS && abs(r1.pos.y - (-20)) < EPS,
+		"rows scroll normally, no slot was consumed")
+	sr, _ = niello.rect(fl_strip_i)
+	testing.expect(t, abs(sr.pos.y - 0) < EPS && abs(sr.size.y - 100) < EPS,
+		"the strip does not scroll")
+}

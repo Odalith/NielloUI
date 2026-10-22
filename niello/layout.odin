@@ -469,6 +469,10 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	// case the GROW-in-FIT fallback below exists for.
 	parent_fit := s.size[axis].kind == .Fit && g.nodes[i].parent >= 0
 	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+		if g.nodes[c].anchored {
+			continue // overlays are not flow (§3.20): distribute
+			// resolves them against the inner box directly
+		}
 		nchild += 1
 		sz := node_style(c).size[axis]
 		switch sz.kind {
@@ -559,6 +563,14 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 			continue
 		}
 		if axis == main_axis(s.layout) {
+			// Anchored children (§3.20) resolve like Stack
+			// children — independently against the inner box —
+			// on every axis; the waterfill never sees them.
+			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					resolve_cross(c, axis, inner)
+				}
+			}
 			distribute_main(i, axis, inner)
 		} else {
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
@@ -699,6 +711,9 @@ position_and_damage :: proc() {
 			used := f32(0)
 			nchild := 0
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					continue // overlays take no flow slot (§3.20)
+				}
 				used += g.lay[c].size[axis]
 				nchild += 1
 			}
@@ -720,15 +735,28 @@ position_and_damage :: proc() {
 				p[cross] += align_offset(s.align[cross], free)
 			}
 			anchored := g.nodes[c].anchored
-			if anchored {
-				// Chrome (§3.20): cancel the scroll offset the
-				// shared cursor math baked in, and keep the child
-				// out of the content extent below.
+			if anchored && s.layout != .Stack {
+				// Overlay (§3.20): positioned like a Stack child —
+				// the parent's content origin plus its align,
+				// with NO scroll applied and no flow slot consumed.
+				// (A flow container's align is [main, cross], not
+				// the [x, y] stack_align_offset reads, so the
+				// translation is spelled out.)
+				inner_p := g.lay[i].size - Vec2{padding_sum(s, X_AXIS), padding_sum(s, Y_AXIS)}
+				ma := main_axis(s.layout)
+				ca := 1 - ma
+				off := Vec2{0, 0}
+				off[ma] = align_offset(s.align[0], inner_p[ma] - g.lay[c].size[ma])
+				off[ca] = align_offset(s.align[1], inner_p[ca] - g.lay[c].size[ca])
+				p = base + pad + off
+			} else if anchored {
+				// Stack parent: cancel the scroll offset the
+				// shared math baked in.
 				p += scroll
 			}
 			g.lay[c].pos = p
 			g.lay[c].gen = g.layout_gen
-			if s.layout != .Stack {
+			if s.layout != .Stack && !anchored {
 				cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
 			}
 			if !anchored {
