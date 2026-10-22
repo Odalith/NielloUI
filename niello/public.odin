@@ -1022,6 +1022,43 @@ rect :: proc(i: Instance) -> (r: Rect, ok: bool) {
 	return rec.rect, ok
 }
 
+// ============ cross-context reads ============
+// A context's committed state is readable WITHOUT binding it (M4):
+// while one window declares, every other window sits at a frame
+// boundary, so its instances map is stable to read. This is the
+// inspector-window story — a debug window renders a peer window's
+// committed tree (rects today; names and the overflow report join
+// when TODO #18 builds them).
+
+// rect_in reads instance i's committed rect in ctx (the peer form
+// of rect()). False when ctx has no such instance.
+rect_in :: proc(ctx: ^Context, i: Instance) -> (r: Rect, ok: bool) {
+	if ctx == nil {
+		return {}, false
+	}
+	rec: Inst_Rec
+	rec, ok = ctx.instances[i]
+	return rec.rect, ok
+}
+
+// unit_in reads which unit instance i instantiates in ctx.
+unit_in :: proc(ctx: ^Context, i: Instance) -> (u: Unit, ok: bool) {
+	if ctx == nil {
+		return NO_UNIT, false
+	}
+	rec: Inst_Rec
+	rec, ok = ctx.instances[i]
+	return rec.unit, ok
+}
+
+// instance_count is how many instances ctx committed last frame.
+instance_count :: proc(ctx: ^Context) -> int {
+	if ctx == nil {
+		return 0
+	}
+	return len(ctx.instances)
+}
+
 // mouse_position reads the cursor position as of this frame's
 // dispatch (one frame of latency, like every query). ok = false
 // when the cursor is outside the window. Its popup-layer use:

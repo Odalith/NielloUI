@@ -859,7 +859,7 @@ position_and_damage :: proc() {
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
 		}
-		g.instances[id] = Inst_Rec{rect = new, hash = h}
+		g.instances[id] = Inst_Rec{rect = new, hash = h, unit = g.nodes[i].unit}
 	}
 	// Recycle: an instance that was committed before but not declared
 	// this frame is gone, and its last rect is damage — otherwise its

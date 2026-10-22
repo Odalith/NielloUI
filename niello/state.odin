@@ -569,4 +569,5 @@ Scroll_Glide :: struct {
 Inst_Rec :: struct {
 	rect: Rect,
 	hash: u64,
+	unit: Unit, // the unit this instance instantiates (cross-context reads, M4)
 }
