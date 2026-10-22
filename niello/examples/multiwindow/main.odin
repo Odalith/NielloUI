@@ -13,10 +13,13 @@
 // run() returns when the last window closes.
 //
 // Two honest demo simplifications:
-//   - The inspector re-reads on its own frame cadence, sustained by
-//     its frame counter (a changed frame keeps the glue framing
-//     it). A production inspector would throttle; apps have no
-//     public periodic-wake API yet — context_wake from a timer
+//   - The inspector re-reads on its own frame cadence. While the
+//     main window changes (this demo's counter changes it every
+//     frame), the readouts change with it, so the inspector stays
+//     hot and every open inspector adds its own render load; a
+//     static scene would let all of them idle at ~0 CPU. A
+//     production inspector would throttle its read rate; apps have
+//     no public periodic-wake API yet — context_wake from a timer
 //     thread is the current escape hatch.
 //   - A context whose window was OS-closed is reaped only if the
 //     inspector used its own Close button (which marks it); an
@@ -30,8 +33,8 @@ import niello_sdl "../../sdl"
 
 // ---- the scene (units are global, minted once — fork 5) ----
 root_u, title_u, panel_u, chip_u, pulse_u, pulse_on_u: niello.Unit
-open_btn_u, open_btn_hover_u, counter_u: niello.Unit
-insp_root_u, insp_title_u, line_u, close_btn_u, close_btn_hover_u: niello.Unit
+open_btn_u, open_btn_hover_u, open_btn_label_u, counter_u: niello.Unit
+insp_root_u, insp_title_u, line_u, close_btn_u, close_btn_hover_u, close_btn_label_u: niello.Unit
 
 main_ctx: ^niello.Context
 main_frames: int
@@ -70,10 +73,14 @@ pulse_was_hovered: bool
 declare_main :: proc() {
 	reap_inspectors()
 	main_frames += 1
+	// Declare pattern: every container's begin goes in an if
+	// initializer, so its deferred end() pops at that statement's
+	// scope exit. A begin written as a plain statement inside a
+	// parent's block keeps the container open — and the parent —
+	// until the BLOCK ends, silently reparenting later siblings.
 	if _, open := niello.begin(root_u); open {
 		niello.show(title_u, 0, {text = "Main window"})
-		panel_inst, open2 := niello.begin(panel_u)
-		if open2 {
+		if panel_inst, open2 := niello.begin(panel_u); open2 {
 			trk_panel = panel_inst
 			trk_chip = niello.show(chip_u)
 			pulse := niello.show(pulse_u)
@@ -84,7 +91,11 @@ declare_main :: proc() {
 			pulse_was_hovered = hov
 			niello.show(title_u, 0, {text = "hover the square"})
 		}
-		btn := niello.show(open_btn_u)
+		btn: niello.Instance
+		if b, bopen := niello.begin(open_btn_u); bopen {
+			btn = b
+			niello.show(open_btn_label_u)
+		}
 		if niello.clicked(btn) {
 			spawn_inspector()
 		}
@@ -112,7 +123,11 @@ declare_inspector :: proc() {
 			niello.show(line_u, 0, {text = fmt.bprintf(buf[:], "panel: (%.0f, %.0f) %.0f x %.0f, unit %d", r.pos.x, r.pos.y, r.size.x, r.size.y, int(u))})
 		}
 		niello.show(line_u, 0, {text = "watch the counter's width grow as it counts"})
-		btn := niello.show(close_btn_u)
+		btn: niello.Instance
+		if b, copen := niello.begin(close_btn_u); copen {
+			btn = b
+			niello.show(close_btn_label_u)
+		}
 		if niello.clicked(btn) {
 			for &rec in inspectors {
 				if rec.ctx == me {
@@ -145,9 +160,10 @@ mint_units :: proc() {
 	niello.mint(&open_btn_u, niello.NO_UNIT, {
 		size = niello.Size{niello.fixed(150), niello.fixed(36)},
 		color = niello.Color{48, 62, 100, 255}, corner_radius = 6,
-		text = "Open inspector", font_size = 14, font_color = niello.Color{235, 238, 245, 255},
+		align = [2]niello.Align_Kind{.Center, .Center},
 		hover = open_btn_hover_u,
 	})
+	niello.mint(&open_btn_label_u, niello.NO_UNIT, {text = "Open inspector", font_size = 14, font_color = niello.Color{235, 238, 245, 255}})
 	niello.mint(&counter_u, niello.NO_UNIT, {font_size = 14, font_color = niello.Color{170, 175, 190, 255}})
 
 	niello.mint(&insp_root_u, niello.NO_UNIT, {
@@ -162,9 +178,10 @@ mint_units :: proc() {
 	niello.mint(&close_btn_u, niello.NO_UNIT, {
 		size = niello.Size{niello.fixed(110), niello.fixed(32)},
 		color = niello.Color{96, 56, 44, 255}, corner_radius = 6,
-		text = "Close", font_size = 14, font_color = niello.Color{245, 238, 230, 255},
+		align = [2]niello.Align_Kind{.Center, .Center},
 		hover = close_btn_hover_u,
 	})
+	niello.mint(&close_btn_label_u, niello.NO_UNIT, {text = "Close", font_size = 14, font_color = niello.Color{245, 238, 230, 255}})
 }
 
 main :: proc() {
