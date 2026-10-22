@@ -11,10 +11,13 @@ and hover queries); focus traversal and text input; groups; the mutation
 layer (`tween`, `edit`, `propagate`, `transient`); scrolling (wheel
 chaining, smooth glides, overscroll with spring-back); a popup layer
 (dropdowns, context menus, modal dialogs); and scrollbar chrome as a
-component. A headless suite (123 tests) covers the core, and the SDL loop
-idles at ~0 CPU — it blocks on OS events and wakes on the engine's next
-deadline. Still ahead: prebuilt releases, a packaged component
-collection, and the remaining parity work in `TODO.md`.
+component; and multi-window: one engine context per window, units and
+groups global (mint once — a broadcast re-themes every window), windows
+opened and closed from inside declare procs. A headless suite (129
+tests) covers the core, and the SDL loop idles at ~0 CPU — it blocks on
+OS events and wakes on the nearest engine deadline across windows.
+Still ahead: prebuilt releases, a packaged component collection, and
+the remaining parity work in `TODO.md`.
 
 ## The model in one paragraph
 
@@ -69,6 +72,9 @@ odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/
 - `examples/scrollbars` — scrollbar chrome as a component: drag the
   thumb, page from the track, plus a restyled bar with smooth scrolling
   and overscroll on the same scroller.
+- `examples/multiwindow` — multi-window: a main window whose button
+  opens inspector windows that render its committed tree live through
+  the cross-context read API.
 
 ## Fonts
 
@@ -102,7 +108,7 @@ NielloUI/
     animate.odin        the mutation layer: tweens, edits, transients
     tests/              headless test suite (odin test)
     examples/           hello, layouts, buttons, groups, scroll, animate,
-                        text, form, popups, scrollbars
+                        text, form, popups, scrollbars, multiwindow
     sdl/                package sdl — SDL3 app glue + FFI to the backend
       app.odin          run(): the hand-driven loop — blocks on OS events
                         when idle, wakes on the engine's next deadline
