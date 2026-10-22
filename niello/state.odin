@@ -360,6 +360,8 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	if d.scroll_chain != nil { f += {.Scroll_Chain} }
 	if d.smooth_scroll != nil { f += {.Smooth_Scroll} }
 	if d.smooth_ms != nil { f += {.Smooth_Ms} }
+	if d.overscroll != nil { f += {.Overscroll} }
+	if d.overscroll_px != nil { f += {.Overscroll_Px} }
 	return f
 }
 
@@ -435,8 +437,12 @@ Popup_Rec :: struct {
 // A fresh wheel tick restarts the glide from the CURRENT offset to the
 // accumulated target, so rapid ticks feel like one continuous glide.
 Scroll_Glide :: struct {
-	from: Vec2,
-	to:   Vec2,
-	t:    f32, // ms elapsed
-	dur:  f32, // ms
+	from:   Vec2,
+	to:     Vec2,
+	t:      f32, // ms elapsed
+	dur:    f32, // ms
+	spring: bool, // an overscroll spring (§3.22): its target is the
+	              // range end it returns to. Wheel accumulation reads
+	              // the rendered offset while one is in flight, not
+	              // this target.
 }

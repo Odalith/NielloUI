@@ -112,7 +112,9 @@ scrollbar_declare :: proc(sb: ^Scrollbar, scroller: niello.Instance) {
 	}
 	thumb_len = clamp(thumb_len, BAR_MIN_THUMB, track_len)
 	travel := track_len - thumb_len
-	thumb_pos := travel * (cur / range_)
+	thumb_pos := clamp(travel * (cur / range_), 0, travel) // cur
+	// may overscroll past the range (§3.22); the thumb rides the
+	// clamped position, not the band
 
 	// Interactions (last frame's instances, this frame's pointer).
 	if mouse, ok := niello.mouse_position(); ok && sb.thumb_i != 0 {
@@ -252,6 +254,7 @@ mint :: proc() {
 		size = niello.Size{niello.grow(1), niello.grow(1)},
 		scroll = niello.Scroll.Vertical,
 		smooth_scroll = true, smooth_ms = 150, // wheel glides (§3.21);
+		overscroll = true, overscroll_px = 80, // band + spring (§3.22)
 		// thumb drags stay instant (they go through scroll_to)
 		align = [2]niello.Align_Kind{.Start, .End},
 		color = PANEL, corner_radius = 8,
@@ -295,7 +298,7 @@ declare :: proc() {
 				scrollbar_declare(&both_vbar, si)
 				scrollbar_declare(&both_hbar, si)
 			}
-			niello.show(label_u, niello.key_int(3), {text = "Same component, custom mint (18px, accent, smooth wheel)"})
+			niello.show(label_u, niello.key_int(3), {text = "Same component, custom mint (18px, accent, smooth + overscroll)"})
 			if si, ok3 := niello.begin(cust_scroll_u, niello.key_int(4)); ok3 {
 				cust_i = si
 				for k in 0 ..< 30 {

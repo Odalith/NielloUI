@@ -476,3 +476,87 @@ test_scroll_to_cancels_glide :: proc(t: ^testing.T) {
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 0,
 		"a programmatic jump is instant and the glide stays cancelled")
 }
+
+// ---- overscroll (§3.22) ------------------------------------------------------
+//
+// The flat tree (range [0, 80]) with overscroll on, max 64, smoothing
+// OFF: the band still springs, timed by smooth_ms (default 150).
+// Frames at dt=40ms via sm_frame. One tick (48px) past the end shows
+// resist(48, 64) = 27.4px, then eases back over the spring.
+
+mint_overscroll_tree :: proc() {
+	mint_flat_tree()
+	niello.set_many(sc_outer, {overscroll = true, overscroll_px = u16(64)})
+}
+
+@(test)
+test_overscroll_band_and_spring :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_overscroll_tree()
+	sm_frame({})
+	niello.scroll_to(sc_outer_i, {0, 80})
+	sm_frame({})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80, "parked at the end")
+	sm_frame({0, -1}) // one tick past the end
+	off := niello.scroll_offset(sc_outer_i).y
+	testing.expect(t, off > 84 && off < 100,
+		"banded: past the end (resisted), already springing back")
+	sm_frame({})
+	sm_frame({})
+	sm_frame({})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
+		"the spring lands exactly on the end")
+}
+
+@(test)
+test_overscroll_top_end :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_overscroll_tree()
+	sm_frame({})
+	sm_frame({0, 1}) // scroll-up tick at the top: negative band
+	off := niello.scroll_offset(sc_outer_i).y
+	testing.expect(t, off < 0 && off > -27.5, "banded below zero, resisted")
+	sm_frame({})
+	sm_frame({})
+	sm_frame({})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 0,
+		"springs back to zero")
+}
+
+@(test)
+test_overscroll_tick_during_spring_deepens :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_overscroll_tree()
+	sm_frame({})
+	niello.scroll_to(sc_outer_i, {0, 80})
+	sm_frame({})
+	sm_frame({0, -1})
+	mid := niello.scroll_offset(sc_outer_i).y
+	sm_frame({0, -1}) // wheeling again mid-spring: the pull deepens
+	off := niello.scroll_offset(sc_outer_i).y
+	testing.expect(t, off > mid,
+		"accumulation reads the rendered offset during a spring")
+	sm_frame({})
+	sm_frame({})
+	sm_frame({})
+	sm_frame({})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
+		"and still settles on the end")
+}
+
+@(test)
+test_scroll_to_clamps_to_range :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_flat_tree()
+	sm_frame({})
+	niello.scroll_to(sc_outer_i, {0, 999})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
+		"a programmatic jump lands on a legal position immediately")
+	niello.scroll_to(sc_outer_i, {0, -50})
+	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 0,
+		"clamped at the top too — overscroll is never parked")
+}

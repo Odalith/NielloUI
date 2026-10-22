@@ -662,35 +662,78 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 			}
 			id := g.nodes[idx].identity
 			off := g.scroll_off[id]
-			// Smooth scrollers (§3.21) accumulate onto the glide
-			// TARGET, not the rendered offset: consumption is
-			// judged by where the scroll is heading, so rapid
-			// ticks stack into one glide instead of chaining
-			// away while the offset is still catching up.
+			range_ := g.scroll_max[id][axis]
+			// Accumulation base: a wheel glide's TARGET (where the
+			// scroll is heading — §3.21), but the RENDERED offset
+			// while an overscroll spring is in flight: a spring's
+			// target is the range end, which is not where the
+			// gesture is (§3.22).
 			target := off[axis]
-			if gl, ok := g.scroll_glides[id]; ok {
+			if gl, ok := g.scroll_glides[id]; ok && !gl.spring {
 				target = gl.to[axis]
 			}
-			clamped := clamp(target + rem, 0, g.scroll_max[id][axis])
-			used := clamped - target
-			if used != 0 {
-				if s.smooth_scroll && s.smooth_ms > 0 {
-					if g.scroll_glides == nil {
-						g.scroll_glides = make(map[Instance]Scroll_Glide)
-					}
-					gl := g.scroll_glides[id]
-					gl.from = off
-					gl.to = off
-					gl.to[axis] = clamped
-					gl.t = 0
-					gl.dur = f32(s.smooth_ms)
-					g.scroll_glides[id] = gl
+			raw := target + rem
+			banded := false
+			if s.overscroll && s.overscroll_px > 0 && (raw > range_ || raw < 0) {
+				// The band: convert through the resistance curve
+				// in RAW space (past-the-end distance before
+				// resistance), so continued wheeling deepens the
+				// pull smoothly and the displayed overshoot
+				// asymptotes at overscroll_px.
+				allow := f32(s.overscroll_px)
+				raw_pos := target
+				if target > range_ {
+					raw_pos = range_ + overscroll_raw(target - range_, allow)
+				} else if target < 0 {
+					raw_pos = -overscroll_raw(-target, allow)
+				}
+				raw = raw_pos + rem
+				disp := raw
+				if raw > range_ {
+					disp = range_ + overscroll_resist(raw - range_, allow)
+				} else if raw < 0 {
+					disp = -overscroll_resist(-raw, allow)
+				}
+				if disp > range_ || disp < 0 {
+					// The gesture went into the band: this
+					// container consumes the whole remainder,
+					// lands on the resisted position instantly,
+					// and springs back to the violated end.
+					apply_overscroll(id, off, axis, disp, s)
+					banded = true
+					rem = 0
 				} else {
-					off[axis] = clamped
-					g.scroll_off[id] = off
+					raw = disp // pulled back inside: normal path
 				}
 			}
-			rem -= used
+			if !banded {
+				clamped := clamp(raw, 0, range_)
+				used := clamped - target
+				if used != 0 {
+					if s.smooth_scroll && s.smooth_ms > 0 {
+						if g.scroll_glides == nil {
+							g.scroll_glides = make(map[Instance]Scroll_Glide)
+						}
+						gl := g.scroll_glides[id]
+						gl.from = off
+						gl.to = off
+						gl.to[axis] = clamped
+						gl.t = 0
+						gl.dur = f32(s.smooth_ms)
+						gl.spring = false
+						g.scroll_glides[id] = gl
+					} else {
+						// A direct landing kills any spring in
+						// flight on this scroller.
+						if g.scroll_glides != nil {
+							delete_key(&g.scroll_glides, id)
+						}
+						off[axis] = clamped
+						g.scroll_off[id] = off
+					}
+				}
+				rem -= used
+			}
 			if rem == 0 {
 				break
 			}
@@ -806,6 +849,8 @@ copy_field :: proc(dst, src: ^Style, f: Field) {
 	case .Scroll_Chain: dst.scroll_chain = src.scroll_chain
 	case .Smooth_Scroll: dst.smooth_scroll = src.smooth_scroll
 	case .Smooth_Ms: dst.smooth_ms = src.smooth_ms
+	case .Overscroll: dst.overscroll = src.overscroll
+	case .Overscroll_Px: dst.overscroll_px = src.overscroll_px
 	}
 }
 
@@ -888,4 +933,57 @@ step_scroll_glides :: proc() {
 	for id in done {
 		delete_key(&g.scroll_glides, id)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Overscroll (§3.22)
+
+// overscroll_resist maps a raw past-the-end distance to the displayed
+// overshoot: resist(r) = allow*r/(allow+r) — 1:1 at the end itself,
+// asymptoting at the configured max distance.
+@(private)
+overscroll_resist :: proc(raw, allow: f32) -> f32 {
+	if raw <= 0 {
+		return 0
+	}
+	return allow * raw / (allow + raw)
+}
+
+// overscroll_raw inverts resist, recovering the raw distance a
+// displayed overshoot accumulated from (so the next tick adds onto the
+// pull, not onto the compressed display value). The inverse explodes
+// near the asymptote; cap it — past that, more wheel changes nothing
+// visible anyway.
+@(private)
+overscroll_raw :: proc(disp, allow: f32) -> f32 {
+	if disp <= 0 {
+		return 0
+	}
+	if disp >= allow * 0.99 {
+		return 4 * allow
+	}
+	return allow * disp / (allow - disp)
+}
+
+// apply_overscroll lands the offset on the resisted position NOW (the
+// band is direct manipulation, even on a smoothing scroller) and
+// starts the spring: a glide back to the violated range end, timed by
+// smooth_ms. The other axis keeps any wheel-glide target it had.
+@(private)
+apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Style) {
+	if g.scroll_glides == nil {
+		g.scroll_glides = make(map[Instance]Scroll_Glide)
+	}
+	from := off
+	from[axis] = disp
+	to := off
+	to[axis] = clamp(disp, 0, g.scroll_max[id][axis])
+	if gl, ok := g.scroll_glides[id]; ok && !gl.spring {
+		to[1 - axis] = gl.to[1 - axis]
+	}
+	g.scroll_glides[id] = Scroll_Glide{
+		from = from, to = to, t = 0,
+		dur = f32(s.smooth_ms), spring = true,
+	}
+	g.scroll_off[id] = from
 }

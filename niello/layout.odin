@@ -621,7 +621,7 @@ wrap_text :: proc() {
 // content_hash fingerprints everything about a node that reaches the draw
 // list: the resolved style's value fields plus the declare-time text and
 // span hashes. The string/slice fields are covered by those hashes rather
-// than by their headers. Cursor, Scroll_Chain and the Smooth_* pair are
+// than by their headers. Cursor, Scroll_Chain, the Smooth_* pair and Overscroll_* are
 // deliberately excluded: none is visual (cursor is host state; the rest
 // steer dispatch and glides), so changing them must not repaint.
 @(private)
@@ -700,9 +700,13 @@ position_and_damage :: proc() {
 		stored_off, has_off := g.scroll_off[nd.identity]
 		if has_off {
 			prev_max := g.scroll_max[nd.identity]
+			// An overscroll-enabled scroller (§3.22) renders its
+			// offset inside the widened band domain; the spring
+			// in scroll_glides owns positions out there.
+			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
 			for axis in 0 ..< 2 {
 				if scrollable_axis(s, axis) {
-					scroll[axis] = clamp(stored_off[axis], 0, prev_max[axis])
+					scroll[axis] = clamp(stored_off[axis], -allow, prev_max[axis] + allow)
 				}
 			}
 		}
@@ -792,9 +796,20 @@ position_and_damage :: proc() {
 		}
 		if has_off {
 			eff := Vec2{0, 0}
+			// The stored offset re-clamps to the fresh range — or
+			// to the band domain while a spring owns the position
+			// (§3.22). An out-of-range offset with no spring (a
+			// stale one, say) heals back to the legal range here.
+			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
+			springing := false
+			if gl, ok := g.scroll_glides[nd.identity]; ok && gl.spring {
+				springing = true
+			}
 			for axis in 0 ..< 2 {
 				if scrollable_axis(s, axis) {
-					eff[axis] = clamp(stored_off[axis], 0, g.lay[i].overfl[axis])
+					lo := springing ? -allow : f32(0)
+					hi := springing ? g.lay[i].overfl[axis] + allow : g.lay[i].overfl[axis]
+					eff[axis] = clamp(stored_off[axis], lo, hi)
 				}
 			}
 			g.scroll_off[nd.identity] = eff

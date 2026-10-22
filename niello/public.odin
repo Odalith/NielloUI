@@ -46,6 +46,7 @@ Field :: enum u8 {
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
 	Text_Spans, Cursor, Scroll_Chain, Smooth_Scroll, Smooth_Ms,
+	Overscroll, Overscroll_Px,
 }
 // Text_Wrap is layout-invalidating (controls pass-C participation);
 // Align is layout-invalidating (controls child positioning);
@@ -69,6 +70,7 @@ ALL_FIELDS :: Fields{
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
 	.Text_Spans, .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
+	.Overscroll, .Overscroll_Px,
 }
 
 Layout :: enum u8 {
@@ -261,7 +263,11 @@ Style :: struct {
 	scroll_chain: bool,        // wheel dispatch: hand leftover delta to the next
 	smooth_scroll: bool,       // wheel glides to its target over smooth_ms
 	                           // instead of landing instantly (§3.21)
-	smooth_ms:    u16,         // glide duration when smooth_scroll is on
+	smooth_ms:    u16,         // glide duration when smooth_scroll is on;
+	                           // also the overscroll spring's duration
+	overscroll:   bool,        // wheel may pull past the range ends with
+	                           // resistance, then springs back (§3.22)
+	overscroll_px: u16,        // the band's max distance past an end
 	                           // scrollable ancestor; default true
 }
 
@@ -286,6 +292,7 @@ default_style :: proc() -> Style {
 		cursor      = .Arrow,
 		scroll_chain = true,
 		smooth_ms    = 150,
+		overscroll_px = 64,
 	}
 }
 
@@ -325,6 +332,8 @@ Style_Decl :: struct {
 	scroll_chain: Maybe(bool), // default true
 	smooth_scroll: Maybe(bool),
 	smooth_ms:    Maybe(u16), // default 150
+	overscroll:   Maybe(bool),
+	overscroll_px: Maybe(u16), // default 64
 
 	hover, press, focus, disabled: Unit, // automatic state overlays, declared as data
 	focusable: bool,                     // reserved seam: participates in keyboard focus traversal
@@ -550,6 +559,8 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	case .Scroll_Chain: s.scroll_chain = must(v, bool)
 	case .Smooth_Scroll: s.smooth_scroll = must(v, bool)
 	case .Smooth_Ms: s.smooth_ms = must(v, u16)
+	case .Overscroll: s.overscroll = must(v, bool)
+	case .Overscroll_Px: s.overscroll_px = must(v, u16)
 	}
 }
 
@@ -660,6 +671,8 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.scroll_chain, decl.scroll_chain)
 	apply_opt(&s.smooth_scroll, decl.smooth_scroll)
 	apply_opt(&s.smooth_ms, decl.smooth_ms)
+	apply_opt(&s.overscroll, decl.overscroll)
+	apply_opt(&s.overscroll_px, decl.overscroll_px)
 
 	rec := &g.units[int(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
@@ -1119,6 +1132,16 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 	// wheel glide in flight on this scroller (§3.21).
 	if g.scroll_glides != nil {
 		delete_key(&g.scroll_glides, i)
+	}
+	// And it lands on a legal position: clamped to the known range.
+	// (Overscroll is a gesture state owned by its spring, §3.22 —
+	// never a parked programmatic position.)
+	if mx, ok := g.scroll_max[i]; ok {
+		offset := offset
+		offset.x = clamp(offset.x, 0, mx.x)
+		offset.y = clamp(offset.y, 0, mx.y)
+		g.scroll_off[i] = offset
+		return
 	}
 	g.scroll_off[i] = offset
 }
