@@ -401,3 +401,132 @@ test_style_spans_are_owned_copies :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, colored, "set cloned the spans too")
 }
+
+// ---------------------------------------------------------------------------
+// Whitespace modes (§3.18). Mock metrics: every character, spaces
+// included, is 8px at the default size.
+
+ws_root_u, ws_u: niello.Unit
+ws_i: niello.Instance
+ws_text_v: string
+ws_spans_v: []niello.Text_Span
+
+ws_declare :: proc() {
+	if _, ok := niello.begin(ws_root_u); ok {
+		ws_i = niello.show(ws_u, 0, {text = ws_text_v, text_spans = ws_spans_v})
+	}
+}
+
+ws_measure :: proc(text: string) -> f32 {
+	ws_text_v = text
+	ws_spans_v = nil
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	ws_declare()
+	niello.frame_end()
+	r, _ := niello.rect(ws_i)
+	return r.size.x
+}
+
+@(test)
+test_whitespace_collapse_is_the_default :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ws_root_u = fixed_root()
+	niello.mint(&ws_u, niello.NO_UNIT, {}) // no whitespace field: Collapse
+	testing.expect(t, abs(ws_measure("aa bb") - 40) < EPS, "one gap counts once")
+	testing.expect(t, abs(ws_measure("aa  bb") - 40) < EPS, "a run collapses to one gap")
+	testing.expect(t, abs(ws_measure("aa ") - 16) < EPS, "trailing space hangs")
+	testing.expect(t, abs(ws_measure(" aa") - 16) < EPS, "leading space hangs")
+}
+
+@(test)
+test_whitespace_preserve_counts_every_space :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ws_root_u = fixed_root()
+	niello.mint(&ws_u, niello.NO_UNIT, {whitespace = niello.Whitespace.Preserve})
+	testing.expect(t, abs(ws_measure("aa bb") - 40) < EPS, "one space, one advance")
+	testing.expect(t, abs(ws_measure("aa  bb") - 48) < EPS, "a run counts in full")
+	testing.expect(t, abs(ws_measure("aa ") - 24) < EPS, "trailing space counts (caret truth)")
+	testing.expect(t, abs(ws_measure(" aa") - 24) < EPS, "leading space counts")
+	testing.expect(t, abs(ws_measure("aa bb ") - 48) < EPS, "trailing after words counts")
+}
+
+@(test)
+test_whitespace_preserve_gap_uses_its_own_style :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ws_root_u = fixed_root()
+	niello.mint(&ws_u, niello.NO_UNIT, {whitespace = niello.Whitespace.Preserve})
+	// The space sits under a 32px span: its advance is 16, not 8 —
+	// gaps are cut at span boundaries and priced per style, like words.
+	spans := make([]niello.Text_Span, 1)
+	spans[0] = niello.Text_Span{start = 1, end = 2, font_size = f32(32)}
+	ws_spans_v = spans
+	ws_text_v = "a b"
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	ws_declare()
+	niello.frame_end()
+	r, _ := niello.rect(ws_i)
+	testing.expect(t, abs(r.size.x - 32) < EPS, "8 + 16 (span-sized space) + 8")
+	delete(spans)
+}
+
+wrapbox_u: niello.Unit
+wrap_a_i, wrap_b_i: niello.Instance
+wrap_a_u, wrap_b_u: niello.Unit
+
+wrap_declare :: proc() {
+	if _, ok := niello.begin(ws_root_u); ok {
+		wrap_a_i = niello.show(wrap_a_u, niello.key_int(1), {text = "aa  bb"})
+		wrap_b_i = niello.show(wrap_b_u, niello.key_int(2), {text = "aa  bb"})
+	}
+}
+
+@(test)
+test_whitespace_preserve_wrap_breaks_on_real_gaps :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ws_root_u = fixed_root()
+	box := niello.Style_Decl{
+		size = niello.Size{niello.fixed(40), niello.fit()},
+		wrap = niello.Text_Wrap.Word,
+	}
+	niello.mint(&wrap_a_u, niello.NO_UNIT, box) // Collapse
+	box.whitespace = niello.Whitespace.Preserve
+	niello.mint(&wrap_b_u, niello.NO_UNIT, box) // Preserve
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	wrap_declare()
+	niello.frame_end()
+	ra, _ := niello.rect(wrap_a_i)
+	rb, _ := niello.rect(wrap_b_i)
+	// Collapse: 16 + 8 + 16 = 40 fits the box -> one line.
+	testing.expect(t, abs(ra.size.y - 16) < EPS, "collapse fits on one line")
+	// Preserve: 16 + 16 + 16 = 48 > 40 -> the real gap forces a break.
+	testing.expect(t, abs(rb.size.y - 32) < EPS, "preserve wraps at the real gap width")
+}
+
+@(test)
+test_whitespace_preserve_emission_positions :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ws_root_u = fixed_root()
+	niello.mint(&ws_u, niello.NO_UNIT, {whitespace = niello.Whitespace.Preserve})
+	// Leading spaces: the emitted run's bytes extend over them and
+	// its width prices them, so following content sits at the true x.
+	ws_text_v = "  aa"
+	ws_spans_v = nil
+	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	ws_declare()
+	niello.frame_end()
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			txt := string(c.text_ptr[:c.text_len])
+			testing.expect(t, txt == "  aa", "the run carries the leading spaces")
+			testing.expect(t, abs(c.bounds.size.x - 32) < EPS, "and prices them (4 chars)")
+			found = true
+		}
+	}
+	testing.expect(t, found, "a text command was emitted")
+}

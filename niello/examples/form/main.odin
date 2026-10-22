@@ -159,7 +159,12 @@ mint :: proc() {
 		align = [2]niello.Align_Kind{.Start, .Center},
 		focus = field_focus_u, focusable = true,
 	})
-	niello.mint(&field_text_u, niello.NO_UNIT, {font_size = 16, font_color = INK})
+	niello.mint(&field_text_u, niello.NO_UNIT, {
+		font_size = 16, font_color = INK,
+		// §3.18: editable text preserves whitespace, so the caret
+		// (which sits at the pre-caret label's width) tracks spaces.
+		whitespace = niello.Whitespace.Preserve,
+	})
 	niello.mint(&caret_u, niello.NO_UNIT, {
 		size = niello.Size{niello.fixed(2), niello.fixed(22)},
 		color = ACCENT,

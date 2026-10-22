@@ -212,10 +212,10 @@ free_globals :: proc() {
 	// Free the text cache first (each Text_Entry owns segs -> words -> frags).
 	for _, entry in g.text_cache {
 		for seg in entry.segs {
-			for word in seg {
+			for word in seg.words {
 				delete(word.frags)
 			}
-			delete(seg)
+			delete(seg.words)
 		}
 		delete(entry.segs)
 	}
@@ -315,6 +315,7 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	if d.scroll        != nil { f += {.Scroll} }
 	if d.align         != nil { f += {.Align} }
 	if d.wrap          != nil { f += {.Text_Wrap} }
+	if d.whitespace    != nil { f += {.Whitespace} }
 	if d.ellipsis      != nil { f += {.Ellipsis} }
 	if d.overflow      != nil { f += {.Overflow} }
 	if d.overlay_color        != nil { f += {.Overlay_Color} }
