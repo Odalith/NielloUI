@@ -17,6 +17,11 @@ if(NOT SKIA_DIR)
     message(FATAL_ERROR "SKIA_DIR is not set. Configure with -DSKIA_DIR=/path/to/skia")
 endif()
 
+# Which GN out dir under SKIA_DIR to build against: "Release" for
+# the everyday dev build, "niello-<platform>" for release builds
+# (tools/build-native.sh passes it).
+set(NIELLO_SKIA_OUT "Release" CACHE STRING "Skia GN out dir name")
+
 # The NielloUI native backend: a static library exposing the nui_* C API
 # (see nui.h). SDL appears only as a borrowed window handle; the event loop
 # and window lifecycle live on the Odin side.
@@ -36,13 +41,13 @@ find_package(Vulkan REQUIRED)
 target_include_directories(nui_render PRIVATE
         ${SKIA_DIR}
         ${SKIA_DIR}/include
-        ${SKIA_DIR}/out/Release/gen
+        ${SKIA_DIR}/out/${NIELLO_SKIA_OUT}/gen
         ${SKIA_DIR}/third_party/externals/dawn/include
-        ${SKIA_DIR}/out/Release/gen/third_party/dawn/include
+        ${SKIA_DIR}/out/${NIELLO_SKIA_OUT}/gen/third_party/dawn/include
 )
 
 target_link_directories(nui_render PRIVATE
-        ${SKIA_DIR}/out/Release
+        ${SKIA_DIR}/out/${NIELLO_SKIA_OUT}
 )
 
 target_link_libraries(nui_render PRIVATE
