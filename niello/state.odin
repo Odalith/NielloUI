@@ -117,7 +117,27 @@ Globals :: struct {
 	press_chains:  [Mouse_Button][dynamic]Instance,
 	clicked_id:    Instance, // set at a release dispatch, valid for one declare
 	clicked_chain: [dynamic]Instance,
-	focus_id:      Instance, // programmatic keyboard focus (traversal is later)
+	focus_id:      Instance, // keyboard focus (§3.17): traversal, click,
+	                         // or programmatic; input_keys/input_text
+	                         // route to it
+	key_press_id:    Instance, // Space/Enter capture on the focused
+	                         // instance between key-down and key-up
+	key_press_code:  u32,
+	key_press_chain: [dynamic]Instance, // root-first chain snapshot,
+	                         // like the pointer press chains
+	frame_keys:      [16]Key_Event, // this frame's key events,
+	                         // snapshotted at dispatch
+	frame_key_count: int,
+	key_consumed:    [16]bool, // per slot: the core ate this event
+	                         // (traversal's Tab is never delivered)
+	keys_target:     Instance, // routing frozen at dispatch: the
+	text_target:     Instance, // queries answer for these only
+	frame_text:      [dynamic]u8, // this frame's committed text (owned)
+	keys_scratch:    [dynamic]Key_Event, // input_keys result assembly
+	seen_ids:        map[Instance]bool, // recycle sweep's live set
+	                         // (pass F); built only on frames where
+	                         // something died
+	dead_ids:        [dynamic]Instance, // recycle sweep scratch
 	prev_focused:  bool, // last frame's window_focused; the falling edge
 	                     // drops press capture (input.odin)
 	input_dirty:   bool,     // interaction state changed this frame
@@ -249,6 +269,11 @@ free_globals :: proc() {
 	for b in Mouse_Button {
 		delete(g.press_chains[b])
 	}
+	delete(g.key_press_chain)
+	delete(g.frame_text)
+	delete(g.keys_scratch)
+	delete(g.seen_ids)
+	delete(g.dead_ids)
 	delete(g.clicked_chain)
 	delete(g.affected)
 	delete(g.pick_clip)
