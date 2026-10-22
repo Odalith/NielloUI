@@ -440,14 +440,22 @@ dispatch_input :: proc(input: Input, dt: f32) {
 
 	// Click-to-focus: a left press focuses the deepest focusable
 	// instance on the pick's chain (a label inside a button focuses
-	// the button). No focusable on the chain — focus is left alone;
-	// clicking empty space does not clear it (decided §3.17).
+	// the button). No focusable on the chain — the press landed on
+	// unfocusable ground and focus clears, like clicking out of a
+	// text field anywhere else. (First cut left focus in place; in
+	// use that read as focus getting stuck, so the rule flipped —
+	// §3.17.) A blocked press is absorbed before any of this.
 	if .Left in input.buttons_pressed && pick >= 0 && !blocked {
+		found := false
 		for j := len(chain_idx) - 1; j >= 0; j -= 1 {
 			if focus_candidate(chain_idx[j]) {
 				set_focus_id(g.nodes[chain_idx[j]].identity)
+				found = true
 				break
 			}
+		}
+		if !found {
+			set_focus_id(0)
 		}
 	}
 

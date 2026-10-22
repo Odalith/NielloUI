@@ -134,6 +134,10 @@ Globals :: struct {
 	text_target:     Instance, // queries answer for these only
 	frame_text:      [dynamic]u8, // this frame's committed text (owned)
 	keys_scratch:    [dynamic]Key_Event, // input_keys result assembly
+	seen_ids:        map[Instance]bool, // recycle sweep's live set
+	                         // (pass F); built only on frames where
+	                         // something died
+	dead_ids:        [dynamic]Instance, // recycle sweep scratch
 	prev_focused:  bool, // last frame's window_focused; the falling edge
 	                     // drops press capture (input.odin)
 	input_dirty:   bool,     // interaction state changed this frame
@@ -268,6 +272,8 @@ free_globals :: proc() {
 	delete(g.key_press_chain)
 	delete(g.frame_text)
 	delete(g.keys_scratch)
+	delete(g.seen_ids)
+	delete(g.dead_ids)
 	delete(g.clicked_chain)
 	delete(g.affected)
 	delete(g.pick_clip)

@@ -134,15 +134,22 @@ test_click_to_focus :: proc(t: ^testing.T) {
 	niello.frame_begin(inp, 1.0 / 60.0)
 	finish(fo_declare)
 	testing.expect(t, niello.focused(fo_b), "pressing a focusable instance focuses it")
-	// Pressing the plain label leaves focus alone (no clear-on-click).
-	rl, _ := niello.rect(fo_d) // D is disabled; use the label row instead
-	_ = rl
+	// Pressing unfocusable ground clears focus (rule flipped after
+	// the form demo's first run: leaving it read as stuck focus).
 	inp2 := idle_input({350, 285}) // below every control, root only
 	inp2.buttons_pressed = {.Left}
 	inp2.buttons_down = {.Left}
 	niello.frame_begin(inp2, 1.0 / 60.0)
 	finish(fo_declare)
-	testing.expect(t, niello.focused(fo_b), "pressing empty space leaves focus alone")
+	testing.expect(t, !niello.focused(fo_b), "pressing empty space clears focus")
+	// Refocus B for the disabled check below.
+	rb2, _ := niello.rect(fo_b)
+	inp2b := idle_input(rb2.pos + rb2.size / 2)
+	inp2b.buttons_pressed = {.Left}
+	inp2b.buttons_down = {.Left}
+	niello.frame_begin(inp2b, 1.0 / 60.0)
+	finish(fo_declare)
+	testing.expect(t, niello.focused(fo_b), "B refocused")
 	// Pressing disabled D does not focus it.
 	rd, _ := niello.rect(fo_d)
 	inp3 := idle_input(rd.pos + rd.size / 2)
@@ -272,4 +279,62 @@ test_with_focusable_override :: proc(t: ^testing.T) {
 	finish(fw_declare)
 	testing.expect(t, niello.focused(fw_r2), "wrap: the With-disabled instance never joins")
 	testing.expect(t, !niello.focused(fw_r1) && !niello.focused(fw_r3) && !niello.focused(fw_b2), "non-stops stay unfocused")
+}
+
+// Instance death is damage (regression: the form demo's Clear). A
+// node that disappears leaves pixels behind; when a previously-seen
+// instance returns with the same rect and content hash, the frame
+// must still report damage — for the DEAD node's rect — or the old
+// content lingers until an unrelated repaint.
+
+dd_root, dd_a, dd_b: niello.Unit
+dd_show_a: bool
+dd_a_rect: niello.Rect
+
+dd_declare :: proc() {
+	if _, ok := niello.begin(dd_root); ok {
+		if dd_show_a {
+			i := niello.show(dd_a, niello.key_int(1), {text = "aaaaaaaaaaaaaaaaaaaa"})
+			if r, ok2 := niello.rect(i); ok2 {
+				dd_a_rect = r
+			}
+		} else {
+			niello.show(dd_b, niello.key_int(1), {text = "bb"})
+		}
+	}
+}
+
+@(test)
+test_instance_death_damages :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&dd_root, niello.NO_UNIT, {
+		layout = niello.Layout.Top_To_Bottom,
+		size = niello.Size{niello.fixed(400), niello.fixed(300)},
+	})
+	niello.mint(&dd_a, niello.NO_UNIT, {font_size = 16})
+	niello.mint(&dd_b, niello.NO_UNIT, {font_size = 16})
+	dd_show_a = false
+	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	finish(dd_declare) // settle with B (B enters the instance map)
+	dd_show_a = true // B dies, A appears
+	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	res := finish(dd_declare)
+	testing.expect(t, res.changed, "a death + birth frame is changed")
+	dd_show_a = false // A dies; B returns with its settle rect+hash
+	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	res = finish(dd_declare)
+	testing.expect(t, res.changed, "the returning instance's frame still damages (the death)")
+	covered := false
+	for d in res.damage {
+		if d.pos.x <= dd_a_rect.pos.x && d.pos.y <= dd_a_rect.pos.y &&
+		   d.pos.x + d.size.x >= dd_a_rect.pos.x + dd_a_rect.size.x &&
+		   d.pos.y + d.size.y >= dd_a_rect.pos.y + dd_a_rect.size.y {
+			covered = true
+		}
+	}
+	testing.expect(t, covered, "damage covers the dead instance's rect")
+	niello.frame_begin(idle_input(AWAY_PT), 1.0 / 60.0)
+	res = finish(dd_declare)
+	testing.expect(t, !res.changed, "steady state again: no phantom damage")
 }

@@ -700,8 +700,33 @@ position_and_damage :: proc() {
 		g.instances[id] = new
 		g.inst_hash[id] = h
 	}
-	// NOTE: destroyed instances (in the map but not declared this frame) should
-	// have their old rects appended to damage. Left for the recycle pass.
+	// Recycle: an instance that was committed before but not declared
+	// this frame is gone, and its last rect is damage — otherwise its
+	// pixels linger until something unrelated repaints (the form demo's
+	// Clear: the placeholder returning with its settle-frame rect+hash
+	// looked "unchanged" while the dead text label was never damaged).
+	// The sweep only runs when the map outgrew the tree (the death
+	// signal), so a steady-state frame pays one size comparison.
+	if len(g.instances) > n {
+		if g.seen_ids == nil {
+			g.seen_ids = make(map[Instance]bool)
+		}
+		clear(&g.seen_ids)
+		for i in 0 ..< n {
+			g.seen_ids[g.nodes[i].identity] = true
+		}
+		clear(&g.dead_ids)
+		for id, r in g.instances {
+			if id not_in g.seen_ids {
+				append(&g.dead_ids, id)
+				append(&g.damage, r)
+			}
+		}
+		for id in g.dead_ids {
+			delete_key(&g.instances, id)
+			delete_key(&g.inst_hash, id)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
