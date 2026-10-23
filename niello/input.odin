@@ -765,6 +765,7 @@ resolve_styles :: proc() {
 	n := len(g.nodes)
 	resize(&g.eff, n)
 	resize(&g.disabled_flags, n)
+	resize(&g.state_stamp, n)
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
 		p := nd.parent
@@ -789,10 +790,52 @@ resolve_styles :: proc() {
 		if len(g.transients) > 0 {
 			_, has_tr = g.transients[id]
 		}
+		// The state stamp (§5): which overlay layers are active for
+		// this node, folded with the identity + visual generation of
+		// each active overlay unit. An overlay unit written while its
+		// layer is active moves the stamp; written while inactive it
+		// is not folded in and costs nothing. A transient's presence
+		// is a bit of its own — its blend factor moves every frame,
+		// which pass F handles by damaging live-transient instances
+		// unconditionally.
+		rec := &store.units[int(nd.unit)]
+		stamp := u64(0)
+		if nd.with.variant != NO_UNIT {
+			stamp = hash_mix(stamp, 1)
+			stamp = hash_mix(stamp, u64(nd.with.variant))
+			stamp = hash_mix(stamp, store.units[int(nd.with.variant)].gen)
+		}
+		// A layer folds in only when it HAS an overlay unit: with
+		// NO_UNIT the merge is a no-op, the resolved style cannot
+		// move, and folding the bare activation would damage every
+		// node the pointer merely crosses (the root included).
+		if foc && rec.focus != NO_UNIT {
+			stamp = hash_mix(stamp, 2)
+			stamp = hash_mix(stamp, u64(rec.focus))
+			stamp = hash_mix(stamp, store.units[int(rec.focus)].gen)
+		}
+		if hov && rec.hover != NO_UNIT {
+			stamp = hash_mix(stamp, 3)
+			stamp = hash_mix(stamp, u64(rec.hover))
+			stamp = hash_mix(stamp, store.units[int(rec.hover)].gen)
+		}
+		if prs && rec.press != NO_UNIT {
+			stamp = hash_mix(stamp, 4)
+			stamp = hash_mix(stamp, u64(rec.press))
+			stamp = hash_mix(stamp, store.units[int(rec.press)].gen)
+		}
+		if dis && rec.disabled != NO_UNIT {
+			stamp = hash_mix(stamp, 5)
+			stamp = hash_mix(stamp, u64(rec.disabled))
+			stamp = hash_mix(stamp, store.units[int(rec.disabled)].gen)
+		}
+		if has_tr {
+			stamp = hash_mix(stamp, 6)
+		}
+		g.state_stamp[i] = stamp
 		if !hov && !prs && !foc && !dis && nd.with.variant == NO_UNIT && !has_tr {
 			continue
 		}
-		rec := &store.units[int(nd.unit)]
 		eff := rec.style
 		apply_overlay(&eff, nd.with.variant) // persistent per-instance overlay
 		if foc { apply_overlay(&eff, rec.focus) }

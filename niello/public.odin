@@ -85,6 +85,23 @@ ALL_FIELDS :: Fields{
 	.Image, .Image_Fit, .Image_Interp,
 }
 
+// VISUAL_FIELDS is ALL_FIELDS minus the fields that steer behavior
+// without reaching the draw list — the exclusion the old content
+// hash documented: Cursor is host state; Scroll_Chain, the Smooth
+// pair and the Overscroll pair steer dispatch and glides. A write
+// touching only these must not repaint, so the per-unit visual
+// generation (the §5 stamps, state.odin) advances only on
+// VISUAL_FIELDS writes. Written out in full, like ALL_FIELDS.
+VISUAL_FIELDS :: Fields{
+	.Color, .Font_Color, .Border_Color,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis,
+	.Padding, .Gap, .Corner_Radius, .Opacity,
+	.Layout, .Align, .Size, .Scroll, .Overflow,
+	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
+	.Text_Spans,
+	.Image, .Image_Fit, .Image_Interp,
+}
+
 Layout :: enum u8 {
 	Left_To_Right,
 	Top_To_Bottom,
@@ -381,6 +398,13 @@ With :: struct {
 	image: Maybe(Image), // per-instance image swap; wins over
 	                     // Style.image, and Maybe(NO_IMAGE) clears
 	                     // the base image for this instance (§3.25)
+	static_values: bool, // the presented values above (text, spans,
+	                     // image) never change for this instance's
+	                     // lifetime; the engine skips their change
+	                     // detection (§5 stamps). Debug builds still
+	                     // compute and assert. Style writes, state
+	                     // and geometry detection are unaffected —
+	                     // the promise covers presented values only.
 	disabled: bool,
 	anchored: bool, // an overlay child (§3.20): removed from flow
 	                // in any container — no flow slot, no waterfill,

@@ -19,6 +19,12 @@ Frame_Node :: struct {
 	                              // copied, so no borrow contract
 	spans_hash:     u64,    // hash of spans; 0 when nil. The text cache keys
 	                        // on this alongside the font tuple.
+	digest:         u64,    // §5 stamp: hash of the per-instance
+	                        // presented content as resolved here —
+	                        // (text_hash, spans_hash, image). Pass F
+	                        // compares it against the committed record;
+	                        // everything style-side is covered by the
+	                        // unit generation instead.
 	has_text:        bool,
 	image:           Image, // resolved at declare: With.image wins
 	                        // over the unit's style image (§3.25)
@@ -161,6 +167,13 @@ declare_as :: proc(
 		text_hash = str_hash(text)
 		spans, spans_hash = resolve_spans(with, style_of(unit))
 	}
+	// The presented-content digest (§5 stamps): three folds over
+	// values already computed above — the text and span hashes the
+	// text cache needed anyway, plus the resolved image handle.
+	digest := u64(14695981039346656037)
+	digest = hash_mix(digest, text_hash)
+	digest = hash_mix(digest, spans_hash)
+	digest = hash_mix(digest, u64(img))
 	append(
 		&g.nodes,
 		Frame_Node{
@@ -170,6 +183,7 @@ declare_as :: proc(
 			with = with,
 			text = text,
 			text_hash = text_hash,
+			digest = digest,
 			spans = spans,
 			spans_hash = spans_hash,
 			has_text = has_text,
