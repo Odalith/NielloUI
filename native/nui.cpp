@@ -1274,6 +1274,26 @@ void nui_image_release(uint32_t id) {
     });
 }
 
+uint64_t nui_gpu_cache_bytes(void) {
+    return Api<uint64_t>("nui_gpu_cache_bytes", 0, [&] {
+        if (!Ready()) return uint64_t{0};
+        return static_cast<uint64_t>(g.context->currentBudgetedBytes());
+    });
+}
+
+void nui_purge_gpu_cache(void) {
+    ApiVoid("nui_purge_gpu_cache", [&] {
+        if (!Ready()) return;
+
+        // Same cold-path discipline as nui_image_release: drain submitted
+        // work first (the Context header's own condition for a complete
+        // purge), then drop everything purgeable — 0 ms unused means
+        // age is no excuse. In-use resources are never deleted by this.
+        (void)Synchronize();
+        g.context->performDeferredCleanup(std::chrono::milliseconds(0));
+    });
+}
+
 void nui_shutdown(void) {
     ApiVoid("nui_shutdown", [] {
         if (!g.windows.empty()) {

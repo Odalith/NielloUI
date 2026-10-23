@@ -135,6 +135,15 @@ uint32_t nui_image_decode(const uint8_t* data, int32_t len, int32_t max_w, int32
                           float* out_w, float* out_h);
 void nui_image_release(uint32_t id);
 
+// GPU resource cache (the shared Graphite context's). nui_gpu_cache_bytes
+// reports the bytes the context currently counts against its cache budget
+// — decoded-image textures included, once drawn. nui_purge_gpu_cache drops
+// every purgeable resource immediately (after draining submitted work),
+// so a caller separating "still cached, evictable" from "actually leaked"
+// can purge and re-read. Diagnostic surface; call between frames.
+uint64_t nui_gpu_cache_bytes(void);
+void nui_purge_gpu_cache(void);
+
 // Shared teardown. Destroy all windows first. Does NOT destroy the
 // SDL windows (Odin owns them).
 void nui_shutdown(void);

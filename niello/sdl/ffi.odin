@@ -3,7 +3,8 @@
 // The native side (see ../../native/nui.h) is a static library exposing a small C
 // API: nui_init / nui_create_window / nui_resize / nui_set_refresh_rate /
 // nui_render / nui_present_cached / nui_register_font / nui_measure_word /
-// nui_line_height / nui_destroy_window / nui_shutdown. Multi-window (M2):
+// nui_line_height / nui_destroy_window / nui_shutdown / nui_gpu_cache_bytes /
+// nui_purge_gpu_cache. Multi-window (M2):
 // the device + Graphite context are shared; each window renders through
 // its own opaque Window handle.
 //
@@ -104,6 +105,14 @@ foreign native {
 	// id (0 = failure); release drops it. Ids are never reused.
 	image_decode  :: proc(data: [^]u8, len: i32, max_w: i32, max_h: i32, out_w: ^f32, out_h: ^f32) -> u32 ---
 	image_release :: proc(id: u32) ---
+
+	// GPU resource cache diagnostics: bytes the shared Graphite
+	// context currently counts against its cache budget, and a
+	// purge of every purgeable resource (after draining submitted
+	// work). For leak hunting: purge between measurements to
+	// separate "still cached, evictable" from "actually leaked".
+	gpu_cache_bytes :: proc() -> u64 ---
+	purge_gpu_cache :: proc() ---
 }
 
 // The backend hooks are wired at package init — assignment only,
