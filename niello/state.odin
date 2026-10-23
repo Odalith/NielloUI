@@ -10,6 +10,11 @@ import "base:runtime"
 
 Unit_Rec :: struct {
 	style: Style, // resolved, owned values
+	gen:   u64,   // visual-write generation (§5 stamps): bumped by
+	              // touch/touch_unmarked when a VISUAL_FIELDS field is
+	              // written. Instances remember the gen they last
+	              // painted with; a mismatch is damage — the exact,
+	              // versioned replacement for re-hashing the style.
 
 	// §8 cold-store metadata.
 	explicit: Fields, // fields set directly at mint (for propagate)
@@ -272,6 +277,10 @@ Context :: struct {
 	pick_clip:      [dynamic]Rect,
 	eff:            [dynamic]Style,
 	disabled_flags: [dynamic]bool,
+	state_stamp:    [dynamic]u64, // per-node interaction state stamp
+	                              // (resolve_styles, input.odin):
+	                              // which overlay layers are active,
+	                              // folded with those units' gens
 
 	layout_gen:  u32,
 	frame_index: u64,
@@ -423,6 +432,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.pick_clip)
 	delete(ctx.eff)
 	delete(ctx.disabled_flags)
+	delete(ctx.state_stamp)
 }
 
 // journal_gc retires the journal prefix every live context has
@@ -526,6 +536,9 @@ touch :: proc(u: Unit, f: Fields) {
 	rec.dirty += f
 	rec.explicit += f
 	store.gen += 1
+	if f & VISUAL_FIELDS != {} {
+		rec.gen += 1
+	}
 }
 
 // touch_unmarked is touch without the explicit marking: propagate's
@@ -539,6 +552,9 @@ touch_unmarked :: proc(u: Unit, f: Fields) {
 	}
 	rec.dirty += f
 	store.gen += 1
+	if f & VISUAL_FIELDS != {} {
+		rec.gen += 1
+	}
 }
 
 style_of :: proc(u: Unit) -> ^Style {
@@ -596,13 +612,19 @@ Scroll_Glide :: struct {
 	              // this target.
 }
 
-// One committed instance: its last rect plus the hash of its last
-// committed resolved content (style values + text). Pass F damages an
-// instance whose hash changed even when its rect didn't move — §5's
-// "changed → new rect" covers text edits and set() restyles, not just
-// motion.
+// One committed instance: its last rect plus the change stamps it
+// last painted with (§5, the stamps scheme): the unit's visual
+// generation, the digest of its declare-presented content, and its
+// interaction state stamp. Pass F damages an instance whose stamps
+// moved even when its rect didn't — "changed → new rect" covers
+// text edits and set() restyles, not just motion. (Replaced the
+// per-instance content hash 2026-10-23: styles are versioned by
+// their write funnel, so re-mixing every resolved value every
+// frame re-proved what the generations already knew.)
 Inst_Rec :: struct {
-	rect: Rect,
-	hash: u64,
-	unit: Unit, // the unit this instance instantiates (cross-context reads, M4)
+	rect:  Rect,
+	gen:   u64,
+	digest: u64,
+	stamp: u64,
+	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
 }
