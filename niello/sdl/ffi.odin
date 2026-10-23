@@ -22,16 +22,26 @@ import niello "../"
 #assert(size_of(niello.Rect) == 16, "niello.Rect must stay 16 bytes: it is the FFI ABI")
 #assert(size_of(Native_Handles) == size_of(rawptr) * 8, "Native_Handles must match UiNativeHandles")
 
-// System libraries the native backend needs on every platform.
-// The static lib itself (nui_render) comes from
-// third_party/native/<platform>/lib — see tools/fetch-native.sh — and is
-// found via -extra-linker-flags:"-L<path>".
+// System libraries the native backend needs. The static libs
+// (nui_render + Skia + Dawn) come from third_party/native/<platform>/
+// — see tools/fetch-native.sh — and are found via
+// -extra-linker-flags:"-L<path> --start-group ..." until TODO #11's
+// merged archive lets this import name the one file by path.
+// The codec libs (z/png/jpeg/webp/webpdemux) are here because
+// Skia's codec modules reference them; they stayed latent until
+// image decode (#13) first pulled the codec objects into a link.
 foreign import native {
 	"system:nui_render",
 	"system:SDL3",
 	"system:vulkan",
 	"system:freetype",
 	"system:fontconfig",
+	"system:stdc++",
+	"system:z",
+	"system:png",
+	"system:jpeg",
+	"system:webp",
+	"system:webpdemux",
 }
 
 // Window is the opaque per-window backend handle (nui_window* in C).

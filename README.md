@@ -48,7 +48,7 @@ Windowed examples need the native backend for your platform under
 `native/` yourself, below). Then, from the repo root on Linux:
 
 ```sh
-odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/linux-x64 -Wl,--start-group -lnui_render -lskia -ldawn_combined -lskcms -lwuffs -Wl,--end-group -lstdc++ -lz -lpng -ljpeg -lwebp -lwebpdemux"
+odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/linux-x64 -Wl,--start-group -lnui_render -lskia -ldawn_combined -lskcms -lwuffs -Wl,--end-group"
 ```
 
 ## Examples
