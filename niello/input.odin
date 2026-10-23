@@ -851,6 +851,9 @@ copy_field :: proc(dst, src: ^Style, f: Field) {
 	case .Smooth_Ms: dst.smooth_ms = src.smooth_ms
 	case .Overscroll: dst.overscroll = src.overscroll
 	case .Overscroll_Px: dst.overscroll_px = src.overscroll_px
+	case .Image:       dst.image       = src.image
+	case .Image_Fit:   dst.image_fit   = src.image_fit
+	case .Image_Interp: dst.image_interp = src.image_interp
 	}
 }
 

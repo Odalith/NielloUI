@@ -12,6 +12,8 @@
 #include "util.h"
 
 #include <algorithm>
+#include <cmath>
+#include <optional>
 #include <cassert>
 #include <chrono>
 #include <climits>
@@ -23,7 +25,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "include/codec/SkCodec.h"
+#include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/gpu/graphite/Image.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
@@ -128,6 +135,22 @@ struct Shared {
         }
     };
     std::unordered_map<FontKey, SkFont, FontKeyHash> font_cache;
+
+    // Image registry (TODO #13): backend ids are allocated here,
+    // monotonically, never reused — a stale id in a draw command
+    // misses the map and draws nothing rather than aliasing a
+    // different image. Decode keeps the pixels; the Graphite
+    // texture image is created lazily at first draw via
+    // SkImages::TextureFromImage through the drawing surface's
+    // own recorder (see DrawImageCmd — drawImageRect's implicit
+    // raster->texture conversion failed on this build for every
+    // image, format notwithstanding).
+    struct ImageEntry {
+        sk_sp<SkImage> raster;   // decoded pixels (N32)
+        sk_sp<SkImage> texture;  // Graphite-backed, made at first draw
+    };
+    std::unordered_map<uint32_t, ImageEntry> images;
+    uint32_t next_image_id = 1;
 };
 
 Shared g_shared;
@@ -237,6 +260,30 @@ void DrawRectCmd(SkCanvas* canvas, const UiDrawCmd& c) {
     }
 }
 
+void DrawImageCmd(SkCanvas* canvas, skgpu::graphite::Recorder* recorder, const UiDrawCmd& c) {
+    auto it = g_shared.images.find(c.image);
+    if (it == g_shared.images.end()) return;
+    Shared::ImageEntry& entry = it->second;
+    if (!entry.texture && recorder && entry.raster) {
+        SkImage::RequiredProperties props;
+        props.fMipmapped = true;
+        entry.texture = SkImages::TextureFromImage(recorder, entry.raster.get(), props);
+    }
+    if (!entry.texture) return;
+    SkSamplingOptions sampling;
+    switch (c.interp) {
+        case 1:  sampling = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kLinear); break;
+        case 2:  sampling = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNone); break;
+        case 3:  sampling = SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone); break;
+        case 0:
+        default: sampling = SkSamplingOptions(SkCubicResampler::Mitchell()); break;
+    }
+    SkRect src = SkRect::MakeXYWH(c.src_x, c.src_y, c.src_w, c.src_h);
+    SkRect dst = SkRect::MakeXYWH(c.bounds_x, c.bounds_y, c.bounds_w, c.bounds_h);
+    canvas->drawImageRect(entry.texture.get(), src, dst, sampling, nullptr,
+                          SkCanvas::kStrict_SrcRectConstraint);
+}
+
 void DrawTextCmd(SkCanvas* canvas, const UiDrawCmd& c) {
     SkFont* font = ResolveFont(c.font, (int32_t)c.font_weight, (int32_t)c.font_slant, c.font_size);
     if (!font || !c.text_ptr || c.text_len <= 0) return;
@@ -289,7 +336,8 @@ void DrawTextCmd(SkCanvas* canvas, const UiDrawCmd& c) {
     if (blob) canvas->drawTextBlob(blob.get(), c.bounds_x, baseline, paint);
 }
 
-void ReplayCommands(SkCanvas* canvas, const UiDrawCmd* cmds, int32_t n,
+void ReplayCommands(SkCanvas* canvas, skgpu::graphite::Recorder* recorder,
+                    const UiDrawCmd* cmds, int32_t n,
                     const UiRect* damage, int32_t n_damage, float content_scale) {
     canvas->save();
     canvas->scale(content_scale, content_scale); // DIP -> device pixels
@@ -310,6 +358,9 @@ void ReplayCommands(SkCanvas* canvas, const UiDrawCmd* cmds, int32_t n,
                 break;
             case UI_CMD_TEXT:
                 DrawTextCmd(canvas, c);
+                break;
+            case UI_CMD_IMAGE:
+                DrawImageCmd(canvas, recorder, c);
                 break;
             case UI_CMD_PUSH_CLIP:
                 canvas->save();
@@ -629,7 +680,7 @@ int32_t nui_render(nui_window* win, const UiDrawCmd* cmds, int32_t n_cmds,
     if (!EnsureCache(*win)) return 0;
     auto canvas = win->cacheSurface->getCanvas();
     canvas->clear(SkColors::kBlack);
-    ReplayCommands(canvas, cmds, n_cmds, nullptr, 0, content_scale);
+    ReplayCommands(canvas, sh.recorder.get(), cmds, n_cmds, nullptr, 0, content_scale);
     ++win->replays;
     auto recording = sh.recorder->snap();
     if (!recording) return 0;
@@ -679,6 +730,58 @@ float nui_line_height(uint32_t family, int32_t weight, int32_t slant, float size
     return -metrics.fAscent + metrics.fDescent + metrics.fLeading;
 }
 
+uint32_t nui_image_decode(const uint8_t* bytes, int32_t len, int32_t max_w, int32_t max_h,
+                          float* out_w, float* out_h) {
+    if (!bytes || len <= 0) return 0;
+    sk_sp<SkData> data = SkData::MakeWithCopy(bytes, (size_t)len);
+    std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(data);
+    if (!codec) return 0;
+    const SkImageInfo info = codec->getInfo();
+    const int nat_w = info.width(), nat_h = info.height();
+    if (nat_w <= 0 || nat_h <= 0) return 0;
+
+    // Shrink-only, aspect-preserving (one axis may be 0 =
+    // unconstrained): Avalonia's DecodeToWidth/Height semantics.
+    double scale = 1.0;
+    if (max_w > 0) scale = std::min(scale, (double)max_w / nat_w);
+    if (max_h > 0) scale = std::min(scale, (double)max_h / nat_h);
+    const int tw = std::max(1, (int)std::lround(nat_w * scale));
+    const int th = std::max(1, (int)std::lround(nat_h * scale));
+
+    // Decode to pixels here, converted to N32: the codec's
+    // native format for e.g. an opaque PNG is RGB_888x, which
+    // Graphite/Dawn cannot texturize — a deferred
+    // (generator-backed) image in that format failed key
+    // creation at draw time on the first field build and every
+    // draw was dropped. Raster + N32 is the shape that draws;
+    // the cost is decoded pixels pinned instead of encoded
+    // bytes retained.
+    const SkImageInfo dst_info = info.makeColorType(kN32_SkColorType);
+    SkBitmap full;
+    if (!full.tryAllocPixels(dst_info)) return 0;
+    if (codec->getPixels(full.pixmap()) != SkCodec::kSuccess) return 0;
+    sk_sp<SkImage> img = SkImages::RasterFromBitmap(full);
+    if (!img) return 0;
+    if (tw != nat_w || th != nat_h) {
+        SkBitmap small;
+        if (small.tryAllocPixels(dst_info.makeWH(tw, th)) &&
+            img->scalePixels(small.pixmap(),
+                             SkSamplingOptions(SkCubicResampler::Mitchell()))) {
+            img = SkImages::RasterFromBitmap(small);
+        }
+    }
+
+    const uint32_t id = g_shared.next_image_id++;
+    g_shared.images[id].raster = img;
+    if (out_w) *out_w = (float)tw;
+    if (out_h) *out_h = (float)th;
+    return id;
+}
+
+void nui_image_release(uint32_t id) {
+    g_shared.images.erase(id);
+}
+
 void nui_shutdown(void) {
     Shared& sh = g_shared;
     // Finish GPU work, then tear down the shared device side. Windows
@@ -694,6 +797,7 @@ void nui_shutdown(void) {
     if (sh.backendContext.fQueue) DrainQueue();
     sh.families.clear();
     sh.font_cache.clear();
+    sh.images.clear();
     sh.recorder.reset();
     sh.context.reset();
     sh.backendContext = {};

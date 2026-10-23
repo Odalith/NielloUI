@@ -352,8 +352,8 @@ sdl_init :: proc() -> sdl.AppResult {
 	// Wire text measurement to the native backend (Skia), then init
 	// the shared device side. Windows create their surfaces on it
 	// per window (M2).
-	niello.measure_word_hook = hook_measure_word
-	niello.line_height_hook = hook_line_height
+	// Backend hooks are wired at package init (ffi.odin), so
+	// image loads work before run().
 	if init() != 0 {
 		fmt.println("nui_init failed")
 		return .FAILURE

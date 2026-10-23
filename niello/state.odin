@@ -83,6 +83,8 @@ Store :: struct {
 	// The word cache is content-addressed (font, style, text ->
 	// metrics), so it is shared by every window: a word measured
 	// for one window is a free hit for all the others.
+	images:           [dynamic]Image_Rec, // the image registry (§3.25);
+	                                      // index = Image id, slot 0 sentinel
 	text_cache:       map[u64]Text_Entry,
 	ellipsis_widths: map[u64]f32,
 }
@@ -341,6 +343,7 @@ free_store :: proc() {
 	}
 	delete(store.text_cache)
 	delete(store.ellipsis_widths)
+	delete(store.images) // registry only; backend images die with the backend
 	// Unit styles own their reference-typed fields (cloned on write —
 	// see store_spans in public.odin).
 	for &rec in store.units {
@@ -503,6 +506,9 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	if d.smooth_ms != nil { f += {.Smooth_Ms} }
 	if d.overscroll != nil { f += {.Overscroll} }
 	if d.overscroll_px != nil { f += {.Overscroll_Px} }
+	if d.image       != nil { f += {.Image} }
+	if d.image_fit   != nil { f += {.Image_Fit} }
+	if d.image_interp != nil { f += {.Image_Interp} }
 	return f
 }
 

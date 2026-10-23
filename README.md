@@ -48,7 +48,7 @@ Windowed examples need the native backend for your platform under
 `native/` yourself, below). Then, from the repo root on Linux:
 
 ```sh
-odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/linux-x64 -Wl,--start-group -lnui_render -lskia -ldawn_combined -lskcms -lwuffs -Wl,--end-group -lstdc++"
+odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/linux-x64 -Wl,--start-group -lnui_render -lskia -ldawn_combined -lskcms -lwuffs -Wl,--end-group"
 ```
 
 ## Examples
@@ -80,6 +80,9 @@ odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/
   the cross-context read API.
 - `examples/debugger` — the debug window's host: a scene with
   deliberate layout defects; F12 opens the debugger on it.
+- `examples/images` — image support (§3.25): the four fit modes,
+  per-instance images, crops, decode-to-size, interpolation,
+  background images.
 
 ## Fonts
 

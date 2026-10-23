@@ -251,7 +251,18 @@ measure_text_all :: proc() {
 			// shrinkable it should have taken from. The X mirror of
 			// this is the ellipsis fold inside measure_text.
 			g.lay[i].min_c = Vec2{minw, uw.y}
-		} else if !nd.is_container {
+		}
+		if !nd.is_container && nd.image != NO_IMAGE {
+			// An image leaf's intrinsic is the image's size; with
+			// text present the two overlap-paint (image behind
+			// text), so the content is the elementwise max. The
+			// image scales freely — it adds no min_c floor.
+			if sz, ok := image_intrinsic(nd.image); ok {
+				g.lay[i].content.x = max(g.lay[i].content.x, sz.x)
+				g.lay[i].content.y = max(g.lay[i].content.y, sz.y)
+			}
+		}
+		if !nd.has_text && !nd.is_container {
 			// Plain leaf: FIXED axes contribute their value as content so FIT
 			// parents can accumulate them; everything else contributes 0.
 			for a in 0 ..< 2 {
@@ -642,6 +653,10 @@ content_hash :: proc(i: int) -> u64 {
 	h = hash_mix(h, u64(s.font_slant))
 	h = hash_mix(h, nd.text_hash)
 	h = hash_mix(h, nd.spans_hash)
+	h = hash_mix(h, u64(nd.image))
+	h = hash_mix(h, u64(s.image))
+	h = hash_mix(h, u64(s.image_fit))
+	h = hash_mix(h, u64(s.image_interp))
 	for v in s.padding {
 		h = hash_mix(h, u64(v))
 	}
