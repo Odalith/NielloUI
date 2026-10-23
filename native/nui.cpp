@@ -1,62 +1,59 @@
-// nui.cpp — NielloUI native render backend (static lib).
+// NielloUI Graphite/Dawn backend.
 //
-// Owns: the Dawn instance/device, the Skia Graphite context, and Draw_Cmd
-// replay. Multi-window (M2): the device, the Graphite context, the ONE
-// recorder, and the font registry are shared process-wide; each window's
-// surface + owned pixel cache lives in its own nui_window. No SDL on this
-// side: the Odin side passes platform window handles (UiNativeHandles) at
-// window creation. The event loop, window lifecycle, input, and frame
-// pacing policy all live in Odin.
+// All public calls belong to one UI thread. API calls are serialized, but
+// serialization does not permit transferring a Graphite recorder between
+// threads. OS/native window objects remain owned by the host.
+//
+// Errors never intentionally terminate the host. After a GPU/recording failure,
+// destroy all windows, shut down, and initialize again.
 
 #include "nui.h"
 #include "util.h"
 
 #include <algorithm>
-#include <cmath>
-#include <optional>
-#include <cassert>
 #include <chrono>
 #include <climits>
+#include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
+#include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "include/codec/SkCodec.h"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
-#include "include/core/SkImage.h"
-#include "include/core/SkSamplingOptions.h"
-#include "include/gpu/graphite/Image.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontMgr.h"
+#include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkRRect.h"
+#include "include/core/SkSamplingOptions.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
+
 #include "gpu/graphite/BackendTexture.h"
 #include "gpu/graphite/dawn/DawnGraphiteTypes.h"
 #include "include/gpu/graphite/Context.h"
 #include "include/gpu/graphite/ContextOptions.h"
-#include "include/gpu/graphite/Recorder.h"
-#include "include/gpu/graphite/Recording.h"
-#include "include/gpu/graphite/Surface.h"
 #include "include/gpu/graphite/GraphiteTypes.h"
-#include "include/gpu/graphite/dawn/DawnBackendContext.h"
+#include "include/gpu/graphite/Image.h"
+#include "include/gpu/graphite/Recorder.h"
+#include "include/gpu/graphite/Surface.h"
 
-// Platform font manager factory. Skia removed SkFontMgr::RefDefault() and
-// SkTypeface::MakeDefault()/MakeFromFile(), so everything goes through the
-// platform manager: fontconfig on Linux, CoreText on macOS, DirectWrite on
-// Windows. Signatures verified against the Skia headers (the macOS/Windows
-// branches can't compile-check on this Linux VM, but the declarations match).
 #if defined(__linux__)
 #include "include/ports/SkFontMgr_fontconfig.h"
 #include "include/ports/SkFontScanner_FreeType.h"
@@ -66,740 +63,1228 @@
 #include "include/ports/SkTypeface_win.h"
 #endif
 
-namespace {
-// One process-wide font manager, created on first use.
-SkFontMgr* GetFontMgr() {
-    static sk_sp<SkFontMgr> mgr;
-    if (!mgr) {
-#if defined(__linux__)
-        mgr = SkFontMgr_New_FontConfig(nullptr, SkFontScanner_Make_FreeType());
-#elif defined(__APPLE__)
-        // nullptr collection = system default (per SkFontMgr_mac_ct.h docs).
-        mgr = SkFontMgr_New_CoreText(nullptr);
-#elif defined(_WIN32)
-        // Defaults: nullptr factory (Skia creates one) + nullptr collection.
-        mgr = SkFontMgr_New_DirectWrite();
-#endif
-        if (!mgr) {
-            printf("nui: could not create platform font manager\n");
-        }
-    }
-    return mgr.get();
-}
-}  // namespace
+// Defined in util.cpp; not exported through the public C header.
+bool NuiDawnBackendFailed() noexcept;
 
-namespace {
+static_assert(offsetof(UiDrawCmd, text_ptr) == 32);
+static_assert(offsetof(UiDrawCmd, src_x) == 68);
+static_assert(offsetof(UiDrawCmd, image) == 84);
+static_assert(offsetof(UiDrawCmd, interp) == 88);
 
-// Shared: one per process, behind nui_init/nui_shutdown.
-struct Shared {
-    skgpu::graphite::DawnBackendContext backendContext;
-    std::unique_ptr<skgpu::graphite::Context> context;
-    // ONE recorder for all windows, used SEQUENTIALLY from the host's
-    // one UI thread: record window A, snap, submit; record window B,
-    // snap, submit. A Recorder is single-owner (not concurrent), which
-    // sequential use satisfies — and sharing keeps ONE glyph atlas /
-    // strike cache for text every window shows, instead of duplicating
-    // them per window.
-    std::unique_ptr<skgpu::graphite::Recorder> recorder;
-    int window_count = 0;
-    bool trace = std::getenv("NUI_TRACE") != nullptr;
+struct nui_window {
+    // driver owns the string referenced by handles.driver.
+    std::string driver;
+    UiNativeHandles handles{};
 
-    // Font registry. Families are registered cold (once); the (family,
-    // weight, slant, size) -> SkFont cache below is filled on demand.
-    // File-registered families keep the file's bytes; typefaces are created
-    // per style via the font manager's makeFromData.
-    struct FontFamily {
-        sk_sp<SkData> data;  // from nui_register_font (file contents)
-        std::string name;    // from nui_register_font_family
-        bool is_name = false;
-    };
-    std::unordered_map<uint32_t, FontFamily> families;
+    wgpu::Surface surface;
+    wgpu::SurfaceConfiguration config{};
 
-    struct FontKey {
-        uint32_t family;
-        int32_t  weight; // 100-900
-        int32_t  slant;  // 0=upright, 1=italic, 2=oblique
-        float    size;
-        bool operator==(const FontKey& o) const {
-            return family == o.family && weight == o.weight &&
-                   slant == o.slant && size == o.size;
-        }
-    };
-    struct FontKeyHash {
-        size_t operator()(const FontKey& k) const noexcept {
-            size_t h = std::hash<uint32_t>{}(k.family);
-            h ^= std::hash<int32_t>{}(k.weight) + 0x9e3779b9 + (h << 6) + (h >> 2);
-            h ^= std::hash<int32_t>{}(k.slant)  + 0x9e3779b9 + (h << 6) + (h >> 2);
-            h ^= std::hash<float>{}(k.size)     + 0x9e3779b9 + (h << 6) + (h >> 2);
-            return h;
-        }
-    };
-    std::unordered_map<FontKey, SkFont, FontKeyHash> font_cache;
+    // Declaration order ensures the Skia wrapper dies before the texture.
+    wgpu::Texture cacheTexture;
+    sk_sp<SkSurface> cacheSurface;
 
-    // Image registry (TODO #13): backend ids are allocated here,
-    // monotonically, never reused — a stale id in a draw command
-    // misses the map and draws nothing rather than aliasing a
-    // different image. Decode keeps the pixels; the Graphite
-    // texture image is created lazily at first draw via
-    // SkImages::TextureFromImage through the drawing surface's
-    // own recorder (see DrawImageCmd — drawImageRect's implicit
-    // raster->texture conversion failed on this build for every
-    // image, format notwithstanding).
-    struct ImageEntry {
-        sk_sp<SkImage> raster;   // decoded pixels (N32)
-        sk_sp<SkImage> texture;  // Graphite-backed, made at first draw
-    };
-    std::unordered_map<uint32_t, ImageEntry> images;
-    uint32_t next_image_id = 1;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    bool configured = false;
+    bool recreateSurface = false;
+    bool cacheValid = false;
+
+    uint64_t targetFrameTimeNs = 1'000'000'000 / 60;
+    uint64_t nextFrameTimeNs = 0;
+
+    uint64_t replays = 0;
+    uint64_t copies = 0;
+    uint64_t configurations = 0;
+    uint64_t acquireFailures = 0;
 };
 
-Shared g_shared;
+namespace {
 
-uint64_t NowNs() {
-    return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-}
+constexpr size_t kMaxFontCacheEntries = 2048;
+constexpr size_t kMaxFamilies = 1024;
+constexpr size_t kMaxImages = 4096;
+constexpr uint64_t kMaxImagePixels = 32ull * 1024 * 1024;
+constexpr uint64_t kMaxRasterBytes = 256ull * 1024 * 1024;
+constexpr int32_t kMaxEncodedBytes = 64 * 1024 * 1024;
+constexpr int64_t kMaxTextBytes = 4 * 1024 * 1024;
+constexpr int32_t kMaxCommands = 1'000'000;
+constexpr size_t kMaxScopeDepth = 4096;
+constexpr unsigned kPresentationBatchSize = 2;
 
-SkColor ToSkColor(const uint8_t c[4]) { // RGBA -> SkColor (ARGB)
-    return SkColorSetARGB(c[3], c[0], c[1], c[2]);
-}
+std::mutex g_apiMutex;
+std::thread::id g_ownerThread;
+bool g_haveOwnerThread = false;
 
-// ResolveFont returns the cached SkFont for (family, weight, slant, size),
-// building and caching it on first use. Family 0 (or an unknown family)
-// falls back to the platform default face via the font manager.
-SkFont* ResolveFont(uint32_t family, int32_t weight, int32_t slant, float size) {
-    if (weight < 100) weight = 100;
-    if (weight > 900) weight = 900;
-    if (slant < 0 || slant > 2) slant = 0;
-    if (!(size > 0)) size = 16.0f;
+// Process-lifetime sequence. Zero is never allocated; exhaustion never wraps.
+// Kept outside Shared so shutdown cannot recycle IDs.
+uint64_t g_nextImageId = 1;
 
-    Shared::FontKey key{family, weight, slant, size};
-    auto it = g_shared.font_cache.find(key);
-    if (it != g_shared.font_cache.end()) return &it->second;
+struct FontFamily {
+    sk_sp<SkData> data;
+    std::string name;
+    bool isName = false;
+};
 
-    SkFontMgr* mgr = GetFontMgr();
-    sk_sp<SkTypeface> tf;
-    if (mgr) {
-        auto fit = g_shared.families.find(family);
-        if (fit != g_shared.families.end()) {
-            const Shared::FontFamily& fam = fit->second;
-            if (fam.is_name) {
-                // System family: the manager's closest-match fallback applies.
-                SkFontStyle style(weight, SkFontStyle::kNormal_Width,
-                                  static_cast<SkFontStyle::Slant>(slant));
-                tf = mgr->matchFamilyStyle(fam.name.c_str(), style);
-            } else if (fam.data) {
-                // File registration: best style match by weight distance + slant.
-                int best = 0, best_score = INT_MAX;
-                for (int i = 0; i <= 64; i++) {
-                    sk_sp<SkTypeface> face = mgr->makeFromData(fam.data, i);
-                    if (!face) break;
-                    SkFontStyle st = face->fontStyle();
-                    int score = abs(st.weight() - weight) * 4 +
-                                abs((int)st.slant() - slant);
-                    if (score < best_score) { best_score = score; best = i; }
-                }
-                tf = mgr->makeFromData(fam.data, best);
-            }
-        }
-        if (!tf) {
-            // Default family, but at the REQUESTED style — the
-            // no-style fallback (SkFontStyle()) silently flattened
-            // every bold/italic request on family 0 to the regular
-            // face, even when the family has the faces.
-            SkFontStyle style(weight, SkFontStyle::kNormal_Width,
-                              static_cast<SkFontStyle::Slant>(slant));
-            tf = mgr->matchFamilyStyle(nullptr, style);
-        }
+struct FontKey {
+    uint32_t family;
+    int32_t weight;
+    int32_t slant;
+    float size;
+
+    bool operator==(const FontKey& other) const {
+        return family == other.family && weight == other.weight &&
+               slant == other.slant && size == other.size;
     }
-    if (!tf) return nullptr;
-    SkFont font(tf, size);
-    auto ins = g_shared.font_cache.emplace(key, font);
-    return &ins.first->second;
+};
+
+struct FontKeyHash {
+    size_t operator()(const FontKey& key) const noexcept {
+        size_t hash = std::hash<uint32_t>{}(key.family);
+        const auto mix = [&hash](size_t value) {
+            hash ^= value + size_t{0x9e3779b9} + (hash << 6) + (hash >> 2);
+        };
+        mix(std::hash<int32_t>{}(key.weight));
+        mix(std::hash<int32_t>{}(key.slant));
+        mix(std::hash<float>{}(key.size));
+        return hash;
+    }
+};
+
+struct ImageEntry {
+    sk_sp<SkImage> raster;
+    sk_sp<SkImage> texture;
+    bool mipmapped = false;
+    uint64_t rasterBytes = 0;
+};
+
+struct Shared {
+    skgpu::graphite::DawnBackendContext backend{};
+    std::unique_ptr<skgpu::graphite::Context> context;
+    std::unique_ptr<skgpu::graphite::Recorder> recorder;
+
+    sk_sp<SkFontMgr> fontMgr;
+    std::unordered_map<uint32_t, FontFamily> families;
+    std::unordered_map<FontKey, SkFont, FontKeyHash> fonts;
+    std::unordered_map<uint32_t, ImageEntry> images;
+    std::unordered_set<nui_window*> windows;
+
+    uint64_t rasterBytes = 0;
+    uint32_t maxTextureDimension = 0;
+    unsigned pendingPresentations = 0;
+    bool failed = false;
+    bool trace = std::getenv("NUI_TRACE") != nullptr;
+};
+
+Shared g;
+
+void Log(const char* message) noexcept {
+    std::fprintf(stderr, "nui: %s\n", message);
 }
 
-// ---- Draw_Cmd replay -------------------------------------------------------
-
-bool RectHitsDamage(const UiDrawCmd& c, const UiRect* damage, int32_t n) {
-    float x0 = c.bounds_x, y0 = c.bounds_y;
-    float x1 = x0 + c.bounds_w, y1 = y0 + c.bounds_h;
-    for (int32_t i = 0; i < n; i++) {
-        float dx1 = damage[i].x + damage[i].w;
-        float dy1 = damage[i].y + damage[i].h;
-        if (x0 < dx1 && x1 > damage[i].x && y0 < dy1 && y1 > damage[i].y) return true;
+bool CheckThread() noexcept {
+    const auto current = std::this_thread::get_id();
+    if (!g_haveOwnerThread) {
+        g_ownerThread = current;
+        g_haveOwnerThread = true;
     }
+    if (g_ownerThread == current) return true;
+    Log("API called from a non-owner thread");
     return false;
 }
 
-void DrawRectCmd(SkCanvas* canvas, const UiDrawCmd& c) {
-    SkRect r = SkRect::MakeXYWH(c.bounds_x, c.bounds_y, c.bounds_w, c.bounds_h);
-    SkPaint fill;
-    fill.setColor(ToSkColor(c.color));
-    fill.setAntiAlias(true);
-    if (c.radius > 0) {
-        canvas->drawRRect(SkRRect::MakeRectXY(r, (float)c.radius, (float)c.radius), fill);
-    } else {
-        canvas->drawRect(r, fill);
-    }
-    if (c.border_width > 0) {
-        // Inset border: the stroke stays inside the rect.
-        float bw = (float)c.border_width;
-        SkRect br = SkRect::MakeXYWH(c.bounds_x + bw / 2, c.bounds_y + bw / 2,
-                                     c.bounds_w - bw, c.bounds_h - bw);
-        SkPaint stroke;
-        stroke.setStyle(SkPaint::kStroke_Style);
-        stroke.setStrokeWidth(bw);
-        stroke.setColor(ToSkColor(c.border_color));
-        stroke.setAntiAlias(true);
-        if (c.radius > 0) {
-            float rr = std::max(0.0f, (float)c.radius - bw / 2);
-            canvas->drawRRect(SkRRect::MakeRectXY(br, rr, rr), stroke);
-        } else {
-            canvas->drawRect(br, stroke);
+// Exceptions in rendering can leave pending recorder work. Fail closed rather
+// than attempting to continue recording into partially modified state.
+template <typename R, typename F>
+R Api(const char* name, R failure, F&& function) noexcept {
+    try {
+        std::lock_guard lock(g_apiMutex);
+        if (!CheckThread()) return failure;
+        try {
+            return function();
+        } catch (const std::exception& error) {
+            g.failed = true;
+            std::fprintf(stderr, "nui: %s: %s\n", name, error.what());
+        } catch (...) {
+            g.failed = true;
+            std::fprintf(stderr, "nui: %s: unknown C++ exception\n", name);
         }
+    } catch (...) {
+        std::fprintf(stderr, "nui: %s: API synchronization failed\n", name);
     }
+    return failure;
 }
 
-void DrawImageCmd(SkCanvas* canvas, skgpu::graphite::Recorder* recorder, const UiDrawCmd& c) {
-    auto it = g_shared.images.find(c.image);
-    if (it == g_shared.images.end()) return;
-    Shared::ImageEntry& entry = it->second;
-    if (!entry.texture && recorder && entry.raster) {
-        SkImage::RequiredProperties props;
-        props.fMipmapped = true;
-        entry.texture = SkImages::TextureFromImage(recorder, entry.raster.get(), props);
-    }
-    if (!entry.texture) return;
-    SkSamplingOptions sampling;
-    switch (c.interp) {
-        case 1:  sampling = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kLinear); break;
-        case 2:  sampling = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNone); break;
-        case 3:  sampling = SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone); break;
-        case 0:
-        default: sampling = SkSamplingOptions(SkCubicResampler::Mitchell()); break;
-    }
-    SkRect src = SkRect::MakeXYWH(c.src_x, c.src_y, c.src_w, c.src_h);
-    SkRect dst = SkRect::MakeXYWH(c.bounds_x, c.bounds_y, c.bounds_w, c.bounds_h);
-    canvas->drawImageRect(entry.texture.get(), src, dst, sampling, nullptr,
-                          SkCanvas::kStrict_SrcRectConstraint);
+template <typename F>
+void ApiVoid(const char* name, F&& function) noexcept {
+    (void)Api<int>(name, 0, [&] {
+        function();
+        return 1;
+    });
 }
 
-void DrawTextCmd(SkCanvas* canvas, const UiDrawCmd& c) {
-    SkFont* font = ResolveFont(c.font, (int32_t)c.font_weight, (int32_t)c.font_slant, c.font_size);
-    if (!font || !c.text_ptr || c.text_len <= 0) return;
-    const char* text = reinterpret_cast<const char*>(c.text_ptr);
-    size_t len = (size_t)c.text_len;
+bool Ready() {
+    if (!g.context || !g.recorder || g.failed) return false;
+    if (NuiDawnBackendFailed()) {
+        g.failed = true;
+        return false;
+    }
+    return true;
+}
 
-    // Ellipsis trim when the emitter flagged truncation. Binary-search the
-    // longest prefix that fits, then append "…". (Upgrade path: SkShaper for
-    // complex scripts; see build-native.md.)
-    std::string owned;
-    const char* draw_text = text;
-    size_t draw_len = len;
-    if (c.truncated && c.max_width > 0) {
-        float full = font->measureText(text, len, SkTextEncoding::kUTF8);
-        if (full > c.max_width) {
-            static const char kEllipsis[] = "\xE2\x80\xA6"; // "…"
-            float ell_w = font->measureText(kEllipsis, 3, SkTextEncoding::kUTF8);
-            float avail = c.max_width - ell_w;
-            size_t lo = 0, hi = len;
-            while (lo < hi) {
-                size_t mid = lo + (hi - lo + 1) / 2;
-                // Probe only on a UTF-8 character boundary. A byte prefix
-                // that splits a multi-byte sequence is not a valid string,
-                // and measureText is not required to survive one — a
-                // truncated label containing an em dash crashed here when
-                // the descending search probed inside the sequence. The
-                // search itself still runs in byte space; the final
-                // walk-back below lands exactly on the probed boundary.
-                size_t probe = mid;
-                while (probe > 0 && (text[probe] & 0xC0) == 0x80) probe--;
-                if (font->measureText(text, probe, SkTextEncoding::kUTF8) <= avail) lo = mid;
-                else hi = mid - 1;
+bool Live(const nui_window* window) {
+    return window && g.windows.contains(const_cast<nui_window*>(window));
+}
+
+bool DimensionsValid(uint32_t width, uint32_t height) {
+    return width <= g.maxTextureDimension &&
+           height <= g.maxTextureDimension;
+}
+
+uint64_t NowNs() {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+void Pace(nui_window& window) {
+    const uint64_t now = NowNs();
+    if (now < window.nextFrameTimeNs) {
+        std::this_thread::sleep_for(
+            std::chrono::nanoseconds(window.nextFrameTimeNs - now));
+    }
+    window.nextFrameTimeNs = NowNs() + window.targetFrameTimeNs;
+}
+
+void Trace(const nui_window& window) noexcept {
+    if (!g.trace) return;
+    std::fprintf(
+        stderr,
+        "nui: replays=%llu copies=%llu configurations=%llu "
+        "acquire_failures=%llu size=%ux%u valid=%d\n",
+        static_cast<unsigned long long>(window.replays),
+        static_cast<unsigned long long>(window.copies),
+        static_cast<unsigned long long>(window.configurations),
+        static_cast<unsigned long long>(window.acquireFailures),
+        window.width, window.height, static_cast<int>(window.cacheValid));
+}
+
+bool DrainQueue() {
+    if (!g.backend.fQueue || !g.backend.fInstance) return true;
+
+    auto success = std::make_shared<bool>(false);
+    const auto future = g.backend.fQueue.OnSubmittedWorkDone(
+        wgpu::CallbackMode::WaitAnyOnly,
+        [success](wgpu::QueueWorkDoneStatus status,
+                  wgpu::StringView) {
+            *success = status == wgpu::QueueWorkDoneStatus::Success;
+        });
+
+    const auto status = g.backend.fInstance.WaitAny(future, UINT64_MAX);
+    g.pendingPresentations = 0;
+
+    if (status != wgpu::WaitStatus::Success || !*success ||
+        NuiDawnBackendFailed()) {
+        g.failed = true;
+        Log("GPU queue synchronization failed");
+        return false;
+    }
+    return true;
+}
+
+bool Synchronize() {
+    if (g.context &&
+        !g.context->submit(skgpu::graphite::SyncToCpu::kYes)) {
+        g.failed = true;
+    }
+    const bool drained = DrainQueue();
+    return drained && !g.failed;
+}
+
+void DropCache(nui_window& window) {
+    window.cacheValid = false;
+    window.cacheSurface.reset();
+    window.cacheTexture = nullptr;
+}
+
+SkFontMgr* GetFontMgr() {
+    if (!g.fontMgr) {
+#if defined(__linux__)
+        g.fontMgr =
+            SkFontMgr_New_FontConfig(nullptr, SkFontScanner_Make_FreeType());
+#elif defined(__APPLE__)
+        g.fontMgr = SkFontMgr_New_CoreText(nullptr);
+#elif defined(_WIN32)
+        g.fontMgr = SkFontMgr_New_DirectWrite();
+#endif
+        if (!g.fontMgr) Log("could not create platform font manager");
+    }
+    return g.fontMgr.get();
+}
+
+bool FontSizeValid(float size) {
+    return std::isfinite(size) && size > 0 && size <= 4096;
+}
+
+SkFont* ResolveFont(uint32_t family, int32_t weight,
+                    int32_t slant, float size) {
+    if (!FontSizeValid(size)) return nullptr;
+    weight = std::clamp(weight, 100, 900);
+    slant = std::clamp(slant, 0, 2);
+
+    const FontKey key{family, weight, slant, size};
+    if (auto it = g.fonts.find(key); it != g.fonts.end()) {
+        return &it->second;
+    }
+
+    auto* manager = GetFontMgr();
+    if (!manager) return nullptr;
+
+    const SkFontStyle requested(
+        weight, SkFontStyle::kNormal_Width,
+        static_cast<SkFontStyle::Slant>(slant));
+
+    sk_sp<SkTypeface> typeface;
+    if (auto it = g.families.find(family); it != g.families.end()) {
+        const auto& registered = it->second;
+        if (registered.isName) {
+            typeface =
+                manager->matchFamilyStyle(registered.name.c_str(), requested);
+        } else if (registered.data) {
+            int bestScore = INT_MAX;
+            for (int index = 0; index < 64; ++index) {
+                auto candidate =
+                    manager->makeFromData(registered.data, index);
+                if (!candidate) break;
+                const auto style = candidate->fontStyle();
+                const int score =
+                    std::abs(style.weight() - weight) * 4 +
+                    std::abs(static_cast<int>(style.slant()) - slant);
+                if (score < bestScore) {
+                    bestScore = score;
+                    typeface = std::move(candidate);
+                }
             }
-            while (lo > 0 && (text[lo] & 0xC0) == 0x80) lo--; // don't split UTF-8
-            owned.assign(text, lo);
-            owned += kEllipsis;
-            draw_text = owned.data();
-            draw_len = owned.size();
         }
     }
 
-    SkPaint paint;
-    paint.setColor(ToSkColor(c.color));
-    paint.setAntiAlias(true);
-    SkFontMetrics metrics;
-    font->getMetrics(&metrics);
-    float baseline = c.bounds_y - metrics.fAscent; // fAscent is negative
-    sk_sp<SkTextBlob> blob =
-        SkTextBlob::MakeFromText(draw_text, draw_len, *font, SkTextEncoding::kUTF8);
-    if (blob) canvas->drawTextBlob(blob.get(), c.bounds_x, baseline, paint);
+    if (!typeface) {
+        typeface = manager->matchFamilyStyle(nullptr, requested);
+    }
+    if (!typeface) return nullptr;
+
+    // Bounded exact-size cache: measurements and drawing use identical sizes.
+    // No caller retains a pointer across another ResolveFont call.
+    if (g.fonts.size() >= kMaxFontCacheEntries) g.fonts.clear();
+    return &g.fonts.emplace(key, SkFont(typeface, size)).first->second;
 }
 
-void ReplayCommands(SkCanvas* canvas, skgpu::graphite::Recorder* recorder,
-                    const UiDrawCmd* cmds, int32_t n,
-                    const UiRect* damage, int32_t n_damage, float content_scale) {
-    canvas->save();
-    canvas->scale(content_scale, content_scale); // DIP -> device pixels
-    for (int32_t i = 0; i < n; i++) {
-        const UiDrawCmd& c = cmds[i];
-        // Stack ops are never damage-culled: dropping a push while keeping its
-        // content would corrupt the canvas state.
-        bool is_stack_op = c.tag == UI_CMD_PUSH_CLIP || c.tag == UI_CMD_POP_CLIP ||
-                           c.tag == UI_CMD_PUSH_OPACITY || c.tag == UI_CMD_POP_OPACITY;
-        if (!is_stack_op && n_damage > 0 && damage &&
-            !RectHitsDamage(c, damage, n_damage)) {
+SkColor Color(const uint8_t rgba[4]) {
+    return SkColorSetARGB(rgba[3], rgba[0], rgba[1], rgba[2]);
+}
+
+SkRect Bounds(const UiDrawCmd& command) {
+    return SkRect::MakeXYWH(command.bounds_x, command.bounds_y,
+                            command.bounds_w, command.bounds_h);
+}
+
+bool RectValid(float x, float y, float width, float height) {
+    return std::isfinite(x) && std::isfinite(y) &&
+           std::isfinite(width) && std::isfinite(height) &&
+           width >= 0 && height >= 0 &&
+           std::isfinite(x + width) && std::isfinite(y + height);
+}
+
+// Strict UTF-8 validation; never reads beyond [bytes, bytes + length).
+// When requested, boundaries contains 0 and every complete code-point end.
+bool Utf8(const uint8_t* bytes, int64_t length,
+          std::vector<size_t>* boundaries = nullptr) {
+    if (length < 0 || length > kMaxTextBytes ||
+        (length > 0 && !bytes)) return false;
+
+    if (boundaries) {
+        boundaries->clear();
+        boundaries->push_back(0);
+    }
+
+    const size_t size = static_cast<size_t>(length);
+    size_t offset = 0;
+    while (offset < size) {
+        const uint8_t lead = bytes[offset];
+        size_t count = 0;
+        uint32_t value = 0;
+        uint32_t minimum = 0;
+
+        if (lead < 0x80) {
+            count = 1;
+            value = lead;
+        } else if (lead >= 0xC2 && lead <= 0xDF) {
+            count = 2;
+            value = lead & 0x1F;
+            minimum = 0x80;
+        } else if (lead >= 0xE0 && lead <= 0xEF) {
+            count = 3;
+            value = lead & 0x0F;
+            minimum = 0x800;
+        } else if (lead >= 0xF0 && lead <= 0xF4) {
+            count = 4;
+            value = lead & 0x07;
+            minimum = 0x10000;
+        } else {
+            return false;
+        }
+
+        if (count > size - offset) return false;
+        for (size_t index = 1; index < count; ++index) {
+            const uint8_t next = bytes[offset + index];
+            if ((next & 0xC0) != 0x80) return false;
+            value = (value << 6) | (next & 0x3F);
+        }
+        if (value < minimum || value > 0x10FFFF ||
+            (value >= 0xD800 && value <= 0xDFFF)) return false;
+
+        offset += count;
+        if (boundaries) boundaries->push_back(offset);
+    }
+    return true;
+}
+
+// Validate before touching the persistent canvas or shared recorder.
+bool ValidateCommands(const UiDrawCmd* commands, int32_t count) {
+    if (count < 0 || count > kMaxCommands ||
+        (count > 0 && !commands)) return false;
+
+    std::vector<uint8_t> scopes;
+    for (int32_t index = 0; index < count; ++index) {
+        const auto& command = commands[index];
+        if (command.tag > UI_CMD_IMAGE) return false;
+
+        if (command.tag == UI_CMD_POP_CLIP ||
+            command.tag == UI_CMD_POP_OPACITY) {
+            const uint8_t expected =
+                command.tag == UI_CMD_POP_CLIP
+                    ? UI_CMD_PUSH_CLIP : UI_CMD_PUSH_OPACITY;
+            if (scopes.empty() || scopes.back() != expected) return false;
+            scopes.pop_back();
             continue;
         }
-        switch (c.tag) {
+
+        if (!RectValid(command.bounds_x, command.bounds_y,
+                       command.bounds_w, command.bounds_h)) return false;
+
+        if (command.tag == UI_CMD_PUSH_CLIP ||
+            command.tag == UI_CMD_PUSH_OPACITY) {
+            if (scopes.size() >= kMaxScopeDepth) return false;
+            scopes.push_back(command.tag);
+        }
+
+        if (command.tag == UI_CMD_TEXT) {
+            if (!FontSizeValid(command.font_size) ||
+                !Utf8(command.text_ptr, command.text_len) ||
+                (command.truncated &&
+                 !std::isfinite(command.max_width))) return false;
+        }
+
+        if (command.tag == UI_CMD_IMAGE &&
+            !RectValid(command.src_x, command.src_y,
+                       command.src_w, command.src_h)) return false;
+    }
+    return scopes.empty();
+}
+
+void DrawRect(SkCanvas* canvas, const UiDrawCmd& command) {
+    const SkRect rect = Bounds(command);
+    if (rect.isEmpty()) return;
+
+    const float radius = std::min(
+        static_cast<float>(command.radius),
+        std::min(command.bounds_w, command.bounds_h) * 0.5f);
+    const SkRRect outer = SkRRect::MakeRectXY(rect, radius, radius);
+
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setColor(Color(command.color));
+    canvas->drawRRect(outer, paint);
+
+    if (!command.border_width) return;
+
+    paint.setColor(Color(command.border_color));
+    const float width = static_cast<float>(command.border_width);
+
+    // A border consuming either dimension fills the entire outer shape.
+    if (2 * width >= std::min(rect.width(), rect.height())) {
+        canvas->drawRRect(outer, paint);
+        return;
+    }
+
+    SkRect innerRect = rect;
+    innerRect.inset(width, width);
+    const float innerRadius = std::max(0.0f, radius - width);
+    const SkRRect inner =
+        SkRRect::MakeRectXY(innerRect, innerRadius, innerRadius);
+    canvas->drawDRRect(outer, inner, paint);
+}
+
+void DrawImage(SkCanvas* canvas, const UiDrawCmd& command) {
+    auto it = g.images.find(command.image);
+    if (it == g.images.end() ||
+        command.bounds_w <= 0 || command.bounds_h <= 0 ||
+        command.src_w <= 0 || command.src_h <= 0) return;
+
+    auto& entry = it->second;
+    const bool needMips = command.interp == 1;
+
+    if (!entry.texture || (needMips && !entry.mipmapped)) {
+        SkImage::RequiredProperties properties{};
+        properties.fMipmapped = needMips;
+        auto texture = SkImages::TextureFromImage(
+            g.recorder.get(), entry.raster.get(), properties);
+        if (!texture) return;
+        entry.texture = std::move(texture);
+        entry.mipmapped = needMips;
+    }
+
+    SkSamplingOptions sampling;
+    switch (command.interp) {
+        case 1:
+            sampling = SkSamplingOptions(
+                SkFilterMode::kLinear, SkMipmapMode::kLinear);
+            break;
+        case 2:
+            sampling = SkSamplingOptions(
+                SkFilterMode::kLinear, SkMipmapMode::kNone);
+            break;
+        case 3:
+            sampling = SkSamplingOptions(
+                SkFilterMode::kNearest, SkMipmapMode::kNone);
+            break;
+        default:
+            sampling = SkSamplingOptions(SkCubicResampler::Mitchell());
+            break;
+    }
+
+    const SkRect source = SkRect::MakeXYWH(
+        command.src_x, command.src_y, command.src_w, command.src_h);
+    canvas->drawImageRect(
+        entry.texture.get(), source, Bounds(command), sampling, nullptr,
+        SkCanvas::kStrict_SrcRectConstraint);
+}
+
+void DrawText(SkCanvas* canvas, const UiDrawCmd& command) {
+    if (command.text_len == 0) return;
+    if (command.truncated && command.max_width <= 0) return;
+
+    auto* font = ResolveFont(
+        command.font, command.font_weight, command.font_slant,
+        command.font_size);
+    if (!font) return;
+
+    const auto* text = reinterpret_cast<const char*>(command.text_ptr);
+    size_t length = static_cast<size_t>(command.text_len);
+    std::string owned;
+
+    if (command.truncated) {
+        const float fullWidth =
+            font->measureText(text, length, SkTextEncoding::kUTF8);
+        if (!std::isfinite(fullWidth)) return;
+
+        if (fullWidth > command.max_width) {
+            constexpr char ellipsis[] = "\xE2\x80\xA6";
+            const float ellipsisWidth =
+                font->measureText(ellipsis, 3, SkTextEncoding::kUTF8);
+            if (!std::isfinite(ellipsisWidth) ||
+                ellipsisWidth > command.max_width) return;
+
+            std::vector<size_t> boundaries;
+            if (!Utf8(command.text_ptr, command.text_len, &boundaries)) return;
+
+            const float available = command.max_width - ellipsisWidth;
+            size_t low = 0;
+            size_t high = boundaries.size() - 1;
+
+            while (low < high) {
+                const size_t middle = low + (high - low + 1) / 2;
+                const float measured = font->measureText(
+                    text, boundaries[middle], SkTextEncoding::kUTF8);
+                if (std::isfinite(measured) && measured <= available) {
+                    low = middle;
+                } else {
+                    high = middle - 1;
+                }
+            }
+
+            owned.assign(text, boundaries[low]);
+            owned.append(ellipsis, 3);
+            text = owned.data();
+            length = owned.size();
+        }
+    }
+
+    SkFontMetrics metrics;
+    font->getMetrics(&metrics);
+    const float baseline = command.bounds_y - metrics.fAscent;
+    if (!std::isfinite(baseline)) return;
+
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setColor(Color(command.color));
+
+    auto blob = SkTextBlob::MakeFromText(
+        text, length, *font, SkTextEncoding::kUTF8);
+    if (blob) {
+        canvas->drawTextBlob(blob.get(), command.bounds_x, baseline, paint);
+    }
+}
+
+void Replay(SkCanvas* canvas, const UiDrawCmd* commands,
+            int32_t count, float scale) {
+    // Restores the original save count even if a C++ allocation throws.
+    SkAutoCanvasRestore restore(canvas, true);
+    canvas->scale(scale, scale);
+
+    for (int32_t index = 0; index < count; ++index) {
+        const auto& command = commands[index];
+        switch (command.tag) {
             case UI_CMD_RECT:
             case UI_CMD_OVERLAY:
-                DrawRectCmd(canvas, c);
+                DrawRect(canvas, command);
                 break;
             case UI_CMD_TEXT:
-                DrawTextCmd(canvas, c);
+                DrawText(canvas, command);
                 break;
             case UI_CMD_IMAGE:
-                DrawImageCmd(canvas, recorder, c);
+                DrawImage(canvas, command);
                 break;
             case UI_CMD_PUSH_CLIP:
                 canvas->save();
                 canvas->clipRect(
-                    SkRect::MakeXYWH(c.bounds_x, c.bounds_y, c.bounds_w, c.bounds_h),
-                    SkClipOp::kIntersect, /*doAntiAlias=*/true);
-                break;
-            case UI_CMD_POP_CLIP:
-                canvas->restore();
+                    Bounds(command), SkClipOp::kIntersect, true);
                 break;
             case UI_CMD_PUSH_OPACITY: {
-                SkRect b = SkRect::MakeXYWH(c.bounds_x, c.bounds_y, c.bounds_w, c.bounds_h);
-                canvas->saveLayerAlpha(&b, c.opacity);
+                const SkRect bounds = Bounds(command);
+                canvas->saveLayerAlpha(&bounds, command.opacity);
                 break;
             }
+            case UI_CMD_POP_CLIP:
             case UI_CMD_POP_OPACITY:
                 canvas->restore();
                 break;
         }
     }
-    canvas->restore();
 }
 
-} // namespace
-
-// Per-window state: this struct IS the opaque nui_window. Everything
-// surface-shaped lives here; the shared device/context/recorder/fonts
-// are in g_shared above.
-struct nui_window {
-    wgpu::Surface surface;
-    wgpu::SurfaceConfiguration surfaceConfig{};
-
-    // All GPU work is completed before cache retirement or surface reconfiguration.
-    wgpu::Texture cacheTexture;
-    sk_sp<SkSurface> cacheSurface;
-    bool cacheValid = false;
-    bool suspended = false;
-    uint64_t targetFrameTimeNs = 1'000'000'000 / 60;
-    uint64_t nextFrameTimeNs = 0;
-    uint64_t replays = 0, copies = 0, configurations = 0, acquireFailures = 0;
-};
-
-namespace {
-
-// ---- frame -----------------------------------------------------------------
-
-// Wait for direct Dawn copies too: Graphite's CPU synchronization alone does
-// not cover work submitted after its last submission. The callback owns its
-// result storage even if WaitAny fails before invoking it.
-bool DrainQueue() {
-    Shared& sh = g_shared;
-    auto success = std::make_shared<bool>(false);
-    auto future = sh.backendContext.fQueue.OnSubmittedWorkDone(
-        wgpu::CallbackMode::WaitAnyOnly,
-        [success](wgpu::QueueWorkDoneStatus status, wgpu::StringView) {
-            *success = status == wgpu::QueueWorkDoneStatus::Success;
-        });
-    auto status = sh.backendContext.fInstance.WaitAny(future, UINT64_MAX);
-    return status == wgpu::WaitStatus::Success && *success;
-}
-
-void Trace(const nui_window& w) {
-    if (g_shared.trace) fprintf(stderr,
-        "nui: replays=%llu copies=%llu configurations=%llu acquire_failures=%llu size=%ux%u valid=%d\n",
-        (unsigned long long)w.replays, (unsigned long long)w.copies,
-        (unsigned long long)w.configurations, (unsigned long long)w.acquireFailures,
-        w.surfaceConfig.width, w.surfaceConfig.height, w.cacheValid);
-}
-
-void Pace(nui_window& w) {
-    auto now = NowNs();
-    if (now < w.nextFrameTimeNs)
-        std::this_thread::sleep_for(std::chrono::nanoseconds(w.nextFrameTimeNs - now));
-    w.nextFrameTimeNs = NowNs() + w.targetFrameTimeNs;
-}
-
-bool EnsureCache(nui_window& w) {
-    Shared& sh = g_shared;
-    if (w.cacheSurface) return true;
-    wgpu::TextureDescriptor desc{};
-    desc.label = "Niello owned frame cache";
-    desc.size = {w.surfaceConfig.width, w.surfaceConfig.height, 1};
-    desc.format = w.surfaceConfig.format;
-    desc.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc |
-                 wgpu::TextureUsage::TextureBinding;
-    w.cacheTexture = sh.backendContext.fDevice.CreateTexture(&desc);
-    if (!w.cacheTexture) return false;
-    auto backend = skgpu::graphite::BackendTextures::MakeDawn(w.cacheTexture.Get());
-    // The shared recorder records into this window's cache surface; the
-    // recording is snapped + submitted before another window records.
-    w.cacheSurface = SkSurfaces::WrapBackendTexture(
-        sh.recorder.get(), backend, SkColorSpace::MakeSRGB(), nullptr);
-    return bool(w.cacheSurface);
-}
-
-bool PresentCache(nui_window& w) {
-    Shared& sh = g_shared;
-    if (w.suspended || !w.cacheValid || !w.cacheSurface ||
-        w.cacheTexture.GetWidth() != w.surfaceConfig.width ||
-        w.cacheTexture.GetHeight() != w.surfaceConfig.height ||
-        w.cacheTexture.GetFormat() != w.surfaceConfig.format) return false;
-    wgpu::SurfaceTexture acquired;
-    w.surface.GetCurrentTexture(&acquired);
-    if ((acquired.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal &&
-         acquired.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) ||
-        !acquired.texture) {
-        ++w.acquireFailures;
-        Trace(w);
-        return false;
+wgpu::TextureFormat PickFormat(const wgpu::SurfaceCapabilities& capabilities) {
+    for (size_t index = 0; index < capabilities.formatCount; ++index) {
+        if (capabilities.formats[index] == wgpu::TextureFormat::BGRA8Unorm) {
+            return wgpu::TextureFormat::BGRA8Unorm;
+        }
     }
-    if (acquired.texture.GetWidth() != w.surfaceConfig.width ||
-        acquired.texture.GetHeight() != w.surfaceConfig.height ||
-        acquired.texture.GetFormat() != w.surfaceConfig.format) return false;
-    auto encoder = sh.backendContext.fDevice.CreateCommandEncoder();
-    if (!encoder) return false;
-    wgpu::TexelCopyTextureInfo src{}, dst{};
-    src.texture = w.cacheTexture;
-    dst.texture = acquired.texture;
-    wgpu::Extent3D size{w.surfaceConfig.width, w.surfaceConfig.height, 1};
-    encoder.CopyTextureToTexture(&src, &dst, &size);
-    auto commands = encoder.Finish();
-    if (!commands) return false;
-    // Graphite submits on this very queue before this copy; queue order makes
-    // the complete repaint visible. Bound outstanding work before returning.
-    sh.backendContext.fQueue.Submit(1, &commands);
-    if (!DrainQueue()) { w.cacheValid = false; return false; }
-    if (w.surface.Present() != wgpu::Status::Success) return false;
-    ++w.copies;
-    if (w.copies % 60 == 0) Trace(w);
-    return true;
-}
-
-void ResizeSurface(nui_window& w, uint32_t width, uint32_t height) {
-    w.suspended = width == 0 || height == 0;
-    if (w.suspended) { w.cacheValid = false; return; }
-    if (w.surfaceConfig.width == width && w.surfaceConfig.height == height) return;
-    w.cacheValid = false;
-    // The queue is SHARED: this sync drains every window's outstanding
-    // work, so reconfiguring one window briefly stalls the others'
-    // submissions. Rare and short; accepted for v1 (the marker-scoped
-    // wait in DrainQueue's helper is the known refinement).
-    if (!g_shared.context->submit(skgpu::graphite::SyncToCpu::kYes) || !DrainQueue()) {
-        w.suspended = true;
-        fprintf(stderr, "nui: GPU synchronization failed during resize; presentation suspended\n");
-        return;
+    for (size_t index = 0; index < capabilities.formatCount; ++index) {
+        if (capabilities.formats[index] == wgpu::TextureFormat::RGBA8Unorm) {
+            return wgpu::TextureFormat::RGBA8Unorm;
+        }
     }
-    // Release Graphite's wrapper before its externally owned Dawn texture.
-    w.cacheSurface.reset();
-    w.cacheTexture = nullptr;
-    w.surfaceConfig.width = width;
-    w.surfaceConfig.height = height;
-    w.surface.Configure(&w.surfaceConfig);
-    ++w.configurations;
-    Trace(w);
-}
-
-} // namespace
-
-// ---- public C API ----------------------------------------------------------
-
-
-// Surface format pick: deterministic, never capabilities order (that order
-// is driver/compositor enumeration accident and carries no contract).
-//
-// The cache SkSurface declares an sRGB colorspace, so Skia performs the
-// gamma encode itself and the texture must store the encoded bytes raw. An
-// -Srgb texture format makes the hardware encode a second time on write,
-// which washes the image out (seen on X11, whose Dawn offers
-// BGRA8UnormSrgb first; Wayland happened to offer a working format first).
-// Following WebGPU's canvas model, the surface format is therefore always
-// the plain Unorm variant: BGRA8Unorm where offered, RGBA8Unorm otherwise.
-// If neither is offered the backend cannot guarantee correct color, so init
-// fails loudly instead of silently degrading.
-wgpu::TextureFormat PickSurfaceFormat(const wgpu::SurfaceCapabilities& caps) {
-    bool have_bgra = false, have_rgba = false;
-    for (size_t i = 0; i < caps.formatCount; i++) {
-        have_bgra |= caps.formats[i] == wgpu::TextureFormat::BGRA8Unorm;
-        have_rgba |= caps.formats[i] == wgpu::TextureFormat::RGBA8Unorm;
-    }
-    if (have_bgra) return wgpu::TextureFormat::BGRA8Unorm;
-    if (have_rgba) return wgpu::TextureFormat::RGBA8Unorm;
     return wgpu::TextureFormat::Undefined;
 }
 
-const char* FormatName(wgpu::TextureFormat f) {
-    switch (f) {
-        case wgpu::TextureFormat::BGRA8Unorm: return "BGRA8Unorm";
-        case wgpu::TextureFormat::RGBA8Unorm: return "RGBA8Unorm";
-        default:                              return "other";
-    }
-}
+bool Configure(nui_window& window) {
+    if (!Ready() || !window.width || !window.height ||
+        !DimensionsValid(window.width, window.height)) return false;
 
-int32_t nui_init(void) {
-    Shared& sh = g_shared;
-    if (sh.context) return 0; // already up
+    if (window.configured && !window.recreateSurface &&
+        window.config.width == window.width &&
+        window.config.height == window.height) return true;
 
-    // 1. Dawn backend context.
-    sh.backendContext = GetDawnContext();
+    // Cache retirement and native swapchain changes are cold paths.
+    if (!Synchronize()) return false;
 
-    // 2. Graphite context + the one shared recorder.
-    skgpu::graphite::ContextOptions options;
-    sh.context = skgpu::graphite::ContextFactory::MakeDawn(sh.backendContext, options);
-    if (!sh.context) {
-        printf("nui_init: could not make Graphite context\n");
-        nui_shutdown();
-        return -1;
-    }
-    sh.recorder = sh.context->makeRecorder();
-    if (!sh.recorder) {
-        printf("nui_init: could not make recorder\n");
-        nui_shutdown();
-        return -1;
-    }
-    return 0;
-}
-
-nui_window* nui_create_window(const UiNativeHandles* handles, uint32_t width_px, uint32_t height_px) {
-    Shared& sh = g_shared;
-    if (!sh.context) {
-        printf("nui_create_window: nui_init has not run\n");
-        return nullptr;
-    }
-    if (!handles || !handles->driver) {
-        printf("nui_create_window: null handles\n");
-        return nullptr;
-    }
-    auto win = std::make_unique<nui_window>();
-
-    // Dawn surface from the platform handles (no SDL on this side).
-    win->surface = CreateDawnSurface(sh.backendContext.fInstance, handles);
-    if (!win->surface) {
-        printf("nui_create_window: could not create Dawn surface\n");
-        return nullptr;
+    if (window.recreateSurface || !window.surface) {
+        window.configured = false;
+        window.surface = nullptr;
+        window.surface =
+            CreateDawnSurface(g.backend.fInstance, &window.handles);
+        if (!window.surface) return false;
+        window.recreateSurface = false;
     }
 
-    wgpu::SurfaceCapabilities capabilities;
-    if (!win->surface.GetCapabilities(sh.backendContext.fDevice.GetAdapter(), &capabilities)) {
-        fprintf(stderr, "nui_create_window: surface capability query failed\n");
-        return nullptr;
-    }
-    if (!(capabilities.usages & wgpu::TextureUsage::CopyDst) || capabilities.formatCount == 0) {
-        fprintf(stderr, "nui_create_window: B1 requires a surface supporting CopyDst and a texture format\n");
-        return nullptr;
+    wgpu::SurfaceCapabilities capabilities{};
+    if (!window.surface.GetCapabilities(
+            g.backend.fDevice.GetAdapter(), &capabilities) ||
+        !(capabilities.usages & wgpu::TextureUsage::CopyDst)) {
+        Log("surface does not support the required CopyDst path");
+        return false;
     }
 
-    win->surfaceConfig.device = sh.backendContext.fDevice;
-    win->surfaceConfig.format = PickSurfaceFormat(capabilities);
-    if (win->surfaceConfig.format == wgpu::TextureFormat::Undefined) {
-        fprintf(stderr, "nui_create_window: surface offers no BGRA8Unorm/RGBA8Unorm format (required for correct color)\n");
-        return nullptr;
-    }
-    printf("nui: surface format %s\n", FormatName(win->surfaceConfig.format));
-    win->surfaceConfig.usage = wgpu::TextureUsage::CopyDst;
-    win->surfaceConfig.width = width_px;
-    win->surfaceConfig.height = height_px;
-    win->surfaceConfig.presentMode = wgpu::PresentMode::Fifo;
-    win->suspended = width_px == 0 || height_px == 0;
-    if (!win->suspended) {
-        win->surface.Configure(&win->surfaceConfig);
-        ++win->configurations;
+    const auto format = PickFormat(capabilities);
+    if (format == wgpu::TextureFormat::Undefined ||
+        capabilities.alphaModeCount == 0) {
+        Log("surface has no supported format/alpha mode");
+        return false;
     }
 
-    // Refresh rate defaults to 60 Hz; the Odin side overrides it via
-    // nui_set_refresh_rate at startup and on display changes.
-    win->nextFrameTimeNs = NowNs();
-    ++sh.window_count;
-    return win.release();
-}
-
-void nui_destroy_window(nui_window* win) {
-    if (!win) return;
-    Shared& sh = g_shared;
-    // Finish GPU work, then tear down. The queue is shared, so this
-    // drains every window's outstanding submissions (same discipline
-    // as resize). The SDL window is NOT destroyed here: Odin owns it.
-    if (sh.context) {
-        sh.context->submit(skgpu::graphite::SyncToCpu::kYes);
+    bool fifo = false;
+    for (size_t index = 0; index < capabilities.presentModeCount; ++index) {
+        fifo |= capabilities.presentModes[index] == wgpu::PresentMode::Fifo;
     }
-    if (sh.backendContext.fQueue) DrainQueue();
-    Trace(*win);
-    win->cacheValid = false;
-    win->cacheSurface.reset(); // Graphite's wrapper before its Dawn texture
-    win->cacheTexture = nullptr;
-    win->surface = nullptr;
-    win->surfaceConfig.device = nullptr; // drop the device ref
-    win->surfaceConfig = {};
-    --sh.window_count;
-    delete win;
-}
-
-void nui_resize(nui_window* win, uint32_t width_px, uint32_t height_px) {
-    if (!win || !g_shared.context) return;
-    ResizeSurface(*win, width_px, height_px);
-}
-
-void nui_set_refresh_rate(nui_window* win, float hz) {
-    if (win && hz > 0 && hz < 300) win->targetFrameTimeNs = (uint64_t)(1e9 / hz);
-}
-
-int32_t nui_is_resizing(nui_window* win) { (void)win; return 0; } // Fifo throughout; no debounce.
-
-int32_t nui_present_cached(nui_window* win) {
-    if (!win || !g_shared.context) return 0;
-    Pace(*win);
-    if (win->suspended) return 0;
-    return PresentCache(*win) ? 1 : 0;
-}
-
-int32_t nui_render(nui_window* win, const UiDrawCmd* cmds, int32_t n_cmds,
-                const UiRect* damage, int32_t n_damage, float content_scale) {
-    Shared& sh = g_shared;
-    (void)damage; (void)n_damage; // Full clear requires full replay.
-    if (!win || !sh.context) return 0;
-    Pace(*win);
-    if (win->suspended) return 0;
-    win->cacheValid = false;
-    if (!EnsureCache(*win)) return 0;
-    auto canvas = win->cacheSurface->getCanvas();
-    canvas->clear(SkColors::kBlack);
-    ReplayCommands(canvas, sh.recorder.get(), cmds, n_cmds, nullptr, 0, content_scale);
-    ++win->replays;
-    auto recording = sh.recorder->snap();
-    if (!recording) return 0;
-    skgpu::graphite::InsertRecordingInfo info;
-    info.fRecording = recording.get();
-    if (!sh.context->insertRecording(info) || !sh.context->submit()) return 0;
-    win->cacheValid = true;
-    return PresentCache(*win) ? 1 : 0;
-}
-
-void nui_register_font(uint32_t family, const char* path) {
-    if (!path) return;
-    sk_sp<SkData> data = SkData::MakeFromFileName(path);
-    if (!data) {
-        printf("nui_register_font: could not load '%s'\n", path);
-        return;
+    if (!fifo) {
+        Log("surface does not support FIFO presentation");
+        return false;
     }
-    Shared::FontFamily& fam = g_shared.families[family];
-    fam.is_name = false;
-    fam.data = data;
-    fam.name.clear();
-    // Registration is cold; drop cached fonts so a re-registration can't go stale.
-    g_shared.font_cache.clear();
-}
 
-void nui_register_font_family(uint32_t family, const char* name) {
-    if (!name) return;
-    Shared::FontFamily& fam = g_shared.families[family];
-    fam.is_name = true;
-    fam.name = name;
-    fam.data.reset();
-    g_shared.font_cache.clear();
-}
+    if (window.config.width != window.width ||
+        window.config.height != window.height ||
+        window.config.format != format) {
+        DropCache(window);
+    }
 
-float nui_measure_word(uint32_t family, int32_t weight, int32_t slant, float size_px,
-                       const uint8_t* text, int64_t len) {
-    SkFont* f = ResolveFont(family, weight, slant, size_px);
-    if (!f || !text || len <= 0) return 0.0f;
-    return f->measureText(text, (size_t)len, SkTextEncoding::kUTF8);
-}
+    window.config = {};
+    window.config.device = g.backend.fDevice;
+    window.config.format = format;
+    window.config.usage = wgpu::TextureUsage::CopyDst;
+    window.config.width = window.width;
+    window.config.height = window.height;
+    window.config.presentMode = wgpu::PresentMode::Fifo;
+    window.config.alphaMode = capabilities.alphaModes[0];
 
-float nui_line_height(uint32_t family, int32_t weight, int32_t slant, float size_px) {
-    SkFont* f = ResolveFont(family, weight, slant, size_px);
-    if (!f) return 0.0f;
-    SkFontMetrics metrics;
-    f->getMetrics(&metrics);
-    return -metrics.fAscent + metrics.fDescent + metrics.fLeading;
-}
-
-uint32_t nui_image_decode(const uint8_t* bytes, int32_t len, int32_t max_w, int32_t max_h,
-                          float* out_w, float* out_h) {
-    if (!bytes || len <= 0) return 0;
-    sk_sp<SkData> data = SkData::MakeWithCopy(bytes, (size_t)len);
-    std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(data);
-    if (!codec) return 0;
-    const SkImageInfo info = codec->getInfo();
-    const int nat_w = info.width(), nat_h = info.height();
-    if (nat_w <= 0 || nat_h <= 0) return 0;
-
-    // Shrink-only, aspect-preserving (one axis may be 0 =
-    // unconstrained): Avalonia's DecodeToWidth/Height semantics.
-    double scale = 1.0;
-    if (max_w > 0) scale = std::min(scale, (double)max_w / nat_w);
-    if (max_h > 0) scale = std::min(scale, (double)max_h / nat_h);
-    const int tw = std::max(1, (int)std::lround(nat_w * scale));
-    const int th = std::max(1, (int)std::lround(nat_h * scale));
-
-    // Decode to pixels here, converted to N32: the codec's
-    // native format for e.g. an opaque PNG is RGB_888x, which
-    // Graphite/Dawn cannot texturize — a deferred
-    // (generator-backed) image in that format failed key
-    // creation at draw time on the first field build and every
-    // draw was dropped. Raster + N32 is the shape that draws;
-    // the cost is decoded pixels pinned instead of encoded
-    // bytes retained.
-    const SkImageInfo dst_info = info.makeColorType(kN32_SkColorType);
-    SkBitmap full;
-    if (!full.tryAllocPixels(dst_info)) return 0;
-    if (codec->getPixels(full.pixmap()) != SkCodec::kSuccess) return 0;
-    sk_sp<SkImage> img = SkImages::RasterFromBitmap(full);
-    if (!img) return 0;
-    if (tw != nat_w || th != nat_h) {
-        SkBitmap small;
-        if (small.tryAllocPixels(dst_info.makeWH(tw, th)) &&
-            img->scalePixels(small.pixmap(),
-                             SkSamplingOptions(SkCubicResampler::Mitchell()))) {
-            img = SkImages::RasterFromBitmap(small);
+    // Prefer opaque composition for this opaque-black-backed renderer.
+    for (size_t index = 0; index < capabilities.alphaModeCount; ++index) {
+        if (capabilities.alphaModes[index] ==
+            wgpu::CompositeAlphaMode::Opaque) {
+            window.config.alphaMode = wgpu::CompositeAlphaMode::Opaque;
+            break;
         }
     }
 
-    const uint32_t id = g_shared.next_image_id++;
-    g_shared.images[id].raster = img;
-    if (out_w) *out_w = (float)tw;
-    if (out_h) *out_h = (float)th;
+    window.surface.Configure(&window.config);
+    if (!Ready()) return false;
+
+    window.configured = true;
+    ++window.configurations;
+    Trace(window);
+    return true;
+}
+
+bool EnsureCache(nui_window& window) {
+    if (window.cacheSurface) return true;
+
+    wgpu::TextureDescriptor desc{};
+    desc.label = "Niello owned frame cache";
+    desc.size = {window.width, window.height, 1};
+    desc.format = window.config.format;
+    desc.usage = wgpu::TextureUsage::RenderAttachment |
+                 wgpu::TextureUsage::CopySrc |
+                 wgpu::TextureUsage::TextureBinding;
+
+    auto texture = g.backend.fDevice.CreateTexture(&desc);
+    if (!texture || !Ready()) return false;
+
+    const auto backend =
+        skgpu::graphite::BackendTextures::MakeDawn(texture.Get());
+    auto surface = SkSurfaces::WrapBackendTexture(
+        g.recorder.get(), backend, SkColorSpace::MakeSRGB(), nullptr);
+    if (!surface) return false;
+
+    window.cacheTexture = std::move(texture);
+    window.cacheSurface = std::move(surface);
+    return true;
+}
+
+bool Present(nui_window& window) {
+    if (!Configure(window) || !window.cacheValid ||
+        !window.cacheSurface || !window.cacheTexture) return false;
+
+    // Bounds shared-queue work without waiting after every present.
+    if (g.pendingPresentations >= kPresentationBatchSize &&
+        !DrainQueue()) return false;
+
+    wgpu::SurfaceTexture acquired{};
+    window.surface.GetCurrentTexture(&acquired);
+
+    switch (acquired.status) {
+        case wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal:
+        case wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal:
+            break;
+
+        case wgpu::SurfaceGetCurrentTextureStatus::Timeout:
+            ++window.acquireFailures;
+            return false;
+
+        case wgpu::SurfaceGetCurrentTextureStatus::Outdated:
+            ++window.acquireFailures;
+            window.configured = false;
+            return false;
+
+        case wgpu::SurfaceGetCurrentTextureStatus::Lost:
+            ++window.acquireFailures;
+            window.configured = false;
+            window.recreateSurface = true;
+            return false;
+
+        default:
+            ++window.acquireFailures;
+            g.failed = true;
+            Log("unrecoverable surface acquisition failure");
+            return false;
+    }
+
+    if (!acquired.texture || !Ready()) return false;
+
+    if (acquired.texture.GetWidth() != window.width ||
+        acquired.texture.GetHeight() != window.height ||
+        acquired.texture.GetFormat() != window.config.format) {
+        // Release the acquisition before a future reconfiguration.
+        acquired.texture = nullptr;
+        window.configured = false;
+        return false;
+    }
+
+    auto encoder = g.backend.fDevice.CreateCommandEncoder();
+    if (!encoder) {
+        g.failed = true;
+        return false;
+    }
+
+    wgpu::TexelCopyTextureInfo source{}, destination{};
+    source.texture = window.cacheTexture;
+    destination.texture = acquired.texture;
+    const wgpu::Extent3D size{window.width, window.height, 1};
+    encoder.CopyTextureToTexture(&source, &destination, &size);
+
+    auto commands = encoder.Finish();
+    if (!commands || !Ready()) {
+        g.failed = true;
+        return false;
+    }
+
+    // Graphite and this copy use the same queue. Submission order establishes
+    // the dependency; no per-frame CPU wait is required.
+    g.backend.fQueue.Submit(1, &commands);
+    ++g.pendingPresentations;
+
+    const auto status = window.surface.Present();
+    if (status != wgpu::Status::Success || !Ready()) {
+        window.configured = false;
+        return false;
+    }
+
+    if (acquired.status ==
+        wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) {
+        window.configured = false;
+    }
+
+    ++window.copies;
+    if (window.copies % 60 == 0) Trace(window);
+    return true;
+}
+
+void ResetShared() {
+    // Caller has already destroyed windows and synchronized where possible.
+    g.images.clear();
+    g.rasterBytes = 0;
+    g.fonts.clear();
+    g.families.clear();
+    g.fontMgr.reset();
+    g.recorder.reset();
+    g.context.reset();
+    g.backend = {};
+    g.maxTextureDimension = 0;
+    g.pendingPresentations = 0;
+    g.failed = false;
+}
+
+uint32_t DecodeImage(const uint8_t* bytes, int32_t length,
+                     int32_t maxWidth, int32_t maxHeight,
+                     float* outWidth, float* outHeight) {
+    if (!bytes || length <= 0 || length > kMaxEncodedBytes ||
+        maxWidth < 0 || maxHeight < 0 ||
+        g.images.size() >= kMaxImages ||
+        g_nextImageId > std::numeric_limits<uint32_t>::max()) return 0;
+
+    auto data = SkData::MakeWithCopy(bytes, static_cast<size_t>(length));
+    if (!data) return 0;
+    auto codec = SkCodec::MakeFromData(data);
+    if (!codec) return 0;
+
+    const auto info = codec->getInfo();
+    const int nativeWidth = info.width();
+    const int nativeHeight = info.height();
+    if (nativeWidth <= 0 || nativeHeight <= 0) return 0;
+
+    const uint64_t pixels =
+        static_cast<uint64_t>(nativeWidth) * nativeHeight;
+    if (pixels > kMaxImagePixels) {
+        Log("image exceeds native decode pixel limit");
+        return 0;
+    }
+
+    double scale = 1;
+    if (maxWidth > 0) {
+        scale = std::min(scale, static_cast<double>(maxWidth) / nativeWidth);
+    }
+    if (maxHeight > 0) {
+        scale = std::min(scale, static_cast<double>(maxHeight) / nativeHeight);
+    }
+
+    const int width = std::max(
+        1, static_cast<int>(std::lround(nativeWidth * scale)));
+    const int height = std::max(
+        1, static_cast<int>(std::lround(nativeHeight * scale)));
+
+    // Decoded images must eventually fit a single device texture.
+    if (g.maxTextureDimension &&
+        (static_cast<uint32_t>(width) > g.maxTextureDimension ||
+         static_cast<uint32_t>(height) > g.maxTextureDimension)) return 0;
+
+    const uint64_t finalBytes =
+        static_cast<uint64_t>(width) * height * 4;
+    const bool resize = width != nativeWidth || height != nativeHeight;
+    const uint64_t temporaryBytes = pixels * 4 +
+        (resize ? finalBytes : 0);
+
+    if (temporaryBytes > kMaxRasterBytes ||
+        g.rasterBytes > kMaxRasterBytes - temporaryBytes) {
+        Log("image decode exceeds raster memory budget");
+        return 0;
+    }
+
+    // Use premultiplied pixels for nonopaque content.
+    const auto alphaType = info.alphaType() == kOpaque_SkAlphaType
+        ? kOpaque_SkAlphaType : kPremul_SkAlphaType;
+    const auto destinationInfo =
+        info.makeColorType(kN32_SkColorType).makeAlphaType(alphaType);
+
+    SkBitmap full;
+    if (!full.tryAllocPixels(destinationInfo) ||
+        codec->getPixels(full.pixmap()) != SkCodec::kSuccess) return 0;
+    full.setImmutable();
+
+    auto image = SkImages::RasterFromBitmap(full);
+    if (!image) return 0;
+
+    if (resize) {
+        SkBitmap small;
+        if (!small.tryAllocPixels(destinationInfo.makeWH(width, height)) ||
+            !image->scalePixels(
+                small.pixmap(),
+                SkSamplingOptions(SkCubicResampler::Mitchell()))) return 0;
+
+        small.setImmutable();
+        auto resized = SkImages::RasterFromBitmap(small);
+        if (!resized) return 0;
+        image = std::move(resized);
+    }
+
+    // Reserve permanently before insertion: allocation failure may skip an ID,
+    // but can never cause a stale ID to alias a later image.
+    const uint32_t id = static_cast<uint32_t>(g_nextImageId++);
+    ImageEntry entry;
+    entry.raster = std::move(image);
+    entry.rasterBytes = finalBytes;
+    g.images.emplace(id, std::move(entry));
+    g.rasterBytes += finalBytes;
+
+    if (outWidth) *outWidth = static_cast<float>(width);
+    if (outHeight) *outHeight = static_cast<float>(height);
     return id;
 }
 
+} // namespace
+
+int32_t nui_init(void) {
+    return Api<int32_t>("nui_init", -1, [] {
+        if (g.context) return Ready() ? 0 : -1;
+
+        // Clear partial GPU initialization, but preserve pre-init font/image
+        // registrations. Their CPU-side data does not depend on a device.
+        g.recorder.reset();
+        g.context.reset();
+        g.backend = {};
+        g.failed = false;
+
+        g.backend = GetDawnContext();
+        if (!g.backend.fInstance || !g.backend.fDevice ||
+            !g.backend.fQueue || NuiDawnBackendFailed()) return -1;
+
+        wgpu::Limits limits{};
+        if (!g.backend.fDevice.GetLimits(&limits)) {
+            g.failed = true;
+            Log("could not query device limits");
+            return -1;
+        }
+        g.maxTextureDimension = limits.maxTextureDimension2D;
+
+        skgpu::graphite::ContextOptions options{};
+        g.context =
+            skgpu::graphite::ContextFactory::MakeDawn(g.backend, options);
+        if (!g.context) {
+            g.failed = true;
+            Log("could not create Graphite context");
+            return -1;
+        }
+
+        g.recorder = g.context->makeRecorder();
+        if (!g.recorder) {
+            g.failed = true;
+            Log("could not create Graphite recorder");
+            return -1;
+        }
+        return Ready() ? 0 : -1;
+    });
+}
+
+nui_window* nui_create_window(const UiNativeHandles* handles,
+                              uint32_t width, uint32_t height) {
+    return Api<nui_window*>("nui_create_window", nullptr, [&] {
+        if (!Ready() || !handles || !handles->driver ||
+            !DimensionsValid(width, height)) return static_cast<nui_window*>(nullptr);
+
+        auto window = std::make_unique<nui_window>();
+        window->driver = handles->driver;
+        window->handles = *handles;
+        window->handles.driver = window->driver.c_str();
+        window->width = width;
+        window->height = height;
+        window->surface =
+            CreateDawnSurface(g.backend.fInstance, &window->handles);
+
+        if (!window->surface) return static_cast<nui_window*>(nullptr);
+        if (width && height && !Configure(*window)) {
+            return static_cast<nui_window*>(nullptr);
+        }
+
+        window->nextFrameTimeNs = NowNs();
+        g.windows.insert(window.get());
+        return window.release();
+    });
+}
+
+void nui_destroy_window(nui_window* window) {
+    ApiVoid("nui_destroy_window", [&] {
+        if (!Live(window)) return;
+
+        // Device-loss cleanup must remain possible even after Ready() fails.
+        // On failure, handles are still released; no further rendering occurs.
+        (void)Synchronize();
+
+        Trace(*window);
+        DropCache(*window);
+        window->surface = nullptr;
+        window->config = {};
+        g.windows.erase(window);
+        delete window;
+    });
+}
+
+void nui_resize(nui_window* window, uint32_t width, uint32_t height) {
+    ApiVoid("nui_resize", [&] {
+        if (!Live(window) || !Ready()) return;
+
+        if (!DimensionsValid(width, height)) {
+            Log("resize exceeds device texture limits");
+            return;
+        }
+
+        if (window->width != width || window->height != height) {
+            window->width = width;
+            window->height = height;
+            window->configured = false;
+            window->cacheValid = false;
+            window->nextFrameTimeNs = NowNs();
+        }
+
+        // Zero size suspends without configuring a zero-sized surface.
+        if (!width || !height) {
+            window->cacheValid = false;
+            return;
+        }
+
+        // Recovery is not skipped merely because dimensions are unchanged.
+        (void)Configure(*window);
+    });
+}
+
+void nui_set_refresh_rate(nui_window* window, float hz) {
+    ApiVoid("nui_set_refresh_rate", [&] {
+        if (!Live(window) || !std::isfinite(hz) || hz < 1 || hz > 1000) return;
+        window->targetFrameTimeNs = static_cast<uint64_t>(1e9 / hz);
+        window->nextFrameTimeNs = NowNs();
+    });
+}
+
+int32_t nui_is_resizing(nui_window* window) {
+    (void)window;
+    return 0;
+}
+
+int32_t nui_present_cached(nui_window* window) {
+    return Api<int32_t>("nui_present_cached", 0, [&] {
+        if (!Live(window) || !Ready() ||
+            !window->width || !window->height) return 0;
+
+        Pace(*window);
+        return Present(*window) ? 1 : 0;
+    });
+}
+
+int32_t nui_render(nui_window* window,
+                   const UiDrawCmd* commands, int32_t count,
+                   const UiRect* damage, int32_t damageCount,
+                   float scale) {
+    return Api<int32_t>("nui_render", 0, [&] {
+        if (!Live(window) || !Ready() ||
+            !window->width || !window->height ||
+            !std::isfinite(scale) || scale <= 0 ||
+            damageCount < 0 || (damageCount > 0 && !damage)) return 0;
+
+        // Damage is intentionally ignored: the entire cache is cleared.
+        if (!ValidateCommands(commands, count)) {
+            Log("invalid render command stream");
+            return 0;
+        }
+
+        Pace(*window);
+        if (!Configure(*window)) return 0;
+
+        // Bound work before recording another frame, not only before copying.
+        if (g.pendingPresentations >= kPresentationBatchSize &&
+            !DrainQueue()) return 0;
+
+        window->cacheValid = false;
+        if (!EnsureCache(*window)) return 0;
+
+        auto* canvas = window->cacheSurface->getCanvas();
+        canvas->clear(SkColors::kBlack);
+        Replay(canvas, commands, count, scale);
+        ++window->replays;
+
+        auto recording = g.recorder->snap();
+        if (!recording) {
+            g.failed = true;
+            Log("Graphite snap failed");
+            return 0;
+        }
+
+        skgpu::graphite::InsertRecordingInfo info{};
+        info.fRecording = recording.get();
+        if (!g.context->insertRecording(info) || !g.context->submit() ||
+            !Ready()) {
+            g.failed = true;
+            Log("Graphite recording submission failed");
+            return 0;
+        }
+
+        window->cacheValid = true;
+        const bool presented = Present(*window);
+
+        // Failed acquisition must not let repeated repaints accumulate
+        // unbounded GPU work without reaching the presentation batch limit.
+        if (!presented && !g.failed) {
+            if (!DrainQueue()) return 0;
+        }
+        return presented ? 1 : 0;
+    });
+}
+
+void nui_register_font(uint32_t family, const char* path) {
+    ApiVoid("nui_register_font", [&] {
+        if (!path || !*path) return;
+        if (!g.families.contains(family) &&
+            g.families.size() >= kMaxFamilies) {
+            Log("font family limit reached");
+            return;
+        }
+
+        auto data = SkData::MakeFromFileName(path);
+        if (!data) {
+            Log("could not load font file");
+            return;
+        }
+
+        FontFamily entry;
+        entry.data = std::move(data);
+        g.families.insert_or_assign(family, std::move(entry));
+        g.fonts.clear();
+    });
+}
+
+void nui_register_font_family(uint32_t family, const char* name) {
+    ApiVoid("nui_register_font_family", [&] {
+        if (!name || !*name) return;
+        if (!g.families.contains(family) &&
+            g.families.size() >= kMaxFamilies) {
+            Log("font family limit reached");
+            return;
+        }
+
+        FontFamily entry;
+        entry.name = name;
+        entry.isName = true;
+        g.families.insert_or_assign(family, std::move(entry));
+        g.fonts.clear();
+    });
+}
+
+float nui_measure_word(uint32_t family, int32_t weight, int32_t slant,
+                        float size, const uint8_t* text, int64_t length) {
+    return Api<float>("nui_measure_word", 0.0f, [&] {
+        if (length <= 0 || !Utf8(text, length)) return 0.0f;
+        auto* font = ResolveFont(family, weight, slant, size);
+        if (!font) return 0.0f;
+
+        const float width = font->measureText(
+            text, static_cast<size_t>(length), SkTextEncoding::kUTF8);
+        return std::isfinite(width) ? width : 0.0f;
+    });
+}
+
+float nui_line_height(uint32_t family, int32_t weight, int32_t slant,
+                      float size) {
+    return Api<float>("nui_line_height", 0.0f, [&] {
+        auto* font = ResolveFont(family, weight, slant, size);
+        if (!font) return 0.0f;
+
+        SkFontMetrics metrics;
+        font->getMetrics(&metrics);
+        const float height =
+            -metrics.fAscent + metrics.fDescent + metrics.fLeading;
+        return std::isfinite(height) && height > 0 ? height : 0.0f;
+    });
+}
+
+uint32_t nui_image_decode(const uint8_t* bytes, int32_t length,
+                          int32_t maxWidth, int32_t maxHeight,
+                          float* outWidth, float* outHeight) {
+    return Api<uint32_t>("nui_image_decode", 0, [&] {
+        if (outWidth) *outWidth = 0;
+        if (outHeight) *outHeight = 0;
+        return DecodeImage(
+            bytes, length, maxWidth, maxHeight, outWidth, outHeight);
+    });
+}
+
 void nui_image_release(uint32_t id) {
-    g_shared.images.erase(id);
+    ApiVoid("nui_image_release", [&] {
+        auto it = g.images.find(id);
+        if (it == g.images.end()) return;
+
+        // Conservative cold-path synchronization for externally retained
+        // Graphite image resources.
+        (void)Synchronize();
+        g.rasterBytes -= it->second.rasterBytes;
+        g.images.erase(it);
+    });
 }
 
 void nui_shutdown(void) {
-    Shared& sh = g_shared;
-    // Finish GPU work, then tear down the shared device side. Windows
-    // must already be destroyed (a live window's surface holds device
-    // refs; wgpu handles are refcounted, so a straggler degrades to a
-    // leak, not a crash — but it IS a caller bug, so say so).
-    if (sh.window_count > 0) {
-        fprintf(stderr, "nui_shutdown: %d window(s) still live (caller bug)\n", sh.window_count);
-    }
-    if (sh.context) {
-        sh.context->submit(skgpu::graphite::SyncToCpu::kYes);
-    }
-    if (sh.backendContext.fQueue) DrainQueue();
-    sh.families.clear();
-    sh.font_cache.clear();
-    sh.images.clear();
-    sh.recorder.reset();
-    sh.context.reset();
-    sh.backendContext = {};
-    sh = Shared{};
+    ApiVoid("nui_shutdown", [] {
+        if (!g.windows.empty()) {
+            Log("shutdown refused: destroy every window first");
+            return;
+        }
+
+        (void)Synchronize();
+        ResetShared();
+
+        // The API thread remains fixed for this process lifetime. Image IDs
+        // likewise remain monotonic across shutdown/reinitialization.
+    });
 }
