@@ -1,166 +1,201 @@
-#include <iostream>
-#include <memory>
-#include <cassert>
-#include <fstream>
-#include <cstring>
-
 #include "util.h"
-#include "include/core/SkCanvas.h"
-#include "include/core/SkColorSpace.h"
-#include "include/gpu/graphite/Context.h"
-#include "include/gpu/graphite/Surface.h"
-#include "include/gpu/graphite/dawn/DawnBackendContext.h"
+
+#include <atomic>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <string_view>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "webgpu/webgpu_cpp.h"
 #include "dawn/native/DawnNative.h"
 #include "dawn/dawn_proc.h"
 
+namespace {
 
-wgpu::Surface CreateDawnSurface(const wgpu::Instance& instance, const UiNativeHandles* handles) {
-    if (!handles || !handles->driver) return nullptr;
-
-#if defined(__linux__)
-    if (strcmp(handles->driver, "wayland") == 0) {
-        wgpu::SurfaceSourceWaylandSurface waylandDesc{};
-        waylandDesc.display = handles->wl_display;
-        waylandDesc.surface = handles->wl_surface;
-
-        wgpu::SurfaceDescriptor surfaceDesc{};
-        surfaceDesc.nextInChain = &waylandDesc;
-        return instance.CreateSurface(&surfaceDesc);
-    } else { // X11
-        wgpu::SurfaceSourceXlibWindow x11Desc{};
-        x11Desc.display = handles->x11_display;
-        x11Desc.window = handles->x11_window;
-
-        wgpu::SurfaceDescriptor surfaceDesc{};
-        surfaceDesc.nextInChain = &x11Desc;
-        return instance.CreateSurface(&surfaceDesc);
-    }
-#elif defined(_WIN32)
-    wgpu::SurfaceSourceWindowsHWND winDesc{};
-    winDesc.hinstance = GetModuleHandle(nullptr);
-    winDesc.hwnd = handles->win32_hwnd;
-
-    wgpu::SurfaceDescriptor surfaceDesc{};
-    surfaceDesc.nextInChain = &winDesc;
-    return instance.CreateSurface(&surfaceDesc);
-#elif defined(__APPLE__)
-    wgpu::SurfaceSourceMetalLayer metalDesc{};
-    metalDesc.layer = handles->cocoa_layer;
-
-    wgpu::SurfaceDescriptor surfaceDesc{};
-    surfaceDesc.nextInChain = &metalDesc;
-    return instance.CreateSurface(&surfaceDesc);
-#endif
-}
-
-
-static void adapter_request(wgpu::RequestAdapterStatus status,
-                            wgpu::Adapter adapter,
-                            wgpu::StringView message,
-                            wgpu::Adapter* data) {
-
-    if (status != wgpu::RequestAdapterStatus::Success) {
-        std::cout << "Adapter request failed: " << std::string_view(message);
-        exit(1);
-    }
-    *data = adapter;
-}
-
-static void device_lost([[maybe_unused]] const wgpu::Device& device,
-                 wgpu::DeviceLostReason reason,
-                 struct wgpu::StringView message) {
-    if (message == std::string_view(
-                       "A valid external Instance reference no longer exists.")) {
-        return;
-                       }
-
-    std::cout << "device lost: " << static_cast<int>(reason) << std::endl;
-    if (message.length > 0) {
-        std::cout << std::string_view(message);
-    }
-    std::cout << std::endl;
-}
-
-static void uncaptured_error [[noreturn]] ([[maybe_unused]] const wgpu::Device& device,
-                                    wgpu::ErrorType type,
-                                    struct wgpu::StringView message) {
-    std::cout << "uncaptured error: " << static_cast<int>(type) << std::endl;
-    if (message.length > 0) {
-        std::cout << std::string_view(message);
-    }
-
-    std::cout << std::endl;
-    assert(false);
+struct DeviceState {
+    std::atomic<bool> failed{false};
 };
 
+// Assigned/read only by the backend's serialized API thread.
+// Dawn callbacks capture their own state, never this variable.
+std::shared_ptr<DeviceState> g_deviceState;
+std::atomic<bool> g_uncapturedError{false};
+
+void LogMessage(const char* prefix, wgpu::StringView message) noexcept {
+    std::fputs(prefix, stderr);
+    const std::string_view view(message);
+    if (!view.empty()) {
+        std::fwrite(view.data(), 1, view.size(), stderr);
+    }
+    std::fputc('\n', stderr);
+}
+
+} // namespace
+
+// Internal bridge used by nui.cpp; deliberately not part of the C ABI.
+// Access must be serialized with GetDawnContext().
+bool NuiDawnBackendFailed() noexcept {
+    return g_uncapturedError.load(std::memory_order_acquire) ||
+           !g_deviceState ||
+           g_deviceState->failed.load(std::memory_order_acquire);
+}
+
+wgpu::Surface CreateDawnSurface(const wgpu::Instance& instance,
+                                const UiNativeHandles* handles) {
+    if (!instance || !handles || !handles->driver) return nullptr;
+
+    wgpu::SurfaceDescriptor desc{};
+
+#if defined(__linux__)
+    if (std::strcmp(handles->driver, "wayland") == 0) {
+        if (!handles->wl_display || !handles->wl_surface) return nullptr;
+
+        wgpu::SurfaceSourceWaylandSurface source{};
+        source.display = handles->wl_display;
+        source.surface = handles->wl_surface;
+        desc.nextInChain = &source;
+        return instance.CreateSurface(&desc);
+    }
+
+    if (std::strcmp(handles->driver, "x11") == 0) {
+        if (!handles->x11_display || handles->x11_window == 0) return nullptr;
+
+        wgpu::SurfaceSourceXlibWindow source{};
+        source.display = handles->x11_display;
+        source.window = handles->x11_window;
+        desc.nextInChain = &source;
+        return instance.CreateSurface(&desc);
+    }
+
+#elif defined(_WIN32)
+    if (std::strcmp(handles->driver, "windows") == 0) {
+        if (!handles->win32_hwnd) return nullptr;
+
+        wgpu::SurfaceSourceWindowsHWND source{};
+        source.hinstance = handles->win32_hinstance
+            ? handles->win32_hinstance
+            : GetModuleHandleW(nullptr);
+        source.hwnd = handles->win32_hwnd;
+        desc.nextInChain = &source;
+        return instance.CreateSurface(&desc);
+    }
+
+#elif defined(__APPLE__)
+    if (std::strcmp(handles->driver, "cocoa") == 0) {
+        if (!handles->cocoa_layer) return nullptr;
+
+        wgpu::SurfaceSourceMetalLayer source{};
+        source.layer = handles->cocoa_layer;
+        desc.nextInChain = &source;
+        return instance.CreateSurface(&desc);
+    }
+#endif
+
+    std::fputs("nui: unsupported or invalid native window driver\n", stderr);
+    return nullptr;
+}
 
 skgpu::graphite::DawnBackendContext GetDawnContext() {
-    // Set Dawn's procedure table
-    dawnProcSetProcs(&dawn::native::GetProcs());
+    // This installs a process-global Dawn dispatch table. The host must not
+    // concurrently replace it with a different Dawn implementation.
+    static std::once_flag procsOnce;
+    std::call_once(procsOnce, [] {
+        dawnProcSetProcs(&dawn::native::GetProcs());
+    });
 
-    const wgpu::InstanceFeatureName requiredFeatures[] = {
+    auto state = std::make_shared<DeviceState>();
+    g_deviceState = state;
+    g_uncapturedError.store(false, std::memory_order_release);
+
+    const wgpu::InstanceFeatureName features[] = {
         wgpu::InstanceFeatureName::TimedWaitAny,
     };
 
-    wgpu::InstanceDescriptor instanceDescriptor{};
-    instanceDescriptor.requiredFeatureCount = sizeof(requiredFeatures) / sizeof(requiredFeatures[0]);
-    instanceDescriptor.requiredFeatures = requiredFeatures;
+    wgpu::InstanceDescriptor instanceDesc{};
+    instanceDesc.requiredFeatureCount = 1;
+    instanceDesc.requiredFeatures = features;
 
-    auto instance = wgpu::CreateInstance(&instanceDescriptor);
-
+    auto instance = wgpu::CreateInstance(&instanceDesc);
     if (!instance) {
-        std::cout << "Failed to create instance" << std::endl;
-        exit(1);
+        state->failed.store(true, std::memory_order_release);
+        std::fputs("nui: failed to create Dawn instance\n", stderr);
+        return {};
     }
 
-    // Get Adapter
-    wgpu::RequestAdapterOptions adapter_opts{
-        .powerPreference = wgpu::PowerPreference::HighPerformance,
+    struct AdapterResult {
+        wgpu::Adapter adapter;
+        bool success = false;
     };
-    wgpu::Adapter adapter{};
-    instance.RequestAdapter(&adapter_opts, wgpu::CallbackMode::AllowSpontaneous,
-                            adapter_request, &adapter);
 
-    if (!adapter) {
-        std::cout << "Failed to get adapter" << std::endl;
-        exit(1);
+    // Owned by the callback as well as this function: safe even if WaitAny
+    // fails before the callback has been delivered.
+    auto result = std::make_shared<AdapterResult>();
+
+    wgpu::RequestAdapterOptions adapterOptions{};
+    adapterOptions.powerPreference = wgpu::PowerPreference::HighPerformance;
+
+    auto future = instance.RequestAdapter(
+        &adapterOptions, wgpu::CallbackMode::WaitAnyOnly,
+        [result](wgpu::RequestAdapterStatus status,
+                 wgpu::Adapter adapter, wgpu::StringView message) {
+            result->success = status == wgpu::RequestAdapterStatus::Success;
+            if (result->success) {
+                result->adapter = adapter;
+            } else {
+                LogMessage("nui: adapter request failed: ", message);
+            }
+        });
+
+    if (instance.WaitAny(future, UINT64_MAX) != wgpu::WaitStatus::Success ||
+        !result->success || !result->adapter) {
+        state->failed.store(true, std::memory_order_release);
+        std::fputs("nui: adapter acquisition failed\n", stderr);
+        return {};
     }
 
-    // Get device
-    wgpu::DeviceDescriptor device_desc{};
-    device_desc.label = "default device";
-    device_desc.SetDeviceLostCallback(wgpu::CallbackMode::AllowProcessEvents, device_lost);
-    device_desc.SetUncapturedErrorCallback(uncaptured_error);
+    wgpu::DeviceDescriptor deviceDesc{};
+    deviceDesc.label = "Niello shared device";
 
-    wgpu::Device device = adapter.CreateDevice(&device_desc);
+    deviceDesc.SetDeviceLostCallback(
+        wgpu::CallbackMode::AllowSpontaneous,
+        [state](const wgpu::Device&, wgpu::DeviceLostReason reason,
+                wgpu::StringView message) {
+            // Normal teardown is not an unexpected backend failure.
+            if (reason == wgpu::DeviceLostReason::Destroyed) return;
+            state->failed.store(true, std::memory_order_release);
+            LogMessage("nui: device lost: ", message);
+        });
 
-    if (!device) {
-        std::cerr << "Failed to create wgpu device.\n";
-        exit(1);
+    deviceDesc.SetUncapturedErrorCallback(
+        [](const wgpu::Device&, wgpu::ErrorType,
+           wgpu::StringView message) {
+            g_uncapturedError.store(true, std::memory_order_release);
+            LogMessage("nui: uncaptured Dawn error: ", message);
+        });
+
+    auto device = result->adapter.CreateDevice(&deviceDesc);
+    if (!device || state->failed.load(std::memory_order_acquire)) {
+        state->failed.store(true, std::memory_order_release);
+        std::fputs("nui: failed to create Dawn device\n", stderr);
+        return {};
     }
 
-    skgpu::graphite::DawnBackendContext backendContext;
-    backendContext.fInstance = instance;
-    backendContext.fDevice = device;
-    backendContext.fQueue = device.GetQueue();
+    skgpu::graphite::DawnBackendContext backend{};
+    backend.fInstance = instance;
+    backend.fDevice = device;
+    backend.fQueue = device.GetQueue();
 
-    return backendContext;
+    if (!backend.fQueue) {
+        state->failed.store(true, std::memory_order_release);
+        return {};
+    }
+    return backend;
 }
-
-/*void SetWindowSurface(wgpu::Instance instance, wgpu::Device device, SDL_Window *window) {
-    const auto surface = CreateDawnSurfaceFromSDL3(instance, window);
-
-    wgpu::SurfaceCapabilities capabilities;
-    surface.GetCapabilities(device.GetAdapter(), &capabilities);
-
-    wgpu::SurfaceConfiguration config{};
-    config.device = device;
-    config.format = capabilities.formats[0]; // e.g., BGRA8Unorm or RGBA8Unorm
-    config.usage = wgpu::TextureUsage::RenderAttachment;
-    config.width = WIDTH;
-    config.height = HEIGHT;
-    config.presentMode = wgpu::PresentMode::Fifo; // V-Sync
-
-    surface.Configure(&config);
-}*/
