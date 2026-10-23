@@ -1355,10 +1355,26 @@ wake_pending :: proc(ctx: ^Context) -> bool {
 	return sync.atomic_load(&ctx.wake_requested)
 }
 
+// wake_in is the app-facing timer: it asks for another frame of the
+// bound context roughly ms from now, in engine time, by registering
+// a deadline frame_end folds into next_wake_ms (the earliest pending
+// deadline wins). Call it during declare; re-arm it every frame
+// while the condition holds — a seek refresh while playing, a
+// debounce quiet window — and stop calling it when the condition
+// ends: a due deadline fires with the frame that runs and is gone,
+// so an idle app registers nothing and the host blocks on OS
+// events. Relative-only by design: there is no public clock, and a
+// timer that needs to know WHICH expiry fired carries that as an
+// app-level message (the one-inbox pattern, Async_Inbox_Design.md).
+wake_in :: proc(ms: u32) {
+	schedule_wake_in(ms)
+}
+
 // schedule_wake_in registers an engine deadline ms from now, in engine
 // time; frame_end reports the nearest pending deadline as
 // next_wake_ms. Engine subsystems register here — tweens, transients,
-// hover-delay thresholds (§8). Not app-facing API: apps use context_wake(ctx).
+// hover-delay thresholds (§8). wake_in above is the same registry,
+// app-facing.
 // Until those subsystems land, the registry stays empty in a static
 // UI and next_wake_ms is max(u32).
 schedule_wake_in :: proc(ms: u32) {
