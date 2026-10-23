@@ -169,9 +169,15 @@ this shape; the release variant passes `-DNIELLO_SKIA_OUT=niello-<platform>`
 Merge `libskia.a` + `libdawn_combined.a` (+ any sibling Dawn archives from
 §4) + `libnui_render.a` into a single archive so downstream links exactly
 one native lib plus system libs (SDL3, Vulkan, Freetype, Fontconfig,
-Threads, zlib — the codec's DNG module references zlib's
-`compress2`; latent until #13 first pulled Skia's codec objects
-into a link).
+Threads, and the codec system libs — zlib, libpng, libjpeg,
+libwebp AND libwebpdemux (the WebP demuxer is a sibling DSO;
+`-lwebp` alone does not pull it, and SkWebpCodec's
+`WebPDemux*` references fail the link without it). Skia's
+codec modules reference them (DNG -> zlib's `compress2`,
+PNG -> `png_set_*`, JPEG/WebP likewise), and the
+references stay latent until an app first pulls the codec
+objects into a link — which #13's image decode did, surfacing
+them one per rebuild until the whole family was named).
 
 - **Linux** — `ar -M` with an MRI script (avoids `.o` basename collisions
   that extract-and-re-add would cause):

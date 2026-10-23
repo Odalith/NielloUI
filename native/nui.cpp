@@ -23,7 +23,6 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "include/codec/SkCodec.h"
@@ -269,19 +268,6 @@ void DrawImageCmd(SkCanvas* canvas, skgpu::graphite::Recorder* recorder, const U
         SkImage::RequiredProperties props;
         props.fMipmapped = true;
         entry.texture = SkImages::TextureFromImage(recorder, entry.raster.get(), props);
-    }
-    // DIAGNOSTIC: once per id, what reaches the draw.
-    static std::unordered_set<uint32_t> traced;
-    if (traced.insert(c.image).second) {
-        if (entry.texture) {
-            const SkImage* im = entry.texture.get();
-            fprintf(stderr, "nui: image_draw id=%u %dx%d ct=%d at=%d cs=%s tex=%d\n",
-                    c.image, im->width(), im->height(), (int)im->colorType(),
-                    (int)im->alphaType(), im->colorSpace() ? "set" : "null",
-                    (int)im->isTextureBacked());
-        } else {
-            fprintf(stderr, "nui: image_draw id=%u TEXTURE CREATION FAILED\n", c.image);
-        }
     }
     if (!entry.texture) return;
     SkSamplingOptions sampling;
@@ -787,10 +773,6 @@ uint32_t nui_image_decode(const uint8_t* bytes, int32_t len, int32_t max_w, int3
 
     const uint32_t id = g_shared.next_image_id++;
     g_shared.images[id].raster = img;
-    // DIAGNOSTIC (image-draw investigation, temporary).
-    fprintf(stderr, "nui: image_decode v4 id=%u %dx%d ct=%d at=%d cs=%s\n",
-            id, img->width(), img->height(), (int)img->colorType(),
-            (int)img->alphaType(), img->colorSpace() ? "set" : "null");
     if (out_w) *out_w = (float)tw;
     if (out_h) *out_h = (float)th;
     return id;

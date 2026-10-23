@@ -3,7 +3,7 @@
 //
 // Build it as a debug build (the define is the whole point):
 //
-//	odin run niello/examples/debugger -define:NIELLO_DEBUG=true -extra-linker-flags:"-L$PWD/third_party/native/linux-x64 -Wl,--start-group -lnui_render -lskia -ldawn_combined -lskcms -lwuffs -Wl,--end-group -lstdc++ -lz"
+//	odin run niello/examples/debugger -define:NIELLO_DEBUG=true -extra-linker-flags:"-L$PWD/third_party/native/linux-x64 -Wl,--start-group -lnui_render -lskia -ldawn_combined -lskcms -lwuffs -Wl,--end-group -lstdc++ -lz -lpng -ljpeg -lwebp -lwebpdemux"
 //
 // Then press F12 in either window: the master debugger opens,
 // targeted at that window. Hover tree rows (or overflow rows)
