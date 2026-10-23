@@ -21,6 +21,7 @@ Draw_Cmd_Tag :: enum u8 {
 	Push_Opacity, // group opacity (backend: saveLayer)
 	Pop_Opacity, // restore
 	Overlay, // debug/focus overlay: fill + optional inset border
+	Image, // image draw: bounds = dest rect; src_rect/image/interp payload
 }
 
 Draw_Cmd :: struct {
@@ -45,6 +46,11 @@ Draw_Cmd :: struct {
 
 	// Push_Opacity payload.
 	opacity: u8,
+
+	// Image payload.
+	src_rect: [4]f32, // source rect in the image's pixel space (x, y, w, h)
+	image:    u32,    // backend image id; 0 = none
+	interp:   u8,     // Image_Interp discriminant (sampling quality)
 }
 
 // ============ emission ============
@@ -120,6 +126,8 @@ emit_node_open :: proc(i: int) -> bool {
 			},
 		)
 	}
+
+	emit_image(nd, s, r)
 
 	if nd.has_text {
 		emit_text(i, nd, s, r)
@@ -325,7 +333,7 @@ draw_cmd_visible :: proc(cmd: Draw_Cmd, damage: []Rect) -> bool {
 	switch cmd.tag {
 	case .Push_Clip, .Pop_Clip, .Push_Opacity, .Pop_Opacity:
 		return true
-	case .Rect, .Text, .Overlay:
+	case .Rect, .Text, .Overlay, .Image:
 		for d in damage {
 			if rects_overlap(cmd.bounds, d) {
 				return true
@@ -344,4 +352,74 @@ rects_overlap :: proc(a, b: Rect) -> bool {
 		a.pos.y < b.pos.y + b.size.y &&
 		a.pos.y + a.size.y > b.pos.y \
 	)
+}
+
+// emit_image paints the node's image into its rect, behind its
+// text and children: a leaf is an image control, a container gets
+// a background image. The painted image is the effective style's,
+// with With.image winning (declare-resolved on the node); fit
+// modes change the paint here only — measure used the declared
+// image (§3.25, the text-resolution family rule).
+@(private)
+emit_image :: proc(nd: ^Frame_Node, s: ^Style, r: Rect) {
+	img := s.image
+	if v, ok := nd.with.image.?; ok {
+		img = v
+	}
+	if img == NO_IMAGE || r.size.x <= 0 || r.size.y <= 0 {
+		return
+	}
+	backend, crop, ok := image_paint_info(img)
+	if !ok {
+		return
+	}
+	src_full := Rect{{crop[0], crop[1]}, {crop[2], crop[3]}}
+	dest, src := image_fit_rects(s.image_fit, src_full, r)
+	if dest.size.x <= 0 || dest.size.y <= 0 {
+		return
+	}
+	append(&g.draw_cmds, Draw_Cmd{
+		tag = .Image,
+		bounds = dest,
+		src_rect = {src.pos.x, src.pos.y, src.size.x, src.size.y},
+		image = backend,
+		interp = u8(s.image_interp),
+	})
+}
+
+// image_fit_rects is Avalonia's Image.Render math: scale the
+// source per the fit mode, center the result in the viewport,
+// intersect, and derive the matching source rect (the
+// Uniform_Fill crop lives here, not in the backend).
+@(private)
+image_fit_rects :: proc(fit: Image_Fit, src_full: Rect, view: Rect) -> (dest: Rect, src: Rect) {
+	sw, sh := src_full.size.x, src_full.size.y
+	if sw <= 0 || sh <= 0 {
+		return {}, {}
+	}
+	scale: Vec2
+	switch fit {
+	case .Fill:
+		scale = {view.size.x / sw, view.size.y / sh}
+	case .Uniform:
+		k := min(view.size.x / sw, view.size.y / sh)
+		scale = {k, k}
+	case .Uniform_Fill:
+		k := max(view.size.x / sw, view.size.y / sh)
+		scale = {k, k}
+	case .None:
+		scale = {1, 1}
+	}
+	scaled := Vec2{sw * scale.x, sh * scale.y}
+	d := Rect{view.pos + (view.size - scaled) * 0.5, scaled}
+	// Intersect with the viewport.
+	x0 := max(d.pos.x, view.pos.x)
+	y0 := max(d.pos.y, view.pos.y)
+	x1 := min(d.pos.x + d.size.x, view.pos.x + view.size.x)
+	y1 := min(d.pos.y + d.size.y, view.pos.y + view.size.y)
+	dest = Rect{{x0, y0}, {max(0, x1 - x0), max(0, y1 - y0)}}
+	// The source sub-rect that lands in dest, centered in src_full.
+	sub := Vec2{dest.size.x / scale.x, dest.size.y / scale.y}
+	src = Rect{src_full.pos + (src_full.size - sub) * 0.5, sub}
+	return dest, src
 }

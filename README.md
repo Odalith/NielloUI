@@ -80,6 +80,9 @@ odin run niello/examples/buttons -extra-linker-flags:"-L$PWD/third_party/native/
   the cross-context read API.
 - `examples/debugger` — the debug window's host: a scene with
   deliberate layout defects; F12 opens the debugger on it.
+- `examples/images` — image support (§3.25): the four fit modes,
+  per-instance images, crops, decode-to-size, interpolation,
+  background images.
 
 ## Fonts
 

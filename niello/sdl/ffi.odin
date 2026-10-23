@@ -18,7 +18,7 @@ import niello "../"
 // Draw_Cmd's memory layout IS the FFI ABI (../../native/nui.h mirrors it as
 // UiDrawCmd with a static_assert). This fires at compile time if the struct
 // ever drifts, so the two sides cannot silently disagree.
-#assert(size_of(niello.Draw_Cmd) == 72, "niello.Draw_Cmd must stay 72 bytes: it is the FFI ABI")
+#assert(size_of(niello.Draw_Cmd) == 96, "niello.Draw_Cmd must stay 96 bytes: it is the FFI ABI")
 #assert(size_of(niello.Rect) == 16, "niello.Rect must stay 16 bytes: it is the FFI ABI")
 #assert(size_of(Native_Handles) == size_of(rawptr) * 8, "Native_Handles must match UiNativeHandles")
 
@@ -89,6 +89,22 @@ foreign native {
 	// slant is 0=upright, 1=italic, 2=oblique (Font_Slant order).
 	measure_word :: proc(family: u32, weight: i32, slant: i32, size_px: f32, text: [^]u8, len: i64) -> f32 ---
 	line_height  :: proc(family: u32, weight: i32, slant: i32, size_px: f32) -> f32 ---
+
+	// Images (TODO #13): decode encoded bytes to a backend image
+	// id (0 = failure); release drops it. Ids are never reused.
+	image_decode  :: proc(data: [^]u8, len: i32, max_w: i32, max_h: i32, out_w: ^f32, out_h: ^f32) -> u32 ---
+	image_release :: proc(id: u32) ---
+}
+
+// The backend hooks are wired at package init — assignment only,
+// no FFI calls — so app code can use hook-backed core services
+// (notably image_load, which decodes immediately) before run().
+@(init)
+wire_backend_hooks :: proc "contextless" () {
+	niello.measure_word_hook = hook_measure_word
+	niello.line_height_hook = hook_line_height
+	niello.decode_image_hook = hook_decode_image
+	niello.release_image_hook = hook_release_image
 }
 
 // hook_measure_word / hook_line_height adapt the C measurement procs to
@@ -102,6 +118,25 @@ hook_measure_word :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, 
 
 hook_line_height :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32) -> f32 {
 	return line_height(u32(font), i32(weight), i32(slant), size)
+}
+
+// hook_decode_image / hook_release_image adapt the C image procs
+// to niello's image hooks (wired next to the measure hooks in
+// app.odin's startup).
+hook_decode_image :: proc(data: []byte, max_w, max_h: int) -> (backend: u32, w, h: f32, ok: bool) {
+	if len(data) == 0 {
+		return 0, 0, 0, false
+	}
+	ow, oh: f32
+	id := image_decode(raw_data(data), i32(len(data)), i32(max_w), i32(max_h), &ow, &oh)
+	if id == 0 {
+		return 0, 0, 0, false
+	}
+	return id, ow, oh, true
+}
+
+hook_release_image :: proc(backend: u32) {
+	image_release(backend)
 }
 
 // register_font binds a font family id to a font FILE on disk (a bundled

@@ -23,6 +23,7 @@ typedef enum UiCmdTag {
     UI_CMD_PUSH_OPACITY = 4,
     UI_CMD_POP_OPACITY  = 5,
     UI_CMD_OVERLAY      = 6,
+    UI_CMD_IMAGE        = 7,
 } UiCmdTag;
 
 typedef struct UiRect {
@@ -48,11 +49,21 @@ typedef struct UiDrawCmd {
     float    max_width;       // available width; trim with ellipsis when truncated
     uint8_t  truncated;
     uint8_t  opacity;         // Push_Opacity payload
-    uint8_t  _pad3[6];
+    uint8_t  _pad3[2];
+    // Image payload (grew the command 72 -> 96 in TODO #13; no
+    // shipped release pins the old size). Offsets mirror the Odin
+    // struct's computed layout exactly: src_rect @68, image @84,
+    // interp @88 — verified with offset_of on the Odin side, since
+    // the sizeof assert alone cannot catch a pad slip.
+    float    src_x, src_y, src_w, src_h; // source rect, image pixel space
+    uint32_t image;           // backend image id from nui_image_decode; 0 = none
+    uint8_t  interp;          // sampling quality: 0 cubic+mips, 1 linear+mips,
+                              // 2 linear, 3 nearest (niello Image_Interp order)
+    uint8_t  _pad4[7];
 } UiDrawCmd;
 
 #ifdef __cplusplus
-static_assert(sizeof(UiDrawCmd) == 72, "UiDrawCmd must match Odin Draw_Cmd (72 bytes)");
+static_assert(sizeof(UiDrawCmd) == 96, "UiDrawCmd must match Odin Draw_Cmd (96 bytes)");
 static_assert(sizeof(UiRect) == 16, "UiRect must match Odin Rect (16 bytes)");
 #endif
 
@@ -113,6 +124,16 @@ void  nui_register_font_family(uint32_t family, const char* name); // system fam
 float nui_measure_word(uint32_t family, int32_t weight, int32_t slant, float size_px,
                        const uint8_t* text, int64_t len);
 float nui_line_height(uint32_t family, int32_t weight, int32_t slant, float size_px);
+
+// Images. Decode takes encoded bytes (PNG/JPEG/WebP — the codec
+// decides) and returns a backend image id, or 0 on failure. max_w /
+// max_h ask for a smaller decode (shrink-only, aspect-preserving;
+// 0 = unconstrained on that axis); out_w / out_h receive the
+// decoded size in DIP. Ids are never reused. Release drops the
+// decoded image; drawing an unknown id is a no-op.
+uint32_t nui_image_decode(const uint8_t* data, int32_t len, int32_t max_w, int32_t max_h,
+                          float* out_w, float* out_h);
+void nui_image_release(uint32_t id);
 
 // Shared teardown. Destroy all windows first. Does NOT destroy the
 // SDL windows (Odin owns them).

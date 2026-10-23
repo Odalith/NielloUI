@@ -57,6 +57,7 @@ Field :: enum u8 {
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
 	Text_Spans, Cursor, Scroll_Chain, Smooth_Scroll, Smooth_Ms,
 	Overscroll, Overscroll_Px,
+	Image, Image_Fit, Image_Interp,
 }
 // Text_Wrap is layout-invalidating (controls pass-C participation);
 // Align is layout-invalidating (controls child positioning);
@@ -81,6 +82,7 @@ ALL_FIELDS :: Fields{
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
 	.Text_Spans, .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
 	.Overscroll, .Overscroll_Px,
+	.Image, .Image_Fit, .Image_Interp,
 }
 
 Layout :: enum u8 {
@@ -279,6 +281,14 @@ Style :: struct {
 	                           // resistance, then springs back (§3.22)
 	overscroll_px: u16,        // the band's max distance past an end
 	                           // scrollable ancestor; default true
+
+	// Image content (§3.25): the node paints this image in its
+	// rect (behind its text and children — a leaf is an image
+	// control, a container gets a background image). NO_IMAGE =
+	// no image. Fit/interp steer the paint only.
+	image:       Image,      // default NO_IMAGE
+	image_fit:   Image_Fit,  // default .Uniform
+	image_interp: Image_Interp, // default .High
 }
 
 default_style :: proc() -> Style {
@@ -303,6 +313,8 @@ default_style :: proc() -> Style {
 		scroll_chain = true,
 		smooth_ms    = 150,
 		overscroll_px = 64,
+		image_fit    = .Uniform,
+		image_interp = .High,
 	}
 }
 
@@ -345,6 +357,10 @@ Style_Decl :: struct {
 	overscroll:   Maybe(bool),
 	overscroll_px: Maybe(u16), // default 64
 
+	image:       Maybe(Image),
+	image_fit:   Maybe(Image_Fit),
+	image_interp: Maybe(Image_Interp),
+
 	hover, press, focus, disabled: Unit, // automatic state overlays, declared as data
 	focusable: bool,                     // reserved seam: participates in keyboard focus traversal
 
@@ -362,6 +378,9 @@ With :: struct {
 	text_spans: Maybe([]Text_Span), // per-instance rich-text overrides; wins
 	                                // over Style.text_spans. Copied at declare
 	                                // time (small), so no borrow contract.
+	image: Maybe(Image), // per-instance image swap; wins over
+	                     // Style.image, and Maybe(NO_IMAGE) clears
+	                     // the base image for this instance (§3.25)
 	disabled: bool,
 	anchored: bool, // an overlay child (§3.20): removed from flow
 	                // in any container — no flow slot, no waterfill,
@@ -578,6 +597,9 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	case .Smooth_Ms: s.smooth_ms = must(v, u16)
 	case .Overscroll: s.overscroll = must(v, bool)
 	case .Overscroll_Px: s.overscroll_px = must(v, u16)
+	case .Image:       s.image       = must(v, Image)
+	case .Image_Fit:   s.image_fit   = must(v, Image_Fit)
+	case .Image_Interp: s.image_interp = must(v, Image_Interp)
 	}
 }
 
@@ -690,6 +712,9 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.smooth_ms, decl.smooth_ms)
 	apply_opt(&s.overscroll, decl.overscroll)
 	apply_opt(&s.overscroll_px, decl.overscroll_px)
+	apply_opt(&s.image, decl.image)
+	apply_opt(&s.image_fit, decl.image_fit)
+	apply_opt(&s.image_interp, decl.image_interp)
 
 	rec := &store.units[int(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that

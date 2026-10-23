@@ -20,6 +20,8 @@ Frame_Node :: struct {
 	spans_hash:     u64,    // hash of spans; 0 when nil. The text cache keys
 	                        // on this alongside the font tuple.
 	has_text:        bool,
+	image:           Image, // resolved at declare: With.image wins
+	                        // over the unit's style image (§3.25)
 	focusable:       bool, // resolved at declare: With.focusable wins
 	                       // over the unit's Style_Decl.focusable
 	anchored:        bool, // With.anchored, resolved at declare (§3.20)
@@ -134,6 +136,10 @@ declare_as :: proc(
 	id := identity_of(parent_id, unit, k)
 
 	text := resolve_text(with, style_of(unit))
+	img := style_of(unit).image
+	if v, ok := with.image.?; ok {
+		img = v
+	}
 	if _, ok := with.text.?; ok {
 		// The documented contract (§2 strings): With.text is COPIED
 		// into the frame arena at declare time. The caller's buffer
@@ -167,6 +173,7 @@ declare_as :: proc(
 			spans = spans,
 			spans_hash = spans_hash,
 			has_text = has_text,
+			image = img,
 			focusable = with.focusable.? or_else store.units[int(unit)].focusable,
 			anchored = with.anchored,
 			is_container = is_container,
