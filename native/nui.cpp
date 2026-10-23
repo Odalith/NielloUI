@@ -260,7 +260,7 @@ void DrawImageCmd(SkCanvas* canvas, const UiDrawCmd& c) {
         case 2:  sampling = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNone); break;
         case 3:  sampling = SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone); break;
         case 0:
-        default: sampling = SkSamplingOptions(SkCubicResampler::Mitchell(), SkMipmapMode::kLinear); break;
+        default: sampling = SkSamplingOptions(SkCubicResampler::Mitchell()); break;
     }
     SkRect src = SkRect::MakeXYWH(c.src_x, c.src_y, c.src_w, c.src_h);
     SkRect dst = SkRect::MakeXYWH(c.bounds_x, c.bounds_y, c.bounds_w, c.bounds_h);

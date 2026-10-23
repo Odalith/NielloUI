@@ -57,7 +57,7 @@ typedef struct UiDrawCmd {
     // the sizeof assert alone cannot catch a pad slip.
     float    src_x, src_y, src_w, src_h; // source rect, image pixel space
     uint32_t image;           // backend image id from nui_image_decode; 0 = none
-    uint8_t  interp;          // sampling quality: 0 cubic+mips, 1 linear+mips,
+    uint8_t  interp;          // sampling quality: 0 cubic (Mitchell), 1 linear+mips,
                               // 2 linear, 3 nearest (niello Image_Interp order)
     uint8_t  _pad4[7];
 } UiDrawCmd;
