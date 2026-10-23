@@ -30,7 +30,6 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkSamplingOptions.h"
-#include "include/gpu/graphite/Image.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
@@ -731,29 +730,27 @@ uint32_t nui_image_decode(const uint8_t* bytes, int32_t len, int32_t max_w, int3
     const int tw = std::max(1, (int)std::lround(nat_w * scale));
     const int th = std::max(1, (int)std::lround(nat_h * scale));
 
-    sk_sp<SkImage> img;
-    if (tw == nat_w && th == nat_h) {
-        // Natural size: defer. The encoded bytes are retained and
-        // the GPU texture uploads lazily; Graphite's resource
-        // cache owns residency from there.
-        img = SkImages::DeferredFromEncodedData(data, std::nullopt);
-    }
-    if (!img) {
-        // Raster path — also the scaled-decode path, and the
-        // fallback if a deferred image can't be made here.
-        SkBitmap full;
-        if (!full.tryAllocPixels(info)) return 0;
-        if (codec->getPixels(full.pixmap()) != SkCodec::kSuccess) return 0;
-        img = SkImages::RasterFromBitmap(full);
-        if (img && (tw != nat_w || th != nat_h)) {
-            SkBitmap small;
-            if (small.tryAllocPixels(info.makeWH(tw, th)) &&
-                img->scalePixels(small.pixmap(),
-                                 SkSamplingOptions(SkCubicResampler::Mitchell()))) {
-                img = SkImages::RasterFromBitmap(small);
-            }
+    // Decode to pixels here, converted to N32: the codec's
+    // native format for e.g. an opaque PNG is RGB_888x, which
+    // Graphite/Dawn cannot texturize — a deferred
+    // (generator-backed) image in that format failed key
+    // creation at draw time on the first field build and every
+    // draw was dropped. Raster + N32 is the shape that draws;
+    // the cost is decoded pixels pinned instead of encoded
+    // bytes retained.
+    const SkImageInfo dst_info = info.makeColorType(kN32_SkColorType);
+    SkBitmap full;
+    if (!full.tryAllocPixels(dst_info)) return 0;
+    if (codec->getPixels(full.pixmap()) != SkCodec::kSuccess) return 0;
+    sk_sp<SkImage> img = SkImages::RasterFromBitmap(full);
+    if (!img) return 0;
+    if (tw != nat_w || th != nat_h) {
+        SkBitmap small;
+        if (small.tryAllocPixels(dst_info.makeWH(tw, th)) &&
+            img->scalePixels(small.pixmap(),
+                             SkSamplingOptions(SkCubicResampler::Mitchell()))) {
+            img = SkImages::RasterFromBitmap(small);
         }
-        if (!img) return 0;
     }
 
     const uint32_t id = g_shared.next_image_id++;
