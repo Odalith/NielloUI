@@ -23,6 +23,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "include/codec/SkCodec.h"
@@ -253,6 +254,15 @@ void DrawRectCmd(SkCanvas* canvas, const UiDrawCmd& c) {
 void DrawImageCmd(SkCanvas* canvas, const UiDrawCmd& c) {
     auto it = g_shared.images.find(c.image);
     if (it == g_shared.images.end() || !it->second) return;
+    // DIAGNOSTIC: once per id, what reaches the draw.
+    static std::unordered_set<uint32_t> traced;
+    if (traced.insert(c.image).second) {
+        const SkImage* im = it->second.get();
+        fprintf(stderr, "nui: image_draw id=%u %dx%d ct=%d at=%d cs=%s tex=%d\n",
+                c.image, im->width(), im->height(), (int)im->colorType(),
+                (int)im->alphaType(), im->colorSpace() ? "set" : "null",
+                (int)im->isTextureBacked());
+    }
     SkSamplingOptions sampling;
     switch (c.interp) {
         case 1:  sampling = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kLinear); break;
@@ -755,6 +765,12 @@ uint32_t nui_image_decode(const uint8_t* bytes, int32_t len, int32_t max_w, int3
 
     const uint32_t id = g_shared.next_image_id++;
     g_shared.images[id] = img;
+    // DIAGNOSTIC (image-draw investigation, temporary): proves
+    // which decode build is running and what it produced.
+    fprintf(stderr, "nui: image_decode v2-raster id=%u %dx%d ct=%d at=%d cs=%s tex=%d\n",
+            id, img->width(), img->height(), (int)img->colorType(),
+            (int)img->alphaType(), img->colorSpace() ? "set" : "null",
+            (int)img->isTextureBacked());
     if (out_w) *out_w = (float)tw;
     if (out_h) *out_h = (float)th;
     return id;
