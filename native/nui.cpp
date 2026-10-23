@@ -141,13 +141,14 @@ struct Shared {
     // monotonically, never reused — a stale id in a draw command
     // misses the map and draws nothing rather than aliasing a
     // different image. Decode keeps the pixels; the Graphite
-    // texture image is created lazily at first draw through the
-    // drawing surface's own recorder (see DrawImageCmd — the
-    // implicit raster->texture conversion at draw time failed
-    // on this build for every image, format notwithstanding).
+    // texture image is created lazily at first draw via
+    // SkImages::TextureFromImage through the drawing surface's
+    // own recorder (see DrawImageCmd — drawImageRect's implicit
+    // raster->texture conversion failed on this build for every
+    // image, format notwithstanding).
     struct ImageEntry {
-        SkBitmap pixels;
-        sk_sp<SkImage> texture;
+        sk_sp<SkImage> raster;   // decoded pixels (N32)
+        sk_sp<SkImage> texture;  // Graphite-backed, made at first draw
     };
     std::unordered_map<uint32_t, ImageEntry> images;
     uint32_t next_image_id = 1;
@@ -264,19 +265,25 @@ void DrawImageCmd(SkCanvas* canvas, skgpu::graphite::Recorder* recorder, const U
     auto it = g_shared.images.find(c.image);
     if (it == g_shared.images.end()) return;
     Shared::ImageEntry& entry = it->second;
-    if (!entry.texture && recorder) {
-        entry.texture = SkImages::TextureFromBitmap(recorder, entry.pixels);
+    if (!entry.texture && recorder && entry.raster) {
+        SkImage::RequiredProperties props;
+        props.fMipmapped = true;
+        entry.texture = SkImages::TextureFromImage(recorder, entry.raster.get(), props);
     }
-    if (!entry.texture) return;
     // DIAGNOSTIC: once per id, what reaches the draw.
     static std::unordered_set<uint32_t> traced;
     if (traced.insert(c.image).second) {
-        const SkImage* im = entry.texture.get();
-        fprintf(stderr, "nui: image_draw id=%u %dx%d ct=%d at=%d cs=%s tex=%d\n",
-                c.image, im->width(), im->height(), (int)im->colorType(),
-                (int)im->alphaType(), im->colorSpace() ? "set" : "null",
-                (int)im->isTextureBacked());
+        if (entry.texture) {
+            const SkImage* im = entry.texture.get();
+            fprintf(stderr, "nui: image_draw id=%u %dx%d ct=%d at=%d cs=%s tex=%d\n",
+                    c.image, im->width(), im->height(), (int)im->colorType(),
+                    (int)im->alphaType(), im->colorSpace() ? "set" : "null",
+                    (int)im->isTextureBacked());
+        } else {
+            fprintf(stderr, "nui: image_draw id=%u TEXTURE CREATION FAILED\n", c.image);
+        }
     }
+    if (!entry.texture) return;
     SkSamplingOptions sampling;
     switch (c.interp) {
         case 1:  sampling = SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kLinear); break;
@@ -767,25 +774,23 @@ uint32_t nui_image_decode(const uint8_t* bytes, int32_t len, int32_t max_w, int3
     SkBitmap full;
     if (!full.tryAllocPixels(dst_info)) return 0;
     if (codec->getPixels(full.pixmap()) != SkCodec::kSuccess) return 0;
-    SkBitmap pixels = full;
+    sk_sp<SkImage> img = SkImages::RasterFromBitmap(full);
+    if (!img) return 0;
     if (tw != nat_w || th != nat_h) {
-        // Resample into the target bitmap with a temp raster
-        // image (CPU-side; no Graphite involvement).
-        sk_sp<SkImage> full_img = SkImages::RasterFromBitmap(full);
         SkBitmap small;
-        if (full_img && small.tryAllocPixels(dst_info.makeWH(tw, th)) &&
-            full_img->scalePixels(small.pixmap(),
-                                  SkSamplingOptions(SkCubicResampler::Mitchell()))) {
-            pixels = small;
+        if (small.tryAllocPixels(dst_info.makeWH(tw, th)) &&
+            img->scalePixels(small.pixmap(),
+                             SkSamplingOptions(SkCubicResampler::Mitchell()))) {
+            img = SkImages::RasterFromBitmap(small);
         }
     }
 
     const uint32_t id = g_shared.next_image_id++;
-    g_shared.images[id].pixels = pixels;
+    g_shared.images[id].raster = img;
     // DIAGNOSTIC (image-draw investigation, temporary).
-    fprintf(stderr, "nui: image_decode v3-pixels id=%u %dx%d ct=%d at=%d cs=%s\n",
-            id, pixels.width(), pixels.height(), (int)pixels.colorType(),
-            (int)pixels.alphaType(), pixels.colorSpace() ? "set" : "null");
+    fprintf(stderr, "nui: image_decode v4 id=%u %dx%d ct=%d at=%d cs=%s\n",
+            id, img->width(), img->height(), (int)img->colorType(),
+            (int)img->alphaType(), img->colorSpace() ? "set" : "null");
     if (out_w) *out_w = (float)tw;
     if (out_h) *out_h = (float)th;
     return id;
