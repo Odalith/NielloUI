@@ -24,10 +24,11 @@
 //     to the press target, so an ancestor subtracts a descendant's
 //     query to claim or disclaim it (dragging(header) &&
 //     !dragging(close_btn)).
-//   - Click = press + release over the same instance or one of its
-//     descendants, left button only in v1. Queries bubble: an instance
-//     counts as hovered/pressed/clicked when it is the target or an
-//     ancestor of the target, so a button fires when its label is hit.
+//   - Click = press + release within the same subtree, left button
+//     only in v1: an instance counts as clicked when it is an
+//     ancestor-or-self of BOTH the press pick and the release pick.
+//     Queries bubble, so a button fires when its label is hit — in
+//     either direction (press label, release border, and vice versa).
 //   - Disabled absorbs: the first disabled instance on the pick's ancestor
 //     chain truncates it. That instance reports hovered (it can paint its
 //     disabled state) but press/click never fire through it.
@@ -697,15 +698,27 @@ dispatch_input :: proc(input: Input, dt: f32) {
 					end_drag(true)
 				}
 				if b == .Left && pick >= 0 && !blocked {
-					// Release over the target or a descendant of it:
-					// the target sits on the pick's chain.
-					for idx in chain_idx {
-						if g.nodes[idx].identity == target {
-							g.clicked_id = target
-							clear(&g.clicked_chain)
-							append(&g.clicked_chain, ..g.press_chains[b][:])
-							break
+					// Click = press and release within the same
+					// subtree: the clicked chain is the set of
+					// instances common to the press chain and the
+					// release chain. The old rule (press target on
+					// the release chain) was asymmetric: press on
+					// a button's label, release on its border,
+					// never clicked, while the reverse did.
+					// Identity comparison, not position, so a
+					// tree change between press and release
+					// cannot misalign it.
+					clear(&g.clicked_chain)
+					for pid in g.press_chains[b] {
+						for idx in chain_idx {
+							if g.nodes[idx].identity == pid {
+								append(&g.clicked_chain, pid)
+								break
+							}
 						}
+					}
+					if len(g.clicked_chain) > 0 {
+						g.clicked_id = g.clicked_chain[len(g.clicked_chain)-1]
 					}
 				}
 				g.press_ids[b] = 0

@@ -211,6 +211,71 @@ test_input_press_capture :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_input_click_within_subtree :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_input_tree()
+	niello.frame_begin(niello.test_context(), idle_input(LBL_PT), 1.0 / 60.0)
+	finish(declare_input_tree)
+
+	// The reported bug: press on the label, move away, come back
+	// to the button border, release — the button must click.
+	// The old rule (press target on the release chain) only fired
+	// when the release landed on the target or below it, so
+	// press-label/release-border never clicked while the reverse
+	// did. Click is press + release within the same subtree.
+	press_lbl := idle_input(LBL_PT)
+	press_lbl.buttons_pressed = {.Left}
+	press_lbl.buttons_down = {.Left}
+	niello.frame_begin(niello.test_context(), press_lbl, 1.0 / 60.0)
+	finish(declare_input_tree)
+	away := idle_input(AWAY_PT)
+	away.buttons_down = {.Left}
+	niello.frame_begin(niello.test_context(), away, 1.0 / 60.0)
+	finish(declare_input_tree)
+	back_btn := idle_input(BTN_PT)
+	back_btn.buttons_down = {.Left}
+	niello.frame_begin(niello.test_context(), back_btn, 1.0 / 60.0)
+	finish(declare_input_tree)
+	rel_btn := idle_input(BTN_PT)
+	rel_btn.buttons_released = {.Left}
+	niello.frame_begin(niello.test_context(), rel_btn, 1.0 / 60.0)
+	testing.expect(t, niello.clicked(input_btn_i), "press label, release button border clicks the button")
+	testing.expect(t, !niello.clicked(input_lbl_i), "release on the border is not within the label")
+	finish(declare_input_tree)
+
+	// Reverse direction, which already worked: press the border,
+	// excursion, release on the label.
+	press_btn := idle_input(BTN_PT)
+	press_btn.buttons_pressed = {.Left}
+	press_btn.buttons_down = {.Left}
+	niello.frame_begin(niello.test_context(), press_btn, 1.0 / 60.0)
+	finish(declare_input_tree)
+	niello.frame_begin(niello.test_context(), away, 1.0 / 60.0)
+	finish(declare_input_tree)
+	back_lbl := idle_input(LBL_PT)
+	back_lbl.buttons_down = {.Left}
+	niello.frame_begin(niello.test_context(), back_lbl, 1.0 / 60.0)
+	finish(declare_input_tree)
+	rel_lbl := idle_input(LBL_PT)
+	rel_lbl.buttons_released = {.Left}
+	niello.frame_begin(niello.test_context(), rel_lbl, 1.0 / 60.0)
+	testing.expect(t, niello.clicked(input_btn_i), "press border, release label clicks the button")
+	finish(declare_input_tree)
+
+	// Guard: press the label, release outside the button entirely
+	// (on the root only) — nothing in the button clicks.
+	niello.frame_begin(niello.test_context(), press_lbl, 1.0 / 60.0)
+	finish(declare_input_tree)
+	rel_away := idle_input(AWAY_PT)
+	rel_away.buttons_released = {.Left}
+	niello.frame_begin(niello.test_context(), rel_away, 1.0 / 60.0)
+	testing.expect(t, !niello.clicked(input_btn_i), "release outside the button does not click it")
+	testing.expect(t, !niello.clicked(input_lbl_i), "release outside the button does not click the label")
+	finish(declare_input_tree)
+}
+
+@(test)
 test_input_hover_duration :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()

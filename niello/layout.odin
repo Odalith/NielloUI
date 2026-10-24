@@ -99,9 +99,11 @@ resolve_popup_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 // popup_position resolves a popup root's top-left (§3.19): the
 // anchor's last committed rect (pass F commits after positioning,
 // so g.instances still holds it) plus this frame's resolved size.
-// The placement side flips when the content would leave the
-// viewport there and fits on the opposite side; the cross axis
-// clamps into the viewport. Nothing paints outside the viewport.
+// Anchored placements flip when the content would leave the
+// viewport there and fit on the opposite side; the cross axis
+// clamps into the viewport. .At and .Center have no anchor to flip
+// around: .At clamps the point into the viewport, .Center centers.
+// Nothing paints outside the viewport.
 popup_position :: proc(r: int) -> Vec2 {
 	nd := &g.nodes[r]
 	size := g.lay[r].size
@@ -118,16 +120,16 @@ popup_position :: proc(r: int) -> Vec2 {
 		)
 	}
 	if nd.popup_place == .At {
-		p := nd.popup_at
-		// Reflect around the point on any axis that overflows,
-		// like a context menu opening up-left at the corner.
-		if p.x + size.x > vp.x {
-			p.x = nd.popup_at.x - size.x
-		}
-		if p.y + size.y > vp.y {
-			p.y = nd.popup_at.y - size.y
-		}
-		return clamp_to_view(p, size, vp)
+		// The point is app-owned state (a dragged dialog's
+		// position, a menu's cursor point): place the top-left
+		// at it and clamp into the viewport. Reflecting around
+		// the point — the old behavior — broke app-owned
+		// positions: dragging a dialog to the right edge jumped
+		// it left by its full width when the far edge crossed
+		// the viewport, and back when it crossed back.
+		// Clamping pins at the edge instead, with no
+		// discontinuity.
+		return clamp_to_view(nd.popup_at, size, vp)
 	}
 	a_rec, ok := g.instances[nd.popup_anchor]
 	a := a_rec.rect
