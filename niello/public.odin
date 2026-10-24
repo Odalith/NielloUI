@@ -1196,8 +1196,10 @@ clicked :: proc(i: Instance) -> bool {
 // DRAG_THRESHOLD (4 DIP) becomes a drag on the same press capture.
 // The drag belongs to the press target and bubbles like the other
 // queries; an ancestor claims or disclaims a descendant's drag by
-// subtraction (dragging(header) && !dragging(close_btn)). A drag's
-// release never completes a click. Capture loss — focus loss,
+// subtraction (dragging(header) && !dragging(close_btn)). Drag and
+// click are orthogonal: a drag's release completes the drag, and the
+// click is evaluated independently — press, drag off, drag back,
+// release over the target clicks. Capture loss — focus loss,
 // cursor departure, the target leaving the tree — cancels it.
 
 // dragging reports a drag is active on the instance (or a descendant).

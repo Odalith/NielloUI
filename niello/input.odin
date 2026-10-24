@@ -12,10 +12,13 @@
 //   - Press capture: a button press captures the picked instance until the
 //     matching release, wherever the cursor goes (pressed stays true;
 //     hover keeps following the cursor).
-//   - Drag (§3.28, ruled 2026-10-23): a left press whose displacement
-//     from the grab point crosses DRAG_THRESHOLD becomes a drag on the
-//     same capture. A drag suppresses the click its release would
-//     otherwise complete. Capture loss (focus loss, cursor departure,
+//   - Drag (§3.28, ruled 2026-10-23, click orthogonal 2026-10-24):
+//     a left press whose displacement from the grab point crosses
+//     DRAG_THRESHOLD becomes a drag on the same capture. The drag
+//     and the click are independent: a drag's release completes the
+//     drag, and the click is evaluated on its own #5 rule, so
+//     press, drag off, drag back, release over the target clicks.
+//     Capture loss (focus loss, cursor departure,
 //     the target leaving the tree) ends a drag as cancelled; a release
 //     ends it completed. Queries bubble like pressed; the drag belongs
 //     to the press target, so an ancestor subtracts a descendant's
@@ -686,10 +689,14 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			if target != 0 {
 				note_affected(target)
 				if b == .Left && g.drag_active {
-					// A drag's release completes the drag, never a
-					// click (F1, ruled 2026-10-23).
+					// Orthogonal (2026-10-24, supersedes F1): a
+					// drag's release completes the drag, and the
+					// click is evaluated independently below —
+					// press, drag off, drag back, release over the
+					// target clicks again, as in #5.
 					end_drag(true)
-				} else if b == .Left && pick >= 0 && !blocked {
+				}
+				if b == .Left && pick >= 0 && !blocked {
 					// Release over the target or a descendant of it:
 					// the target sits on the pick's chain.
 					for idx in chain_idx {

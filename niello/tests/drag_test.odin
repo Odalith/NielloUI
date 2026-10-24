@@ -73,11 +73,12 @@ test_drag_lifecycle :: proc(t: ^testing.T) {
 	testing.expect(t, niello.drag_total() == niello.Vec2{16, 4}, "total accumulates from the grab")
 	testing.expect(t, niello.drag_delta() == niello.Vec2{6, 4}, "delta is per-frame")
 
-	// Release off-target: drag ends completed, no click anywhere.
+	// Release off-target: drag ends completed, no click anywhere
+	// (the click rule still needs release over the target).
 	frame(release_at(AWAY_PT))
 	testing.expect(t, niello.drag_ended(input_btn_i), "end edge on release")
 	testing.expect(t, niello.drag_completed(input_btn_i), "release completes the drag")
-	testing.expect(t, !niello.clicked(input_btn_i), "a drag's release never clicks")
+	testing.expect(t, !niello.clicked(input_btn_i), "release off-target clicks nothing")
 	testing.expect(t, niello.drag_total() == AWAY_PT - BTN_PT, "final total survives the end frame")
 	testing.expect(t, !niello.dragging(input_btn_i), "drag over")
 
@@ -85,6 +86,28 @@ test_drag_lifecycle :: proc(t: ^testing.T) {
 	frame(idle_input(AWAY_PT))
 	testing.expect(t, !niello.drag_ended(input_btn_i), "end edge lasts one declare")
 	testing.expect(t, niello.drag_total() == niello.Vec2{}, "total clears after the end declare")
+}
+
+@(test)
+test_drag_off_back_release_clicks :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_input_tree()
+	frame(idle_input(BTN_PT))
+
+	// Press, cross the threshold, drag back on target, release:
+	// orthogonal (2026-10-24, supersedes F1) — the drag completes
+	// AND the click fires. Both queries are true on the release
+	// declare.
+	frame(press_at(BTN_PT))
+	frame(hold_at(BTN_PT + {10, 0}))
+	testing.expect(t, niello.dragging(input_btn_i), "drag active after crossing")
+	frame(hold_at(BTN_PT))
+	testing.expect(t, niello.dragging(input_btn_i), "drag still active back on target")
+	frame(release_at(BTN_PT))
+	testing.expect(t, niello.drag_ended(input_btn_i), "release ends the drag")
+	testing.expect(t, niello.drag_completed(input_btn_i), "release completes the drag")
+	testing.expect(t, niello.clicked(input_btn_i), "drag off-and-back release over target clicks")
 }
 
 @(test)

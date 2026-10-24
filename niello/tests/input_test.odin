@@ -188,11 +188,11 @@ test_input_press_capture :: proc(t: ^testing.T) {
 	testing.expect(t, !niello.pressed(input_btn_i), "capture ends at release")
 	finish(declare_input_tree)
 
-	// Press again, drag off, drag BACK on, release: since §3.28
-	// (TODO #27, F1 ruled 2026-10-23) the excursion crossed the drag
-	// threshold, so the release completes the DRAG, not a click —
-	// this supersedes the pre-drag rule this test originally pinned
-	// (a drag off-and-back used to click).
+	// Press again, drag off, drag BACK on, release: the excursion
+	// crossed the drag threshold, so the release completes the drag
+	// — and, orthogonal since 2026-10-24 (superseding §3.28 F1),
+	// the click is evaluated independently and fires too, restoring
+	// the pre-drag rule this test originally pinned.
 	niello.frame_begin(niello.test_context(), press, 1.0 / 60.0)
 	finish(declare_input_tree)
 	niello.frame_begin(niello.test_context(), drag, 1.0 / 60.0)
@@ -204,7 +204,7 @@ test_input_press_capture :: proc(t: ^testing.T) {
 	rel2 := idle_input(BTN_PT)
 	rel2.buttons_released = {.Left}
 	niello.frame_begin(niello.test_context(), rel2, 1.0 / 60.0)
-	testing.expect(t, !niello.clicked(input_btn_i), "a drag's release back on target does not click (§3.28 F1)")
+	testing.expect(t, niello.clicked(input_btn_i), "drag off-and-back release over target clicks (orthogonal)")
 	testing.expect(t, niello.drag_ended(input_btn_i), "the release ends the drag")
 	testing.expect(t, niello.drag_completed(input_btn_i), "a release ends the drag completed")
 	finish(declare_input_tree)
