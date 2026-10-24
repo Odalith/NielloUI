@@ -1191,6 +1191,70 @@ clicked :: proc(i: Instance) -> bool {
 	return chain_contains(g.clicked_chain[:], i)
 }
 
+// ============ drag queries (§3.28) ============
+// A left press whose displacement from the grab point crosses
+// DRAG_THRESHOLD (4 DIP) becomes a drag on the same press capture.
+// The drag belongs to the press target and bubbles like the other
+// queries; an ancestor claims or disclaims a descendant's drag by
+// subtraction (dragging(header) && !dragging(close_btn)). A drag's
+// release never completes a click. Capture loss — focus loss,
+// cursor departure, the target leaving the tree — cancels it.
+
+// dragging reports a drag is active on the instance (or a descendant).
+dragging :: proc(i: Instance) -> bool {
+	return g.drag_active && chain_contains(g.press_chains[.Left][:], i)
+}
+
+// drag_started reports the drag crossed the threshold in this frame's
+// dispatch. True for exactly one declare.
+drag_started :: proc(i: Instance) -> bool {
+	return g.drag_started_flag && dragging(i)
+}
+
+// drag_ended reports the drag on the instance (or a descendant) ended
+// in this frame's dispatch. True for exactly one declare.
+drag_ended :: proc(i: Instance) -> bool {
+	return chain_contains(g.drag_ended_chain[:], i)
+}
+
+// drag_completed distinguishes how the drag ended: released (true)
+// vs cancelled by capture loss (false). Meaningful only with
+// drag_ended.
+drag_completed :: proc(i: Instance) -> bool {
+	return g.drag_ended_completed && drag_ended(i)
+}
+
+// drag_delta is the pointer's movement in the last dispatch, window
+// DIP — zero unless a drag is active or just ended.
+drag_delta :: proc() -> Vec2 {
+	if g.drag_active || g.drag_ended_id != 0 {
+		return g.drag_delta_v
+	}
+	return Vec2{}
+}
+
+// drag_total is the pointer's displacement from the grab point —
+// live while dragging; on the drag_ended declare, the final total.
+drag_total :: proc() -> Vec2 {
+	if g.drag_active {
+		return g.drag_total_v
+	}
+	if g.drag_ended_id != 0 {
+		return g.drag_ended_total
+	}
+	return Vec2{}
+}
+
+// drag_pos is the pointer position relative to the instance's
+// committed rect origin — the slider's raw material. {0,0} when the
+// instance has no committed rect.
+drag_pos :: proc(i: Instance) -> Vec2 {
+	if r, ok := rect(i); ok {
+		return g.pointer_pos - r.pos
+	}
+	return Vec2{}
+}
+
 // hover_duration is how long the cursor has been inside i's subtree, in
 // seconds: i's own entry time into the hover chain, so a button reports
 // one continuous duration whether the cursor is over its body or its
