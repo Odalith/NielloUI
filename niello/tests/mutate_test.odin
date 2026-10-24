@@ -96,6 +96,64 @@ test_set_cancels_glide :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_set_equal_is_noop :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	a: niello.Unit
+	niello.mint(&a, niello.NO_UNIT, {
+		size  = niello.Size{niello.fixed(100), niello.fixed(50)},
+		color = niello.Color{10, 20, 30, 255},
+		text  = "hello",
+	})
+
+	// Size: the Nachtul case — writing the same Size again bumps nothing.
+	gen0 := niello.test_generation()
+	niello.set(a, .Size, niello.Size{niello.fixed(100), niello.fixed(50)})
+	testing.expect(t, niello.test_generation() == gen0,
+		"an equal Size set bumps nothing")
+	niello.set(a, .Size, niello.Size{niello.fixed(120), niello.fixed(50)})
+	testing.expect(t, niello.test_generation() > gen0,
+		"a changed Size set still bumps")
+	gen1 := niello.test_generation()
+	niello.set(a, .Size, niello.Size{niello.fixed(120), niello.fixed(50)})
+	testing.expect(t, niello.test_generation() == gen1,
+		"the new value, written again, bumps nothing")
+
+	// Text: equal content is a no-op even from a fresh string, and the
+	// stored text survives (compare-before-clone, no delete + re-clone).
+	niello.set(a, .Text, "hello")
+	testing.expect(t, niello.test_generation() == gen1,
+		"an equal Text set bumps nothing")
+	testing.expect(t, niello.test_style(a).text == "hello",
+		"the equal Text set leaves the stored text alone")
+	niello.set(a, .Text, "goodbye")
+	testing.expect(t, niello.test_style(a).text == "goodbye",
+		"a changed Text set still writes")
+
+	// Spans: equal elements are a no-op even from a fresh slice.
+	spans := []niello.Text_Span{{start = 0, end = 5}}
+	niello.set(a, .Text_Spans, spans)
+	gen2 := niello.test_generation()
+	niello.set(a, .Text_Spans, []niello.Text_Span{{start = 0, end = 5}})
+	testing.expect(t, niello.test_generation() == gen2,
+		"an equal Text_Spans set bumps nothing")
+
+	// Glide exception: an equal set while gliding still cancels the glide.
+	c: niello.Unit
+	niello.mint(&c, niello.NO_UNIT, {color = niello.Color{0, 0, 0, 255}})
+	b: niello.Unit
+	niello.mint(&b, niello.NO_UNIT, {color = niello.Color{200, 0, 0, 255}})
+	niello.tween(c, b, 100, niello.Fields{.Color})
+	mframe(noop_declare, 0.05) // mid-glide: 175
+	testing.expect(t, niello.test_style(c).color.r == 175, "mid-glide value")
+	niello.set(c, .Color, niello.Color{175, 0, 0, 255})
+	mframe(noop_declare, 0.05)
+	mframe(noop_declare, 0.05)
+	testing.expect(t, niello.test_style(c).color == niello.Color{175, 0, 0, 255},
+		"an equal set mid-glide still cancels the glide and sticks")
+}
+
+@(test)
 test_tween_size_value_glides :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()

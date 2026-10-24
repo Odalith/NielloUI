@@ -678,9 +678,26 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 	}
 }
 
+// set is a no-op on an equal value, like propagate (skips equal fields)
+// and edit (diffs before writing): a blind write used to bump the
+// generation and damage every frame, which is how a per-frame write of
+// an unchanged value kept an app framing at vsync forever — a footgun
+// no app author can see from their side. The comparison runs BEFORE
+// any clone, so Text / Text_Spans never delete + re-clone on a no-op.
+// One exception, kept deliberate: a field with a glide in flight is
+// NOT a no-op even when the value equals the live (mid-glide) value —
+// the explicit write's job there is to cancel the glide, and skipping
+// it would let the glide carry the value away afterwards.
 set_any :: proc(u: Unit, f: Field, v: any) {
-	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
 	rec := &store.units[int(u)]
+	if !field_gliding(u, f) {
+		tmp: Style
+		style_set_any(&tmp, f, v)
+		if field_equal(&rec.style, &tmp, f) {
+			return
+		}
+	}
+	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
 	#partial switch f {
 	case .Text:
 		store_text(&rec.style.text, must(v, string))
