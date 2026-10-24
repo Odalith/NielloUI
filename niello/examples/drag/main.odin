@@ -53,7 +53,7 @@ mint :: proc() {
 		color = BG, padding = [4]u16{20, 20, 20, 20}, gap = 10,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {font_size = 20, font_color = INK})
-	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13, font_color = DIM})
+	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13, font_color = DIM, wrap = .Word})
 	niello.mint(&caption_u, niello.NO_UNIT, {font_size = 13.5, font_color = INK})
 	niello.mint(&value_u, niello.NO_UNIT, {font_size = 13.5, font_color = ACCENT})
 
@@ -141,9 +141,11 @@ declare :: proc() {
 
 		// --- slider ---
 		niello.show(caption_u, niello.key("cap1"), {text = "Slider"})
-		ti, tok := niello.begin(track_u, niello.key("slider"))
-		slider_i = ti
-		if tok {
+		// NOTE: begin goes in the if initializer — a plain-statement
+		// begin defers its end to the end of the root block, which
+		// silently reparents everything below into the track.
+		if ti, tok := niello.begin(track_u, niello.key("slider")); tok {
+			slider_i = ti
 			niello.set(fill_u, .Size, niello.Size{niello.percent(slider_value), niello.percent(1)})
 			if _, fok := niello.begin(fill_u, niello.key("fill")); fok {}
 		}
@@ -161,8 +163,12 @@ declare :: proc() {
 			if _, okl := niello.begin(left_pane_u, niello.key("left")); okl {
 				niello.show(pane_text_u, 0, {text = fmt.tprintf("left pane, %.0f DIP wide", split_w)})
 			}
-			di, _ := niello.begin(divider_u, niello.key("divider"))
-			divider_i = di
+			// Same rule as the track: the divider's end must pop at
+			// the end of this statement's scope, not the row's,
+			// or the right pane becomes a child of the divider.
+			if di, dok := niello.begin(divider_u, niello.key("divider")); dok {
+				divider_i = di
+			}
 			if _, okr := niello.begin(right_pane_u, niello.key("right")); okr {
 				niello.show(pane_text_u, 0, {text = "right pane (grow)"})
 			}
