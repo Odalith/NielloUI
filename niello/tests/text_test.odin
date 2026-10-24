@@ -47,7 +47,7 @@ test_font_defaults :: proc(t: ^testing.T) {
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT)
 	i: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		i = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -68,7 +68,7 @@ test_font_size_changes_measurement :: proc(t: ^testing.T) {
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT, {font_size = f32(32)})
 	i: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		i = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -92,7 +92,7 @@ test_font_setters :: proc(t: ^testing.T) {
 	niello.set(u, .Font_Slant, niello.Font_Slant.Italic)
 	niello.set(u, .Font_Color, [4]u8{255, 0, 0, 255})
 	i: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		i = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -145,7 +145,7 @@ test_text_spans_fragment_widths :: proc(t: ^testing.T) {
 	)
 	show :: proc(root, u: niello.Unit) -> niello.Instance {
 		i: niello.Instance
-		niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 		if _, ok := niello.begin(root); ok {
 			i = niello.show(u, 0, niello.With{text = "Hello you"})
 		}
@@ -181,7 +181,7 @@ test_span_emission :: proc(t: ^testing.T) {
 			},
 		},
 	)
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(u, 0, niello.With{text = "Hello you"})
 	}
@@ -215,7 +215,7 @@ test_multiline_emission :: proc(t: ^testing.T) {
 	lbl: niello.Unit
 	niello.mint(&lbl, niello.NO_UNIT, {size = niello.Size{niello.fixed(40), niello.fit()}, wrap = .Word})
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		// 88px unwrapped in a 40px box -> "aa bb" / "cc dd".
 		niello.show(lbl, 0, niello.With{text = "aa bb cc dd"})
@@ -258,7 +258,7 @@ test_backend_hooks :: proc(t: ^testing.T) {
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT)
 	i: niello.Instance
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		i = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -270,7 +270,7 @@ test_backend_hooks :: proc(t: ^testing.T) {
 	testing.expect(t, abs(r.size.y - 32) < EPS, "backend line height is used")
 
 	miss_calls := hook_calls
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -286,7 +286,7 @@ test_font_color_change_recolors_cached_text :: proc(t: ^testing.T) {
 	u: niello.Unit
 	niello.mint(&u, niello.NO_UNIT, {font_color = niello.Color{10, 20, 30, 255}})
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		_ = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -300,7 +300,7 @@ test_font_color_change_recolors_cached_text :: proc(t: ^testing.T) {
 	// reused. Only the paint-only base color changes — a theme
 	// broadcast (group_set .Font_Color) does exactly this.
 	niello.set(u, .Font_Color, niello.Color{200, 210, 220, 255})
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		_ = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -327,7 +327,7 @@ test_span_color_survives_base_color_change :: proc(t: ^testing.T) {
 		text_spans = []niello.Text_Span{{start = 0, end = 1, font_color = red}},
 	})
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		_ = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -339,7 +339,7 @@ test_span_color_survives_base_color_change :: proc(t: ^testing.T) {
 		"span fragment red, base fragment in the base color")
 
 	niello.set(u, .Font_Color, niello.Color{200, 210, 220, 255})
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		_ = niello.show(u, 0, niello.With{text = "Hi"})
 	}
@@ -371,7 +371,7 @@ test_style_spans_are_owned_copies :: proc(t: ^testing.T) {
 	niello.mint(&u, niello.NO_UNIT, {text_spans = spans})
 	spans[0] = niello.Text_Span{start = 0, end = 0} // the caller scribbles
 
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(u, 0, niello.With{text = "Hello you"})
 	}
@@ -388,7 +388,7 @@ test_style_spans_are_owned_copies :: proc(t: ^testing.T) {
 	spans2 := []niello.Text_Span{{start = 0, end = 5, font_color = niello.Color{9, 8, 7, 255}}}
 	niello.set(u, .Text_Spans, spans2)
 	spans2[0] = niello.Text_Span{}
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	if _, ok := niello.begin(root); ok {
 		niello.show(u, 0, niello.With{text = "Hello you"})
 	}
@@ -421,7 +421,7 @@ ws_declare :: proc() {
 ws_measure :: proc(text: string) -> f32 {
 	ws_text_v = text
 	ws_spans_v = nil
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	ws_declare()
 	niello.frame_end()
 	r, _ := niello.rect(ws_i)
@@ -465,7 +465,7 @@ test_whitespace_preserve_gap_uses_its_own_style :: proc(t: ^testing.T) {
 	spans[0] = niello.Text_Span{start = 1, end = 2, font_size = f32(32)}
 	ws_spans_v = spans
 	ws_text_v = "a b"
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	ws_declare()
 	niello.frame_end()
 	r, _ := niello.rect(ws_i)
@@ -496,7 +496,7 @@ test_whitespace_preserve_wrap_breaks_on_real_gaps :: proc(t: ^testing.T) {
 	niello.mint(&wrap_a_u, niello.NO_UNIT, box) // Collapse
 	box.whitespace = niello.Whitespace.Preserve
 	niello.mint(&wrap_b_u, niello.NO_UNIT, box) // Preserve
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	wrap_declare()
 	niello.frame_end()
 	ra, _ := niello.rect(wrap_a_i)
@@ -517,7 +517,7 @@ test_whitespace_preserve_emission_positions :: proc(t: ^testing.T) {
 	// its width prices them, so following content sits at the true x.
 	ws_text_v = "  aa"
 	ws_spans_v = nil
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
 	ws_declare()
 	niello.frame_end()
 	found := false
@@ -548,7 +548,7 @@ test_with_text_copied_at_declare :: proc(t: ^testing.T) {
 		size = niello.Size{niello.fixed(120), niello.fixed(20)},
 	})
 	buf: [16]u8
-	niello.frame_begin(niello.Input{viewport = {400, 300}}, 0.016)
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
 	if _, ok := niello.begin(root); ok {
 		for k in 0 ..< 3 {
 			n := len(fmt.bprintf(buf[:], "Row %d", k + 1))
