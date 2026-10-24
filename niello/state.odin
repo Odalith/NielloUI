@@ -210,6 +210,21 @@ Context :: struct {
 	press_chains:  [Mouse_Button][dynamic]Instance,
 	clicked_id:    Instance, // set at a release dispatch, valid for one declare
 	clicked_chain: [dynamic]Instance,
+	// Drag state (§3.28): a left press whose displacement from the
+	// grab point crosses DRAG_THRESHOLD becomes a drag on the same
+	// capture. The ended snapshot, like clicked's, is valid for
+	// exactly one declare.
+	drag_active:          bool,
+	drag_grab:            Vec2, // pointer position at the press
+	drag_total_v:         Vec2, // live displacement from the grab point
+	drag_delta_v:         Vec2, // pointer movement in the last dispatch
+	drag_started_flag:    bool, // threshold crossed at the last dispatch
+	drag_ended_id:        Instance,
+	drag_ended_chain:     [dynamic]Instance,
+	drag_ended_completed: bool, // release (true) vs capture loss (false)
+	drag_ended_total:     Vec2,
+	prev_pointer_pos:     Vec2,
+	prev_pointer_valid:   bool,
 	focus_id:      Instance, // keyboard focus (§3.17): traversal, click,
 	                         // or programmatic; input_keys/input_text
 	                         // route to it
@@ -423,6 +438,7 @@ free_context :: proc(ctx: ^Context) {
 		delete(ctx.press_chains[b])
 	}
 	delete(ctx.key_press_chain)
+	delete(ctx.drag_ended_chain)
 	delete(ctx.frame_text)
 	delete(ctx.keys_scratch)
 	delete(ctx.seen_ids)

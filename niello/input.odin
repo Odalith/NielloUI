@@ -12,10 +12,23 @@
 //   - Press capture: a button press captures the picked instance until the
 //     matching release, wherever the cursor goes (pressed stays true;
 //     hover keeps following the cursor).
-//   - Click = press + release over the same instance or one of its
-//     descendants, left button only in v1. Queries bubble: an instance
-//     counts as hovered/pressed/clicked when it is the target or an
-//     ancestor of the target, so a button fires when its label is hit.
+//   - Drag (§3.28, ruled 2026-10-23, click orthogonal 2026-10-24):
+//     a left press whose displacement from the grab point crosses
+//     DRAG_THRESHOLD becomes a drag on the same capture. The drag
+//     and the click are independent: a drag's release completes the
+//     drag, and the click is evaluated on its own #5 rule, so
+//     press, drag off, drag back, release over the target clicks.
+//     Capture loss (focus loss, cursor departure,
+//     the target leaving the tree) ends a drag as cancelled; a release
+//     ends it completed. Queries bubble like pressed; the drag belongs
+//     to the press target, so an ancestor subtracts a descendant's
+//     query to claim or disclaim it (dragging(header) &&
+//     !dragging(close_btn)).
+//   - Click = press + release within the same subtree, left button
+//     only in v1: an instance counts as clicked when it is an
+//     ancestor-or-self of BOTH the press pick and the release pick.
+//     Queries bubble, so a button fires when its label is hit — in
+//     either direction (press label, release border, and vice versa).
 //   - Disabled absorbs: the first disabled instance on the pick's ancestor
 //     chain truncates it. That instance reports hovered (it can paint its
 //     disabled state) but press/click never fire through it.
@@ -72,6 +85,37 @@ note_affected :: proc(id: Instance) {
 		append(&g.affected, id)
 		g.input_dirty = true
 	}
+}
+
+// DRAG_THRESHOLD is the displacement from the grab point, in DIP, at
+// which a left press becomes a drag (§3.28; an engine feel constant
+// like WHEEL_UNIT_PX, ruled 2026-10-23).
+DRAG_THRESHOLD :: 4
+
+// end_drag snapshots the finished drag for exactly one declare, the
+// way a release snapshots a click. completed separates a release
+// from a capture loss.
+@(private)
+end_drag :: proc(completed: bool) {
+	g.drag_ended_id = g.press_ids[.Left]
+	clear(&g.drag_ended_chain)
+	append(&g.drag_ended_chain, ..g.press_chains[.Left][:])
+	g.drag_ended_completed = completed
+	g.drag_ended_total = g.drag_total_v
+	g.drag_active = false
+	note_affected(g.drag_ended_id)
+}
+
+// instance_in_tree reports whether id is a node of the tree dispatch
+// is reading (last frame's committed tree).
+@(private)
+instance_in_tree :: proc(id: Instance) -> bool {
+	for nd in g.nodes {
+		if nd.identity == id {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +447,15 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// dispatch that produced it. Consumed or not, it ends here.
 	g.clicked_id = 0
 	clear(&g.clicked_chain)
+	// Drag edges live for one declare too (§3.28).
+	g.drag_started_flag = false
+	g.drag_ended_id = 0
+	clear(&g.drag_ended_chain)
+	g.drag_ended_completed = false
+	g.drag_delta_v = Vec2{}
+	if input.mouse_valid && g.prev_pointer_valid {
+		g.drag_delta_v = input.mouse - g.prev_pointer_pos
+	}
 	clear(&g.affected)
 	// Dismissal requests (§3.19) live for one declare, like clicks.
 	if g.dismiss_flags != nil {
@@ -414,6 +467,9 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// it tracks the cursor over unfocused windows too, and the press
 	// that focuses the window dispatches below like any other.
 	if !input.window_focused && g.prev_focused {
+		if g.drag_active {
+			end_drag(false)
+		}
 		for b in Mouse_Button {
 			if g.press_ids[b] != 0 {
 				note_affected(g.press_ids[b])
@@ -430,6 +486,10 @@ dispatch_input :: proc(input: Input, dt: f32) {
 
 	if !input.mouse_valid {
 		// Cursor departure: everything ends at once.
+		if g.drag_active {
+			end_drag(false)
+		}
+		g.prev_pointer_valid = false
 		note_affected(g.hover_id)
 		g.hover_id = 0
 		clear(&g.hover_chain)
@@ -440,6 +500,15 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			clear(&g.press_chains[b])
 		}
 		return
+	}
+
+	// A drag whose target left the tree is cancelled, and its capture
+	// dies with it — a vanished target completes no click either.
+	if g.drag_active && !instance_in_tree(g.press_ids[.Left]) {
+		end_drag(false)
+		note_affected(g.press_ids[.Left])
+		g.press_ids[.Left] = 0
+		clear(&g.press_chains[.Left])
 	}
 
 	pick := pick_at(input.mouse)
@@ -587,6 +656,20 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		}
 	}
 
+	// Drag motion (§3.28): the live total runs from the grab point;
+	// crossing the threshold starts the drag. Runs before release
+	// handling so a release snapshots the final total.
+	if g.press_ids[.Left] != 0 {
+		g.drag_total_v = input.mouse - g.drag_grab
+		if !g.drag_active &&
+		   g.drag_total_v.x * g.drag_total_v.x + g.drag_total_v.y * g.drag_total_v.y >=
+		   DRAG_THRESHOLD * DRAG_THRESHOLD {
+			g.drag_active = true
+			g.drag_started_flag = true
+			note_affected(g.press_ids[.Left])
+		}
+	}
+
 	// Press capture and click completion, per button.
 	for b in Mouse_Button {
 		if b in input.buttons_pressed && pick >= 0 && !blocked &&
@@ -596,22 +679,46 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			for idx in chain_idx {
 				append(&g.press_chains[b], g.nodes[idx].identity)
 			}
+			if b == .Left {
+				g.drag_grab = input.mouse
+				g.drag_total_v = Vec2{}
+			}
 			note_affected(g.press_ids[b])
 		}
 		if b in input.buttons_released {
 			target := g.press_ids[b]
 			if target != 0 {
 				note_affected(target)
+				if b == .Left && g.drag_active {
+					// Orthogonal (2026-10-24, supersedes F1): a
+					// drag's release completes the drag, and the
+					// click is evaluated independently below —
+					// press, drag off, drag back, release over the
+					// target clicks again, as in #5.
+					end_drag(true)
+				}
 				if b == .Left && pick >= 0 && !blocked {
-					// Release over the target or a descendant of it:
-					// the target sits on the pick's chain.
-					for idx in chain_idx {
-						if g.nodes[idx].identity == target {
-							g.clicked_id = target
-							clear(&g.clicked_chain)
-							append(&g.clicked_chain, ..g.press_chains[b][:])
-							break
+					// Click = press and release within the same
+					// subtree: the clicked chain is the set of
+					// instances common to the press chain and the
+					// release chain. The old rule (press target on
+					// the release chain) was asymmetric: press on
+					// a button's label, release on its border,
+					// never clicked, while the reverse did.
+					// Identity comparison, not position, so a
+					// tree change between press and release
+					// cannot misalign it.
+					clear(&g.clicked_chain)
+					for pid in g.press_chains[b] {
+						for idx in chain_idx {
+							if g.nodes[idx].identity == pid {
+								append(&g.clicked_chain, pid)
+								break
+							}
 						}
+					}
+					if len(g.clicked_chain) > 0 {
+						g.clicked_id = g.clicked_chain[len(g.clicked_chain)-1]
 					}
 				}
 				g.press_ids[b] = 0
@@ -623,6 +730,9 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// The wheel is consumed last, once the pick's chain and its blocked
 	// state are known; it writes offsets only (pass F does the moving).
 	consume_wheel(input.wheel, chain_idx[:], blocked)
+
+	g.prev_pointer_pos = input.mouse
+	g.prev_pointer_valid = true
 }
 
 // consume_wheel routes one frame of accumulated wheel delta to the

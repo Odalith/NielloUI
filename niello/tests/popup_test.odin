@@ -347,7 +347,7 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Placement edges: flip on overflow, At reflection.
+// Placement edges: anchored flip on overflow, At clamp.
 
 pp_spacer_u: niello.Unit
 pp_flip_mode: int // 0 = Below a bottom anchor, 1 = At a corner point
@@ -384,7 +384,7 @@ pp_flip_frame :: proc() {
 }
 
 @(test)
-test_popup_placement_flips_and_reflects :: proc(t: ^testing.T) {
+test_popup_placement_flips_and_clamps :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	pp_mint()
@@ -401,12 +401,59 @@ test_popup_placement_flips_and_reflects :: proc(t: ^testing.T) {
 	testing.expect(t, ok, "popup committed")
 	testing.expect(t, abs(r.pos.y - 198) < EPS, "flipped above the bottom anchor")
 	testing.expect(t, abs(r.pos.x - 0) < EPS, "cross axis unchanged")
-	// At {390,290} with a 120x72 popup: reflects around the point
-	// on both axes rather than leaving the viewport.
+	// At {390,290} with a 120x72 popup: clamps into the 400x300
+	// viewport (280, 228) rather than reflecting around the point
+	// (270, 218) or leaving the viewport.
 	pp_flip_mode = 1
 	pp_flip_frame()
 	r, ok = niello.rect(pp_popup_i)
 	testing.expect(t, ok, "popup committed (At)")
-	testing.expect(t, abs(r.pos.x - 270) < EPS && abs(r.pos.y - 218) < EPS,
-		"At reflects around the point at the corner")
+	testing.expect(t, abs(r.pos.x - 280) < EPS && abs(r.pos.y - 228) < EPS,
+		"At clamps into the viewport at the corner")
+}
+
+// At clamp, threshold-crossing: the point is app-owned state, so
+// the popup must pin at the edge as the point moves past it, not
+// jump by its full size — the dragged-dialog bug. A 120x72 popup
+// in a 400x300 viewport crosses the far edges at x 280, y 228.
+pp_at_pt: niello.Vec2
+
+pp_at_declare :: proc() {
+	if _, ok := niello.begin(pp_root_u); ok {
+		pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(2))
+	}
+	if pi, ok := niello.begin_popup(pp_menu_u, pp_anchor_i, .At,
+		{at = pp_at_pt}, key = niello.key_int(7)); ok {
+		pp_popup_i = pi
+		for k in 0 ..< 3 {
+			niello.show(pp_item_u, niello.key_int(k + 1))
+		}
+	}
+}
+
+@(test)
+test_popup_at_clamps_without_jump :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	pp_mint()
+	pp_popup_i = 0
+	pp_at_pt = niello.Vec2{280, 228}
+	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
+	pp_at_declare()
+	niello.frame_end()
+	r, ok := niello.rect(pp_popup_i)
+	testing.expect(t, ok, "popup committed at the threshold")
+	testing.expect(t, abs(r.pos.x-280) < EPS && abs(r.pos.y-228) < EPS,
+		"flush at the threshold")
+	// One DIP past the threshold on both axes: still pinned at
+	// the edge. Under the old reflect this jumped to (180, 178),
+	// opposite the edge touched.
+	pp_at_pt = niello.Vec2{300, 250}
+	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
+	pp_at_declare()
+	niello.frame_end()
+	r, ok = niello.rect(pp_popup_i)
+	testing.expect(t, ok, "popup committed past the threshold")
+	testing.expect(t, abs(r.pos.x-280) < EPS && abs(r.pos.y-228) < EPS,
+		"pinned at the edge, no jump")
 }
