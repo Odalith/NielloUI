@@ -419,9 +419,19 @@ With :: struct {
 	variant:  Unit,          // persistent per-instance overlay (e.g. selected)
 	anchor:   Maybe([2]f32), // overlay positioning hint
 
-	label: Maybe(string), // reserved seam for accessibility: accessible name,
-	                      // copied like text. Roles/descriptions extend With
-	                      // later without breaking existing call sites.
+	label: Maybe(string), // accessibility: accessible name, copied
+	                      // like text (§3.9). When unset, the mirror
+	                      // falls back to the node's text.
+
+	// Accessibility semantics (§3.9, TODO #23): role, description,
+	// value, and state flags, declared per instance like the rest
+	// of With. A node with none of these set (role .None, no
+	// label/description/value/flags) has no semantics and does
+	// not appear in the mirror.
+	role:        A11y_Role, // .None = unset
+	description: Maybe(string), // accessible description, copied like text
+	value:       A11y_Value, // value for value-bearing roles; text copied like text
+	a11y_flags: A11y_Flags, // Checked/Selected/Expanded/ReadOnly/Required/Multiline
 
 	user: rawptr,
 }
@@ -1088,6 +1098,9 @@ frame_end :: proc() -> Frame_Result {
 	// Debug snapshot (TODO #18): after the commit, before the
 	// journal settles — a no-op unless built with NIELLO_DEBUG.
 	debug_snapshot_build()
+	// Accessibility mirror (§3.9, TODO #23): same position, but
+	// UNGATED — screen readers are prod behavior.
+	a11y_mirror_build()
 	journal_consume()
 	update_animation_wake()
 	// Debug channel transitions (TODO #18): a highlight or tint

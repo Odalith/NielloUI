@@ -156,6 +156,23 @@ declare_as :: proc(
 		// demo's rows all rendered the buffer's final contents.)
 		text = copy_frame_text(text)
 	}
+	// Accessibility strings (§3.9) get the same treatment as text:
+	// copied into the frame arena at declare time, so the stored
+	// With borrows arena memory, never caller scratch. The mirror
+	// (a11y.odin) copies them again into owned storage at frame_end,
+	// since it outlives the frame arena. Only nodes that declare
+	// semantics pay these copies. (Params are immutable, so the
+	// shadow below is what the appended Frame_Node stores.)
+	with := with
+	if lb, ok := with.label.?; ok {
+		with.label = copy_frame_text(lb)
+	}
+	if d, ok := with.description.?; ok {
+		with.description = copy_frame_text(d)
+	}
+	if len(with.value.text) > 0 {
+		with.value.text = copy_frame_text(with.value.text)
+	}
 	has_text := len(text) > 0
 	text_hash := u64(0)
 	spans: []Text_Span

@@ -144,6 +144,64 @@ void nui_image_release(uint32_t id);
 uint64_t nui_gpu_cache_bytes(void);
 void nui_purge_gpu_cache(void);
 
+// Accessibility export (AT-SPI, Linux only — TODO #23 M2).
+// The Odin side mirrors its semantics tree (niello/a11y.odin) into
+// UiA11yNode rows and hands them over after every frame_end; this
+// side diffs them against its shadow and serves the AT-SPI object
+// tree + change signals over a hand-rolled D-Bus client (dbus.h).
+// The exporter is inert when no accessibility bus answers: start
+// returns 0 and sync is a no-op, so apps never pay for AT-SPI
+// they don't have. The native library must be rebuilt after
+// pulling this (new objects in the static archive).
+//
+// UiA11yNode mirrors the Odin A11y_Node's FFI projection
+// (niello/sdl/ffi.odin). Field order IS the ABI: role is the Odin
+// A11y_Role ordinal (Avalonia's 43-value order); flags/state are
+// bit positions of the Odin A11y_Flag / A11y_State_Flag enums
+// (ORDER IS ABI — append only, on both sides). Strings are
+// borrowed for the call; the exporter copies what it keeps.
+// parent is an index into the nodes array (-1 = child of the
+// synthetic window node); rect is DIP, window-relative.
+typedef struct UiA11yNode {
+	uint64_t id; // Odin Instance (hash of parent, unit, key)
+	int32_t  parent;
+	uint32_t role;
+	const char *name;        // NULL = empty
+	const char *description; // NULL = empty
+	uint32_t flags; // 0 Checked, 1 Selected, 2 Expanded, 3 ReadOnly, 4 Required, 5 Multiline
+	uint32_t state; // 0 Disabled, 1 Focused, 2 Offscreen, 3 Scroll_X, 4 Scroll_Y, 5 Focusable
+	float    x, y, w, h;
+	int32_t  has_value;
+	float    value_num, value_min, value_max;
+	const char *value_text; // NULL = empty
+} UiA11yNode;
+
+#ifdef __cplusplus
+static_assert(sizeof(UiA11yNode) == 80, "UiA11yNode must match Odin A11y_FFI_Node (80 bytes)");
+#endif
+
+// Connect to the accessibility bus and register with the AT-SPI
+// registry. Returns 1 when the exporter is live, 0 when inert
+// (no bus, no registry, or connection failure). Safe to call
+// repeatedly; later calls are no-ops while live. app_name is the
+// application name reported to assistive tools (borrowed).
+int32_t nui_atspi_start(const char *app_name);
+// Stop the exporter: ends the dispatch thread and closes the bus
+// connection. Safe to call when never started.
+void nui_atspi_stop(void);
+// Publish one window's mirror. ctx_id identifies the window (the
+// glue's Window_Id); nodes are in declaration order, parents
+// before children; window_title is borrowed; win_x/win_y is the
+// window's screen position and win_w/win_h its size in DIP (for
+// the window node's extents and screen-coordinate answers). Call
+// after every frame_end, per window. No-op while inert.
+void nui_atspi_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
+                    const char *window_title, int32_t win_x, int32_t win_y,
+                    int32_t win_w, int32_t win_h);
+// Withdraw one window's mirror (window closed): removes its nodes
+// and window object from the export. No-op while inert or unknown.
+void nui_atspi_remove_window(int32_t ctx_id);
+
 // Shared teardown. Destroy all windows first. Does NOT destroy the
 // SDL windows (Odin owns them).
 void nui_shutdown(void);

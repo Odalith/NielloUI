@@ -169,6 +169,19 @@ Context :: struct {
 	// that reads it are what the NIELLO_DEBUG gate removes.
 	debug_nodes: [dynamic]Debug_Node,
 
+	// Accessibility mirror (§3.9, TODO #23, a11y.odin): this
+	// context's last completed frame as a flat A11y_Node array,
+	// maintained at every frame_end, UNGATED — screen readers are
+	// prod behavior, not debug tooling. Entries own their strings
+	// (cloned at mirror build, freed on change/removal/teardown);
+	// a11y_order borrows them and is valid until the next
+	// frame_end. a11y_gen counts mirror builds (sweep marker);
+	// a11y_idx is build scratch: frame-node index -> order index.
+	a11y_entries: map[Instance]A11y_Entry,
+	a11y_order:   [dynamic]A11y_Node,
+	a11y_gen:     u64,
+	a11y_idx:     [dynamic]int,
+
 	// What the debug channel painted into this context's last
 	// presented frame (debug.odin): frame_end compares the live
 	// channel against these to damage exactly the transitions —
@@ -419,6 +432,7 @@ free_context :: proc(ctx: ^Context) {
 	when NIELLO_DEBUG {
 		delete(ctx.debug_nodes)
 	}
+	a11y_free_mirror(ctx)
 	delete(ctx.instances)
 	delete(ctx.damage)
 	delete(ctx.popups)

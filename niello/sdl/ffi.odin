@@ -22,6 +22,7 @@ import niello "../"
 #assert(size_of(niello.Draw_Cmd) == 96, "niello.Draw_Cmd must stay 96 bytes: it is the FFI ABI")
 #assert(size_of(niello.Rect) == 16, "niello.Rect must stay 16 bytes: it is the FFI ABI")
 #assert(size_of(Native_Handles) == size_of(rawptr) * 8, "Native_Handles must match UiNativeHandles")
+#assert(size_of(A11y_FFI_Node) == 80, "A11y_FFI_Node must match UiA11yNode in ../../native/nui.h (80 bytes)")
 
 // System libraries the native backend needs. The static libs
 // (nui_render + Skia + Dawn) come from third_party/native/<platform>/
@@ -113,6 +114,93 @@ foreign native {
 	// separate "still cached, evictable" from "actually leaked".
 	gpu_cache_bytes :: proc() -> u64 ---
 	purge_gpu_cache :: proc() ---
+
+	// Accessibility export (TODO #23 M2, Linux only): the native
+	// AT-SPI exporter (native/atspi.cpp). Foreign declarations
+	// alone emit no references, so non-Linux links stay clean;
+	// the call sites in app.odin are `when ODIN_OS == .Linux`
+	// guarded. The native library must be rebuilt after pulling
+	// this (new objects in the static archive).
+	atspi_start         :: proc(app_name: cstring) -> c.int ---
+	atspi_stop          :: proc() ---
+	atspi_sync          :: proc(ctx_id: i32, nodes: [^]A11y_FFI_Node, count: i32, window_title: cstring, win_x, win_y, win_w, win_h: i32) ---
+	atspi_remove_window :: proc(ctx_id: i32) ---
+}
+
+// A11y_FFI_Node is the FFI projection of one mirror node for the
+// AT-SPI exporter. Field order IS the ABI (UiA11yNode in
+// ../../native/nui.h, statically asserted above). Strings borrow
+// the mirror's owned storage: valid until the next frame_end, and
+// sync runs inside the same frame pass, so borrowing is sound.
+// Flags/state are built explicitly by the helpers below — a
+// bit_set's backing layout is not ABI, so it is never transmuted.
+A11y_FFI_Node :: struct {
+	id:          u64,
+	parent:      i32,
+	role:        u32, // Odin A11y_Role ordinal (Avalonia order)
+	name:        cstring,
+	description: cstring,
+	flags:       u32, // A11y_Flag bit positions (ORDER IS ABI)
+	state:       u32, // A11y_State_Flag bit positions (ORDER IS ABI)
+	x, y, w, h:  f32, // DIP, window-relative
+	has_value:   i32,
+	value_num:   f32,
+	value_min:   f32,
+	value_max:   f32,
+	value_text:  cstring,
+}
+
+a11y_ffi_cstring :: proc(s: string) -> cstring {
+	if len(s) == 0 {
+		return nil
+	}
+	return cstring(raw_data(s))
+}
+
+a11y_ffi_flags :: proc(flags: niello.A11y_Flags) -> u32 {
+	bits: u32
+	if .Checked in flags {
+		bits |= 1 << 0
+	}
+	if .Selected in flags {
+		bits |= 1 << 1
+	}
+	if .Expanded in flags {
+		bits |= 1 << 2
+	}
+	if .ReadOnly in flags {
+		bits |= 1 << 3
+	}
+	if .Required in flags {
+		bits |= 1 << 4
+	}
+	if .Multiline in flags {
+		bits |= 1 << 5
+	}
+	return bits
+}
+
+a11y_ffi_state :: proc(state: niello.A11y_State) -> u32 {
+	bits: u32
+	if .Disabled in state {
+		bits |= 1 << 0
+	}
+	if .Focused in state {
+		bits |= 1 << 1
+	}
+	if .Offscreen in state {
+		bits |= 1 << 2
+	}
+	if .Scroll_X in state {
+		bits |= 1 << 3
+	}
+	if .Scroll_Y in state {
+		bits |= 1 << 4
+	}
+	if .Focusable in state {
+		bits |= 1 << 5
+	}
+	return bits
 }
 
 // The backend hooks are wired at package init — assignment only,

@@ -274,6 +274,9 @@ create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Confi
 // never destroys it.
 @(private)
 destroy_window_now :: proc(win: ^Glue_Window) {
+	when ODIN_OS == .Linux {
+		atspi_remove_window(i32(u32(win.id)))
+	}
 	destroy_window(win.nui)
 	sdl.DestroyWindow(win.sdl_win)
 	delete(win.text_buf)
@@ -393,6 +396,49 @@ window_due :: proc(win: ^Glue_Window, now_ns: u64) -> bool {
 	return false
 }
 
+// atspi_sync_window publishes one window's semantics mirror to
+// the native AT-SPI exporter (TODO #23 M2, Linux only; no-op
+// elsewhere and while the exporter is inert). Runs after every
+// frame_end: the mirror strings borrow entry storage valid until
+// the next frame_end, and the exporter copies what it keeps, so
+// borrowing across this call is sound. Screen position is
+// best-effort: Wayland does not report it, so screen-coordinate
+// answers degrade to window-relative there (window coordinates
+// stay exact).
+@(private)
+atspi_sync_window :: proc(win: ^Glue_Window) {
+	when ODIN_OS == .Linux {
+		nodes := niello.a11y_tree(win.ctx)
+		rows := make([]A11y_FFI_Node, len(nodes), context.temp_allocator)
+		for node, i in nodes {
+			rows[i] = A11y_FFI_Node{
+				id          = u64(node.instance),
+				parent      = i32(node.parent),
+				role        = u32(node.role),
+				name        = a11y_ffi_cstring(node.name),
+				description = a11y_ffi_cstring(node.description),
+				flags       = a11y_ffi_flags(node.flags),
+				state       = a11y_ffi_state(node.state),
+				x           = node.rect.pos.x,
+				y           = node.rect.pos.y,
+				w           = node.rect.size.x,
+				h           = node.rect.size.y,
+				has_value   = 1 if node.value.has_num else 0,
+				value_num   = node.value.num,
+				value_min   = node.value.min,
+				value_max   = node.value.max,
+				value_text  = a11y_ffi_cstring(node.value.text),
+			}
+		}
+		wx, wy: i32
+		_ = sdl.GetWindowPosition(win.sdl_win, &wx, &wy)
+		pt_w, pt_h: i32
+		sdl.GetWindowSize(win.sdl_win, &pt_w, &pt_h)
+		title := strings.clone_to_cstring(win.title, context.temp_allocator)
+		atspi_sync(i32(u32(win.id)), raw_data(rows), i32(len(rows)), title, wx, wy, pt_w, pt_h)
+	}
+}
+
 // frame_window runs one window's frame pass (the old single-window
 // app_iterate body, parameterized).
 @(private)
@@ -460,6 +506,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	clear(&win.text_buf)
 	win.declare()
 	result := niello.frame_end()
+	atspi_sync_window(win)
 
 	// The cursor is process-global in SDL: only the window currently
 	// holding the pointer gets to set it.
@@ -665,6 +712,9 @@ app_quit :: proc() {
 		destroy_window_now(win)
 	}
 	delete(wins)
+	when ODIN_OS == .Linux {
+		atspi_stop()
+	}
 	shutdown()
 }
 
@@ -790,6 +840,13 @@ run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) {
 		app_quit()
 		sdl.Quit()
 		return
+	}
+	when ODIN_OS == .Linux {
+		// Start the AT-SPI exporter (no-op when no accessibility
+		// bus answers). The app name is the main window's title:
+		// App_Config carries no separate app name in v1.
+		title := config.title if config.title != "" else "Niello App"
+		atspi_start(strings.clone_to_cstring(title, context.temp_allocator))
 	}
 
 	res := sdl.AppResult.CONTINUE

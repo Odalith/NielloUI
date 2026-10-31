@@ -26,6 +26,18 @@ add_library(nui_render STATIC
         util.cpp
         util.h)
 
+# AT-SPI accessibility export (TODO #23 M2): the hand-rolled D-Bus
+# wire client + exporter. Linux only — the D-Bus transport is a Unix
+# socket and the bus protocols are Linux-desktop concepts. The Odin
+# side guards its calls with `when ODIN_OS == .Linux`, so other
+# platforms link clean without these objects.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(nui_render PRIVATE
+        dbus.cpp
+        dbus.h
+        atspi.cpp)
+endif()
+
 find_package(Freetype REQUIRED)
 find_package(Fontconfig REQUIRED)
 find_package(Threads REQUIRED)
