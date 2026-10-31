@@ -31,10 +31,14 @@
 //     every object with no states at all. (Confirmed by Orca,
 //     2026-10-31: "expected 2 values in states array; got 4..7".)
 //   - GetExtents returns ONE struct (iiii), not four outs.
-//   - GetItems' parent field is the application object for every
-//     item (GTK4 cache convention); the application item itself
-//     has the null parent. The Accessible Parent property still
-//     reports the real parent.
+//   - GetItems' parent field is the REAL parent, the same rule
+//     as the Accessible Parent property: window -> application,
+//     top-level node -> window, nested node -> real parent. The
+//     application item itself has the null parent (the cache
+//     doc's no-parent case). Claiming the application object for
+//     every item was WRONG: a live dbus-send GetItems (2026-10-31)
+//     showed all 9 nodes claiming the root against root count 1,
+//     and Accerciser dropped the app after ~10s. Fixed 2026-10-31.
 //   - StateChanged carries the state NAME as its detail string and
 //     enabled as detail1; ChildrenChanged carries "add"/"remove"
 //     and the index in parent. Both share the (s i i v a{sv}) body.
@@ -596,7 +600,8 @@ std::vector<std::string> interfaces_for(Target_Kind kind, bool has_value) {
 }
 
 // Parent reference for a node or window node, following the REAL
-// tree (the cache's parent field is a different rule — see
+// tree. The cache parent field uses this same rule, except the
+// application item itself, which has the null parent (see
 // write_cache_item). The window node's parent is the application
 // object; the application object's parent is the registry root when
 // embedded, else the null reference.
@@ -683,16 +688,20 @@ int child_count(const Snapshot &snap, const Target &t) {
 
 // One cache item tuple: (obj, app, parent, index, childcount,
 // interfaces, name, role, description, states). The parent field
-// is the application object for every item except the application
-// item itself, whose parent is null (GTK4 cache convention).
+// is the REAL parent (window -> application, top-level node ->
+// window, nested node -> real parent), identical to the Parent
+// property; only the application item itself has the null parent.
 void write_cache_item(dbus::Writer &w, const Snapshot &snap, const Target &t) {
 	w.begin_struct();
 	write_target_ref(w, snap, t);
 	write_app_ref(w, snap.unique_name);
 	if (t.kind == Target_Kind::Root) {
+		// The application item itself has the null parent (the
+		// cache doc's no-parent case); every other item reports
+		// its real parent, exactly as the Parent property does.
 		write_null_ref(w);
 	} else {
-		write_app_ref(w, snap.unique_name);
+		write_parent_ref(w, snap, t);
 	}
 	int index = -1, count = 0;
 	std::vector<std::string> ifs;
