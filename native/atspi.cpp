@@ -39,6 +39,11 @@
 //     every item was WRONG: a live dbus-send GetItems (2026-10-31)
 //     showed all 9 nodes claiming the root against root count 1,
 //     and Accerciser dropped the app after ~10s. Fixed 2026-10-31.
+//   - org.freedesktop.DBus.Peer is connection-level: Ping and
+//     GetMachineId answer on ANY path, including "/". Gating
+//     Peer on a resolved target made registryd's liveness Ping
+//     at "/" answer UnknownMethod, and registryd deregistered
+//     the app 102us later (trace11, 2026-10-31). Fixed 2026-10-31.
 //   - StateChanged carries the state NAME as its detail string and
 //     enabled as detail1; ChildrenChanged carries "add"/"remove"
 //     and the index in parent. Both share the (s i i v a{sv}) body.
@@ -1626,6 +1631,16 @@ void handle_message(const dbus::Message &msg) {
 	}
 	Snapshot snap = take_snapshot();
 	Target t = resolve_target(snap, msg.path);
+	if (msg.interface == kIfPeer) {
+		// Peer is connection-level: Ping/GetMachineId answer on
+		// ANY path, including "/" (registryd's liveness Ping).
+		// Gating Peer on a resolved target made Ping at "/"
+		// answer UnknownMethod, and registryd deregistered the
+		// app 102us later (trace11, 2026-10-31). handle_peer
+		// ignores the target, so no kind check here.
+		handle_peer(msg, snap, t);
+		return;
+	}
 	if (msg.interface == kIfIntrospectable && msg.member == "Introspect") {
 		if (t.kind == Target_Kind::Unknown) {
 			send_unknown_method(msg);
@@ -1642,14 +1657,6 @@ void handle_message(const dbus::Message &msg) {
 			return;
 		}
 		handle_properties(msg, snap, t);
-		return;
-	}
-	if (msg.interface == kIfPeer) {
-		if (t.kind == Target_Kind::Unknown) {
-			send_unknown_method(msg);
-			return;
-		}
-		handle_peer(msg, snap, t);
 		return;
 	}
 	if (msg.interface == kIfAccessible) {
