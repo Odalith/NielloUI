@@ -23,8 +23,13 @@
 //
 // Contract notes (verified against the AT-SPI sources during M2
 // recon; the residual Orca-time risks are listed in the M2 report):
-//   - GetState returns an ARRAY of state values, one u32 per held
-//     state — not a bitmask.
+//   - GetState / cache states are a u64 BITMASK, bit N = state N,
+//     sent as an `au` of exactly TWO u32s, low word first. libatspi
+//     rebuilds the bitmap as states[1] << 32 | states[0] and warns
+//     (and drops the states) for any other element count — an
+//     enum-value list, however correct-looking, makes Orca see
+//     every object with no states at all. (Confirmed by Orca,
+//     2026-10-31: "expected 2 values in states array; got 4..7".)
 //   - GetExtents returns ONE struct (iiii), not four outs.
 //   - GetItems' parent field is the application object for every
 //     item (GTK4 cache convention); the application item itself
@@ -288,66 +293,80 @@ struct Shadow_Window {
 	std::vector<Shadow_Node> nodes; // declaration order, parents first
 };
 
-// AT-SPI states for a node, ascending, as VALUES (not a bitmask).
-std::vector<uint32_t> atspi_states_for(const Shadow_Node &n) {
-	std::vector<uint32_t> out;
+// AT-SPI states for a node, as a u64 bitmask: bit N = state N.
+// The wire form is exactly two u32s, low word first (see the
+// contract note at the top of this file).
+uint64_t atspi_state_bits_for(const Shadow_Node &n) {
+	uint64_t bits = 0;
+	auto set_state = [&bits](uint32_t s) { bits |= (1ULL << s); };
 	if ((n.flags & FLAG_CHECKED) != 0) {
-		out.push_back(ATSPI_STATE_CHECKED);
+		set_state(ATSPI_STATE_CHECKED);
 	}
 	if (n.odin_role == ODIN_ROLE_EDIT && (n.flags & FLAG_READONLY) == 0) {
-		out.push_back(ATSPI_STATE_EDITABLE);
+		set_state(ATSPI_STATE_EDITABLE);
 	}
 	if ((n.state & STATE_DISABLED) == 0) {
-		out.push_back(ATSPI_STATE_ENABLED);
+		set_state(ATSPI_STATE_ENABLED);
 	}
 	if ((n.flags & FLAG_EXPANDED) != 0) {
-		out.push_back(ATSPI_STATE_EXPANDABLE);
-		out.push_back(ATSPI_STATE_EXPANDED);
+		set_state(ATSPI_STATE_EXPANDABLE);
+		set_state(ATSPI_STATE_EXPANDED);
 	}
 	if ((n.state & STATE_FOCUSABLE) != 0) {
-		out.push_back(ATSPI_STATE_FOCUSABLE);
+		set_state(ATSPI_STATE_FOCUSABLE);
 	}
 	if ((n.state & STATE_FOCUSED) != 0) {
-		out.push_back(ATSPI_STATE_FOCUSED);
+		set_state(ATSPI_STATE_FOCUSED);
 	}
 	if ((n.state & STATE_SCROLL_X) != 0) {
-		out.push_back(ATSPI_STATE_HORIZONTAL);
+		set_state(ATSPI_STATE_HORIZONTAL);
 	}
 	if ((n.flags & FLAG_MULTILINE) != 0) {
-		out.push_back(ATSPI_STATE_MULTI_LINE);
+		set_state(ATSPI_STATE_MULTI_LINE);
 	}
 	if (n.odin_role == ODIN_ROLE_LIST_ITEM || n.odin_role == ODIN_ROLE_TREE_ITEM) {
-		out.push_back(ATSPI_STATE_SELECTABLE);
+		set_state(ATSPI_STATE_SELECTABLE);
 	}
 	if ((n.flags & FLAG_SELECTED) != 0) {
-		out.push_back(ATSPI_STATE_SELECTED);
+		set_state(ATSPI_STATE_SELECTED);
 	}
 	if ((n.state & STATE_DISABLED) == 0) {
-		out.push_back(ATSPI_STATE_SENSITIVE);
+		set_state(ATSPI_STATE_SENSITIVE);
 	}
 	if ((n.state & STATE_OFFSCREEN) == 0) {
-		out.push_back(ATSPI_STATE_SHOWING);
+		set_state(ATSPI_STATE_SHOWING);
 	}
 	if (n.odin_role == ODIN_ROLE_EDIT && (n.flags & FLAG_MULTILINE) == 0) {
-		out.push_back(ATSPI_STATE_SINGLE_LINE);
+		set_state(ATSPI_STATE_SINGLE_LINE);
 	}
 	if ((n.state & STATE_SCROLL_Y) != 0) {
-		out.push_back(ATSPI_STATE_VERTICAL);
+		set_state(ATSPI_STATE_VERTICAL);
 	}
 	if ((n.state & STATE_OFFSCREEN) == 0) {
-		out.push_back(ATSPI_STATE_VISIBLE);
+		set_state(ATSPI_STATE_VISIBLE);
 	}
 	if ((n.flags & FLAG_REQUIRED) != 0) {
-		out.push_back(ATSPI_STATE_REQUIRED);
+		set_state(ATSPI_STATE_REQUIRED);
 	}
-	return out;
+	return bits;
 }
 
 // States for the synthetic window node and the application object:
 // present, enabled, sensitive, visible.
-std::vector<uint32_t> atspi_chrome_states() {
-	return {ATSPI_STATE_ENABLED, ATSPI_STATE_SENSITIVE, ATSPI_STATE_SHOWING, ATSPI_STATE_VISIBLE};
+uint64_t atspi_chrome_state_bits() {
+	return (1ULL << ATSPI_STATE_ENABLED) | (1ULL << ATSPI_STATE_SENSITIVE) |
+	       (1ULL << ATSPI_STATE_SHOWING) | (1ULL << ATSPI_STATE_VISIBLE);
 }
+
+// Every state this exporter can emit, for bit-diffing a state set.
+const uint32_t kEmittedStates[] = {
+    ATSPI_STATE_CHECKED,     ATSPI_STATE_EDITABLE,    ATSPI_STATE_ENABLED,
+    ATSPI_STATE_EXPANDABLE,  ATSPI_STATE_EXPANDED,    ATSPI_STATE_FOCUSABLE,
+    ATSPI_STATE_FOCUSED,     ATSPI_STATE_HORIZONTAL,  ATSPI_STATE_MULTI_LINE,
+    ATSPI_STATE_SELECTABLE,  ATSPI_STATE_SELECTED,    ATSPI_STATE_SENSITIVE,
+    ATSPI_STATE_SHOWING,     ATSPI_STATE_SINGLE_LINE, ATSPI_STATE_VERTICAL,
+    ATSPI_STATE_VISIBLE,     ATSPI_STATE_REQUIRED,
+};
 
 // ---------------------------------------------------------------------------
 // Exporter state.
@@ -549,11 +568,10 @@ void write_string_array(dbus::Writer &w, const std::vector<std::string> &v) {
 	w.end_array();
 }
 
-void write_state_array(dbus::Writer &w, const std::vector<uint32_t> &v) {
+void write_state_array(dbus::Writer &w, uint64_t bits) {
 	w.begin_array(4);
-	for (uint32_t s : v) {
-		w.u32(s);
-	}
+	w.u32(static_cast<uint32_t>(bits & 0xffffffffULL));
+	w.u32(static_cast<uint32_t>(bits >> 32));
 	w.end_array();
 }
 
@@ -680,14 +698,14 @@ void write_cache_item(dbus::Writer &w, const Snapshot &snap, const Target &t) {
 	std::vector<std::string> ifs;
 	std::string name, description;
 	uint32_t role = ATSPI_ROLE_INVALID;
-	std::vector<uint32_t> states;
+	uint64_t states;
 	if (t.kind == Target_Kind::Root) {
 		index = -1;
 		count = static_cast<int>(snap.windows.size());
 		ifs = interfaces_for(t.kind, false);
 		name = snap.app_name;
 		role = ATSPI_ROLE_APPLICATION;
-		states = atspi_chrome_states();
+		states = atspi_chrome_state_bits();
 	} else if (t.kind == Target_Kind::Window) {
 		const Shadow_Window &win = snap.windows.at(t.ctx);
 		index = window_index(snap.windows, t.ctx);
@@ -695,7 +713,7 @@ void write_cache_item(dbus::Writer &w, const Snapshot &snap, const Target &t) {
 		ifs = interfaces_for(t.kind, false);
 		name = win.title;
 		role = ATSPI_ROLE_WINDOW;
-		states = atspi_chrome_states();
+		states = atspi_chrome_state_bits();
 	} else {
 		const Shadow_Window &win = snap.windows.at(t.ctx);
 		const Shadow_Node &n = win.nodes[static_cast<size_t>(t.index)];
@@ -705,7 +723,7 @@ void write_cache_item(dbus::Writer &w, const Snapshot &snap, const Target &t) {
 		name = n.name;
 		description = n.description;
 		role = n.role;
-		states = atspi_states_for(n);
+		states = atspi_state_bits_for(n);
 	}
 	w.i32(static_cast<int32_t>(index));
 	w.i32(static_cast<int32_t>(count));
@@ -1105,14 +1123,14 @@ void handle_accessible(const dbus::Message &msg, const Snapshot &snap, const Tar
 		return;
 	}
 	if (msg.member == "GetState") {
-		std::vector<uint32_t> states;
+		uint64_t bits;
 		if (t.kind == Target_Kind::Node) {
-			states = atspi_states_for(
+			bits = atspi_state_bits_for(
 			    snap.windows.at(t.ctx).nodes[static_cast<size_t>(t.index)]);
 		} else {
-			states = atspi_chrome_states();
+			bits = atspi_chrome_state_bits();
 		}
-		write_state_array(w, states);
+		write_state_array(w, bits);
 		send_reply(msg, "au", w);
 		return;
 	}
@@ -1776,10 +1794,6 @@ uint64_t parent_id_of(const Shadow_Window &win, const Shadow_Node &n) {
 	return win.nodes[static_cast<size_t>(n.parent)].id;
 }
 
-bool state_list_has(const std::vector<uint32_t> &states, uint32_t s) {
-	return std::find(states.begin(), states.end(), s) != states.end();
-}
-
 // --- Sync: diff ABI rows against the shadow, emit signals ---
 
 void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
@@ -1930,19 +1944,17 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 			}
 			// Rect-only changes are silent: no signal (the shadow
 			// already holds the new rect for queries).
-			std::vector<uint32_t> old_states = atspi_states_for(on);
-			std::vector<uint32_t> new_states = atspi_states_for(nn);
-			for (uint32_t s : old_states) {
-				if (!state_list_has(new_states, s)) {
-					out.push_back(state_changed_signal(path, s, false));
+			uint64_t old_bits = atspi_state_bits_for(on);
+			uint64_t new_bits = atspi_state_bits_for(nn);
+			uint64_t changed = old_bits ^ new_bits;
+			for (uint32_t s : kEmittedStates) {
+				if ((changed & (1ULL << s)) == 0) {
+					continue;
 				}
-			}
-			for (uint32_t s : new_states) {
-				if (!state_list_has(old_states, s)) {
-					out.push_back(state_changed_signal(path, s, true));
-					if (s == ATSPI_STATE_FOCUSED) {
-						out.push_back(focus_signal(path));
-					}
+				bool enabled = (new_bits & (1ULL << s)) != 0;
+				out.push_back(state_changed_signal(path, s, enabled));
+				if (s == ATSPI_STATE_FOCUSED && enabled) {
+					out.push_back(focus_signal(path));
 				}
 			}
 		}

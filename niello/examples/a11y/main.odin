@@ -18,6 +18,8 @@
 //	odin run niello/examples/a11y -extra-linker-flags:"-L..."
 package main
 
+import "core:fmt"
+
 import niello "../.."
 import niello_sdl "../../sdl"
 
@@ -29,7 +31,6 @@ play_btn:   niello.Unit
 vol_down:   niello.Unit
 vol_up:     niello.Unit
 vol_track:  niello.Unit
-vol_label:  niello.Unit
 list_box:   niello.Unit
 song_row:   niello.Unit
 song_label: niello.Unit
@@ -88,10 +89,6 @@ mint_units :: proc() {
 		font_size     = 16,
 		font_color    = niello.Color{200, 200, 212, 255},
 	})
-	niello.mint(&vol_label, niello.NO_UNIT, {
-		font_size  = 16,
-		font_color = niello.Color{200, 200, 212, 255},
-	})
 	niello.mint(&list_box, niello.NO_UNIT, {
 		layout = .Top_To_Bottom,
 		size   = niello.Size{niello.grow(), niello.fixed(168)},
@@ -146,6 +143,7 @@ declare :: proc() {
 				volume = max(0, volume - 5)
 			}
 			niello.show(vol_track, niello.key("vol"), {
+				text = fmt.tprintf("%d%%", int(volume)),
 				role = .Slider,
 				label = "Volume",
 				description = "Playback volume, 0 to 130 percent",
