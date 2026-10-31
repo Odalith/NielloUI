@@ -44,6 +44,17 @@
 //     Peer on a resolved target made registryd's liveness Ping
 //     at "/" answer UnknownMethod, and registryd deregistered
 //     the app 102us later (trace11, 2026-10-31). Fixed 2026-10-31.
+//   - GetApplicationBusAddress returns the EMPTY string. libatspi
+//     treats a non-empty reply as the address of a private D-Bus
+//     server the app listens on, opens a direct (P2P) connection to
+//     it, and moves every per-app query onto that connection. This
+//     exporter runs no such server: answering with the a11y bus
+//     address (the pre-fix behavior) made GetItems and all fallback
+//     queries die on the direct connection, silently, and Accerciser
+//     showed the app with -1 children / <dead> (2026-10-31).
+//     Empty is libatspi's documented "no direct connections"
+//     fallback: queries stay on the shared bus, where the exporter
+//     answers them.
 //   - StateChanged carries the state NAME as its detail string and
 //     enabled as detail1; ChildrenChanged carries "add"/"remove"
 //     and the index in parent. Both share the (s i i v a{sv}) body.
@@ -1480,7 +1491,11 @@ void handle_application(const dbus::Message &msg, const Snapshot &snap, const Ta
 		return;
 	}
 	if (msg.member == "GetApplicationBusAddress") {
-		w.str(snap.bus_address);
+		// Empty: no private direct-connection server (see the
+		// contract note at the top of this file). A non-empty
+		// address makes libatspi abandon the shared bus for a
+		// P2P connection to it, and every query then dies.
+		w.str("");
 		send_reply(msg, "s", w);
 		return;
 	}
