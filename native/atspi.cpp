@@ -55,6 +55,22 @@
 //     Empty is libatspi's documented "no direct connections"
 //     fallback: queries stay on the shared bus, where the exporter
 //     answers them.
+//   - The Value interface is PROPERTY-based for libatspi clients:
+//     atspi_value_get_current_value/minimum/maximum/increment/text
+//     read org.freedesktop.DBus.Properties CurrentValue /
+//     MinimumValue / MaximumValue / MinimumIncrement / Text, and
+//     set_current_value WRITES CurrentValue through Properties.Set
+//     and unrefs the reply WITHOUT a NULL check. Answering those
+//     Gets with an error (the pre-fix behavior: properties existed
+//     only for Accessible/Application/Cache) made the blocking
+//     libdbus call return NULL, and Accerciser aborted in
+//     dbus_message_unref(NULL) on selecting the slider — the only
+//     Value node (2026-10-31). The Value methods (GetCurrentValue
+//     etc.) are still answered for non-libatspi callers, but the
+//     properties are the live path and must succeed. Set of
+//     CurrentValue answers empty success and is ignored (read-only
+//     v1): a read-only error there would NULL the same unguarded
+//     reply. Fixed 2026-10-31.
 //   - StateChanged carries the state NAME as its detail string and
 //     enabled as detail1; ChildrenChanged carries "add"/"remove"
 //     and the index in parent. Both share the (s i i v a{sv}) body.
@@ -851,6 +867,11 @@ const char *kXmlValue =
     "<method name=\"SetCurrentValue\"><arg type=\"d\" direction=\"in\"/>"
     "<arg type=\"b\" direction=\"out\"/></method>"
     "<method name=\"GetMinimumIncrement\"><arg type=\"d\" direction=\"out\"/></method>"
+    "<property name=\"MinimumValue\" type=\"d\" access=\"read\"/>"
+    "<property name=\"MaximumValue\" type=\"d\" access=\"read\"/>"
+    "<property name=\"CurrentValue\" type=\"d\" access=\"readwrite\"/>"
+    "<property name=\"MinimumIncrement\" type=\"d\" access=\"read\"/>"
+    "<property name=\"Text\" type=\"s\" access=\"read\"/>"
     "</interface>";
 
 const char *kXmlApplication =
@@ -1031,10 +1052,49 @@ bool append_property(dbus::Writer &w, const Snapshot &snap, const Target &t,
 		w.end_variant();
 		return true;
 	}
+	if (iface == kIfValue && t.kind == Target_Kind::Node) {
+		// The live libatspi path (see the contract note): Value is
+		// read through Properties, not the Value methods.
+		const Shadow_Node &n = snap.windows.at(t.ctx).nodes[static_cast<size_t>(t.index)];
+		if (!n.has_value) {
+			return false;
+		}
+		if (name == "CurrentValue") {
+			w.begin_variant("d");
+			w.f64(static_cast<double>(n.value_num));
+			w.end_variant();
+			return true;
+		}
+		if (name == "MinimumValue") {
+			w.begin_variant("d");
+			w.f64(static_cast<double>(n.value_min));
+			w.end_variant();
+			return true;
+		}
+		if (name == "MaximumValue") {
+			w.begin_variant("d");
+			w.f64(static_cast<double>(n.value_max));
+			w.end_variant();
+			return true;
+		}
+		if (name == "MinimumIncrement") {
+			w.begin_variant("d");
+			w.f64(0); // cannot be determined (matches the method)
+			w.end_variant();
+			return true;
+		}
+		if (name == "Text") {
+			w.begin_variant("s");
+			w.str(n.value_text);
+			w.end_variant();
+			return true;
+		}
+		return false;
+	}
 	return false;
 }
 
-std::vector<std::string> property_names(const std::string &iface, Target_Kind kind) {
+std::vector<std::string> property_names(const std::string &iface, Target_Kind kind, bool has_value) {
 	if (iface == kIfAccessible &&
 	    (kind == Target_Kind::Root || kind == Target_Kind::Window || kind == Target_Kind::Node)) {
 		return {"version", "Name", "Description", "Parent", "ChildCount", "Locale", "AccessibleId",
@@ -1045,6 +1105,9 @@ std::vector<std::string> property_names(const std::string &iface, Target_Kind ki
 	}
 	if (iface == kIfCache && kind == Target_Kind::Cache) {
 		return {"version"};
+	}
+	if (iface == kIfValue && kind == Target_Kind::Node && has_value) {
+		return {"CurrentValue", "MinimumValue", "MaximumValue", "MinimumIncrement", "Text"};
 	}
 	return {};
 }
@@ -1571,7 +1634,11 @@ void handle_properties(const dbus::Message &msg, const Snapshot &snap, const Tar
 			send_invalid_args(msg);
 			return;
 		}
-		std::vector<std::string> names = property_names(iface, t.kind);
+		bool has_value = false;
+		if (t.kind == Target_Kind::Node) {
+			has_value = snap.windows.at(t.ctx).nodes[static_cast<size_t>(t.index)].has_value;
+		}
+		std::vector<std::string> names = property_names(iface, t.kind, has_value);
 		if (names.empty()) {
 			send_fail(msg, kErrInvalidArgs, "Unknown interface");
 			return;
@@ -1610,6 +1677,28 @@ void handle_properties(const dbus::Message &msg, const Snapshot &snap, const Tar
 				std::lock_guard<std::mutex> lock(g_exp.mu);
 				g_exp.app_id = id;
 			}
+			send_empty(msg);
+			return;
+		}
+		// Value CurrentValue: libatspi's set_current_value writes
+		// through Properties.Set and unrefs the reply without a
+		// NULL check, so a read-only error here would abort the
+		// client exactly like the missing Get did. Accept the
+		// write and ignore it: v1 is read-only, the value does
+		// not move, and the next Get reports the true value.
+		if (iface == kIfValue && t.kind == Target_Kind::Node && name == "CurrentValue") {
+			const Shadow_Node &n = snap.windows.at(t.ctx).nodes[static_cast<size_t>(t.index)];
+			if (!n.has_value) {
+				send_fail(msg, kErrInvalidArgs, "Unknown interface or property");
+				return;
+			}
+			std::string vsig;
+			double v = 0;
+			if (!r.signature(vsig) || vsig != "d" || !r.f64(v)) {
+				send_invalid_args(msg);
+				return;
+			}
+			(void)v;
 			send_empty(msg);
 			return;
 		}
