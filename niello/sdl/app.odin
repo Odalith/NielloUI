@@ -435,7 +435,7 @@ atspi_sync_window :: proc(win: ^Glue_Window) {
 		pt_w, pt_h: i32
 		sdl.GetWindowSize(win.sdl_win, &pt_w, &pt_h)
 		title := strings.clone_to_cstring(win.title, context.temp_allocator)
-		atspi_sync(i32(u32(win.id)), raw_data(rows), i32(len(rows)), title, wx, wy, pt_w, pt_h)
+		atspi_sync(i32(u32(win.id)), raw_data(rows), i32(len(rows)), title, wx, wy, pt_w, pt_h, 1 if win.focused else 0)
 	}
 }
 

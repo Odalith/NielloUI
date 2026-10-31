@@ -74,6 +74,16 @@
 //   - StateChanged carries the state NAME as its detail string and
 //     enabled as detail1; ChildrenChanged carries "add"/"remove"
 //     and the index in parent. Both share the (s i i v a{sv}) body.
+//   - The WINDOW object carries state Active (1) while the SDL window
+//     holds keyboard focus, and only then: Orca's focus handler
+//     re-queries the window's states and refuses to move the locus
+//     of focus into a window that "lacks active state" (Orca debug
+//     log, 2026-10-31 — the script activated fine, the locus never
+//     moved). The focus flag rides nui_atspi_sync; transitions emit
+//     StateChanged(active) from the window-state diff, BEFORE any
+//     node focus signals in the same sync, so the Active gain is
+//     processed first. The application object never carries Active.
+//     Fixed 2026-10-31.
 
 #include "nui.h"
 #include "dbus.h"
@@ -238,6 +248,7 @@ const char *atspi_role_name(uint32_t role) {
 
 enum : uint32_t {
 	ATSPI_STATE_INVALID       = 0,
+	ATSPI_STATE_ACTIVE        = 1,
 	ATSPI_STATE_CHECKED       = 4,
 	ATSPI_STATE_EDITABLE      = 7,
 	ATSPI_STATE_ENABLED       = 8,
@@ -259,6 +270,7 @@ enum : uint32_t {
 
 const char *atspi_state_name(uint32_t state) {
 	switch (state) {
+	case ATSPI_STATE_ACTIVE:       return "active";
 	case ATSPI_STATE_CHECKED:      return "checked";
 	case ATSPI_STATE_EDITABLE:     return "editable";
 	case ATSPI_STATE_ENABLED:      return "enabled";
@@ -324,6 +336,7 @@ struct Shadow_Node {
 
 struct Shadow_Window {
 	std::string title;
+	bool focused = false; // SDL window holds keyboard focus -> Active state
 	int win_x = 0, win_y = 0;
 	int win_w = 0, win_h = 0; // DIP size (window node's extents)
 	std::vector<Shadow_Node> nodes; // declaration order, parents first
@@ -394,6 +407,16 @@ uint64_t atspi_chrome_state_bits() {
 	       (1ULL << ATSPI_STATE_SHOWING) | (1ULL << ATSPI_STATE_VISIBLE);
 }
 
+// Window-object states: the chrome bits, plus Active while the SDL
+// window holds keyboard focus. Only the window object carries Active.
+uint64_t atspi_window_state_bits(const Shadow_Window &win) {
+	uint64_t bits = atspi_chrome_state_bits();
+	if (win.focused) {
+		bits |= (1ULL << ATSPI_STATE_ACTIVE);
+	}
+	return bits;
+}
+
 // Every state this exporter can emit, for bit-diffing a state set.
 const uint32_t kEmittedStates[] = {
     ATSPI_STATE_CHECKED,     ATSPI_STATE_EDITABLE,    ATSPI_STATE_ENABLED,
@@ -401,7 +424,7 @@ const uint32_t kEmittedStates[] = {
     ATSPI_STATE_FOCUSED,     ATSPI_STATE_HORIZONTAL,  ATSPI_STATE_MULTI_LINE,
     ATSPI_STATE_SELECTABLE,  ATSPI_STATE_SELECTED,    ATSPI_STATE_SENSITIVE,
     ATSPI_STATE_SHOWING,     ATSPI_STATE_SINGLE_LINE, ATSPI_STATE_VERTICAL,
-    ATSPI_STATE_VISIBLE,     ATSPI_STATE_REQUIRED,
+    ATSPI_STATE_VISIBLE,     ATSPI_STATE_REQUIRED,    ATSPI_STATE_ACTIVE,
 };
 
 // ---------------------------------------------------------------------------
@@ -754,7 +777,7 @@ void write_cache_item(dbus::Writer &w, const Snapshot &snap, const Target &t) {
 		ifs = interfaces_for(t.kind, false);
 		name = win.title;
 		role = ATSPI_ROLE_WINDOW;
-		states = atspi_chrome_state_bits();
+		states = atspi_window_state_bits(win);
 	} else {
 		const Shadow_Window &win = snap.windows.at(t.ctx);
 		const Shadow_Node &n = win.nodes[static_cast<size_t>(t.index)];
@@ -1215,6 +1238,8 @@ void handle_accessible(const dbus::Message &msg, const Snapshot &snap, const Tar
 		if (t.kind == Target_Kind::Node) {
 			bits = atspi_state_bits_for(
 			    snap.windows.at(t.ctx).nodes[static_cast<size_t>(t.index)]);
+		} else if (t.kind == Target_Kind::Window) {
+			bits = atspi_window_state_bits(snap.windows.at(t.ctx));
 		} else {
 			bits = atspi_chrome_state_bits();
 		}
@@ -1918,9 +1943,10 @@ uint64_t parent_id_of(const Shadow_Window &win, const Shadow_Node &n) {
 
 void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
                    const char *window_title, int32_t win_x, int32_t win_y, int32_t win_w,
-                   int32_t win_h) {
+                   int32_t win_h, int32_t win_focused) {
 	Shadow_Window nw;
 	nw.title = borrowed_or_empty(window_title);
+	nw.focused = win_focused != 0;
 	nw.win_x = win_x;
 	nw.win_y = win_y;
 	nw.win_w = win_w;
@@ -1999,6 +2025,27 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 			out.push_back(property_change_signal(
 			    window_path(ctx_id), "accessible-name", "s",
 			    [&](dbus::Writer &w) { w.str(nw.title); }));
+		}
+
+		// Window-state changes, from the OLD window to the NEW one.
+		// Runs BEFORE the node additions/changes below, so a focus
+		// gain that lands in the same sync as a node's Focused gain
+		// reaches clients as Active first, then the focus: Orca
+		// gates locus movement on the window carrying Active. A
+		// brand-new window needs no diff: its AddAccessible item
+		// already carries the current states.
+		if (!is_new_window) {
+			uint64_t old_win_bits = atspi_window_state_bits(old);
+			uint64_t new_win_bits = atspi_window_state_bits(nw);
+			uint64_t win_changed = old_win_bits ^ new_win_bits;
+			for (uint32_t s : kEmittedStates) {
+				if ((win_changed & (1ULL << s)) == 0) {
+					continue;
+				}
+				bool enabled = (new_win_bits & (1ULL << s)) != 0;
+				out.push_back(
+				    state_changed_signal(window_path(ctx_id), s, enabled));
+			}
 		}
 
 		// Additions, from the NEW tree.
@@ -2288,8 +2335,9 @@ void nui_atspi_stop(void) { exporter_stop(); }
 
 void nui_atspi_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
                     const char *window_title, int32_t win_x, int32_t win_y, int32_t win_w,
-                    int32_t win_h) {
-	exporter_sync(ctx_id, nodes, count, window_title, win_x, win_y, win_w, win_h);
+                    int32_t win_h, int32_t win_focused) {
+	exporter_sync(ctx_id, nodes, count, window_title, win_x, win_y, win_w, win_h,
+	              win_focused);
 }
 
 void nui_atspi_remove_window(int32_t ctx_id) { exporter_remove_window(ctx_id); }

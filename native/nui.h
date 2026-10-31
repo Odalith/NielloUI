@@ -193,11 +193,15 @@ void nui_atspi_stop(void);
 // glue's Window_Id); nodes are in declaration order, parents
 // before children; window_title is borrowed; win_x/win_y is the
 // window's screen position and win_w/win_h its size in DIP (for
-// the window node's extents and screen-coordinate answers). Call
-// after every frame_end, per window. No-op while inert.
+// the window node's extents and screen-coordinate answers).
+// win_focused is nonzero while the window holds keyboard focus:
+// the window object carries AT-SPI state Active exactly then
+// (Orca gates locus movement on it), with StateChanged(active)
+// emitted on transitions. Call after every frame_end, per window.
+// No-op while inert.
 void nui_atspi_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
                     const char *window_title, int32_t win_x, int32_t win_y,
-                    int32_t win_w, int32_t win_h);
+                    int32_t win_w, int32_t win_h, int32_t win_focused);
 // Withdraw one window's mirror (window closed): removes its nodes
 // and window object from the export. No-op while inert or unknown.
 void nui_atspi_remove_window(int32_t ctx_id);

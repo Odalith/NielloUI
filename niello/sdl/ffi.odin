@@ -123,7 +123,7 @@ foreign native {
 	// this (new objects in the static archive).
 	atspi_start         :: proc(app_name: cstring) -> c.int ---
 	atspi_stop          :: proc() ---
-	atspi_sync          :: proc(ctx_id: i32, nodes: [^]A11y_FFI_Node, count: i32, window_title: cstring, win_x, win_y, win_w, win_h: i32) ---
+	atspi_sync          :: proc(ctx_id: i32, nodes: [^]A11y_FFI_Node, count: i32, window_title: cstring, win_x, win_y, win_w, win_h, win_focused: i32) ---
 	atspi_remove_window :: proc(ctx_id: i32) ---
 }
 
