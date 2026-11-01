@@ -25,7 +25,7 @@ import niello "../"
 #assert(size_of(A11y_FFI_Node) == 80, "A11y_FFI_Node must match UiA11yNode in ../../native/nui.h (80 bytes)")
 
 // System libraries the native backend needs. The static libs
-// (nui_render + Skia + Dawn) come from third_party/native/<platform>/
+// (nui_native + Skia + Dawn) come from third_party/native/<platform>/
 // — see tools/fetch-native.sh — and are found via
 // -extra-linker-flags:"-L<path> --start-group ..." until TODO #11's
 // merged archive lets this import name the one file by path.
@@ -33,7 +33,7 @@ import niello "../"
 // Skia's codec modules reference them; they stayed latent until
 // image decode (#13) first pulled the codec objects into a link.
 foreign import native {
-	"system:nui_render",
+	"system:nui_native",
 	"system:SDL3",
 	"system:vulkan",
 	"system:freetype",
