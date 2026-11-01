@@ -30,7 +30,7 @@ Draw_Cmd :: struct {
 
 	// Rect / Overlay payload. For Text commands, color carries the text color.
 	color:        Color, // fill color
-	radius:       u8, // corner radius (Rect only)
+	radius:       u8, // corner radius (Rect/Overlay/Push_Clip; raw style value — the backend clamps it)
 	border_width: u16, // inset border width; 0 = no border
 	border_color: Color,
 
@@ -109,7 +109,7 @@ emit_node_open :: proc(i: int) -> bool {
 	}
 	clips := s.overflow == .Clip || scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS)
 	if clips {
-		append(&g.draw_cmds, Draw_Cmd{tag = .Push_Clip, bounds = r})
+		append(&g.draw_cmds, Draw_Cmd{tag = .Push_Clip, bounds = r, radius = s.corner_radius})
 		scoped = true
 	}
 
