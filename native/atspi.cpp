@@ -90,6 +90,13 @@
 //     starts focused: toolkits emit both themselves and Orca needs
 //     both, announcing the window title from the Activate event.
 //     Fixed 2026-10-31.
+//   - On a window focus gain, the focused node (if any) is
+//     re-announced with the StateChanged(focused)+Focus pair, after
+//     the Activate: activation alone leaves Orca's locus on the
+//     window object, and the first Tab is then heard as 'tab'
+//     (no presentation interrupt across a named ancestor). The
+//     pair is skipped when the sync already announced a focus
+//     gain. Fixed 2026-10-31.
 
 #include "nui.h"
 #include "dbus.h"
@@ -2053,6 +2060,17 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 		// a default Shadow_Window, focused=false). The state diff
 		// is skipped for a brand-new window: its AddAccessible item
 		// already carries the current states.
+		//
+		// A focus gain also re-announces the focused control
+		// below (after the node loops): activation alone leaves
+		// Orca's locus on the window object, and the first Tab out
+		// of it is then heard as 'tab' — the focus-change
+		// presentation does not interrupt the key echo when the
+		// old locus is a named ancestor of the new one. The
+		// re-announcement is skipped when this sync already
+		// announced a focus gain for the node.
+		bool window_focus_gained = nw.focused && !old.focused;
+		bool focus_announced = false;
 		if (nw.focused != old.focused) {
 			out.push_back(window_event_signal(
 			    window_path(ctx_id), nw.focused ? "Activate" : "Deactivate"));
@@ -2145,6 +2163,28 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 				out.push_back(state_changed_signal(path, s, enabled));
 				if (s == ATSPI_STATE_FOCUSED && enabled) {
 					out.push_back(focus_signal(path));
+					focus_announced = true;
+				}
+			}
+		}
+
+		// Focus re-announcement on window focus gain (see the
+		// window block above): put Orca's locus on the control
+		// that holds focus, so the first Tab out of the window
+		// is a control-to-control move whose presentation
+		// interrupts the Tab key echo, like every later Tab.
+		// Runs after the node loops so a focused node added in
+		// this same sync is already announced via AddAccessible.
+		// Skipped when the sync already announced a focus gain,
+		// and when no node holds focus.
+		if (window_focus_gained && !focus_announced) {
+			for (const Shadow_Node &nn : nw.nodes) {
+				if ((atspi_state_bits_for(nn) & (1ULL << ATSPI_STATE_FOCUSED)) != 0) {
+					std::string path = node_path(ctx_id, nn.id);
+					out.push_back(
+					    state_changed_signal(path, ATSPI_STATE_FOCUSED, true));
+					out.push_back(focus_signal(path));
+					break;
 				}
 			}
 		}
