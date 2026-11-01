@@ -570,6 +570,16 @@ void DrawImage(SkCanvas* canvas, const UiDrawCmd& command) {
 
     const SkRect source = SkRect::MakeXYWH(
         command.src_x, command.src_y, command.src_w, command.src_h);
+    // A rounded node rounds its own image, like its fill: clip the
+    // draw to the drawn rect's rounded shape (the dest rect, which
+    // is the node rect for filling fits). Radius zero keeps the
+    // plain draw; the clamp is the shared ClampedRadius formula.
+    const float radius = ClampedRadius(command);
+    SkAutoCanvasRestore rounded_clip(canvas, radius > 0);
+    if (radius > 0) {
+        canvas->clipRRect(SkRRect::MakeRectXY(Bounds(command), radius, radius),
+                          SkClipOp::kIntersect, true);
+    }
     canvas->drawImageRect(
         entry.texture.get(), source, Bounds(command), sampling, nullptr,
         SkCanvas::kStrict_SrcRectConstraint);

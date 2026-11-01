@@ -30,7 +30,7 @@ Draw_Cmd :: struct {
 
 	// Rect / Overlay payload. For Text commands, color carries the text color.
 	color:        Color, // fill color
-	radius:       u8, // corner radius (Rect/Overlay/Push_Clip; raw style value — the backend clamps it)
+	radius:       u8, // corner radius (Rect/Overlay/Push_Clip/Image; raw style value — the backend clamps it)
 	border_width: u16, // inset border width; 0 = no border
 	border_color: Color,
 
@@ -381,6 +381,7 @@ emit_image :: proc(nd: ^Frame_Node, s: ^Style, r: Rect) {
 	append(&g.draw_cmds, Draw_Cmd{
 		tag = .Image,
 		bounds = dest,
+		radius = s.corner_radius,
 		src_rect = {src.pos.x, src.pos.y, src.size.x, src.size.y},
 		image = backend,
 		interp = u8(s.image_interp),
