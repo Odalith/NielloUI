@@ -277,3 +277,44 @@ test_image_swap_damages :: proc(t: ^testing.T) {
 	testing.expect(t, frame(ctx, b), "swapped image: damage")
 	testing.expect(t, !frame(ctx, b), "settled again")
 }
+
+@(test)
+test_image_emit_corner_radius :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	fake_install([][2]f32{{400, 200}})
+	ctx := niello.test_context()
+	img, _ := niello.image_load_memory([]byte{1})
+
+	// Rounded box: the Image command carries the corner radius so
+	// the backend rounds the draw like the node's fill.
+	niello.mint(&img_box, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(100), niello.fixed(100)},
+		corner_radius = 12,
+	})
+	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
+	niello.show(img_box, niello.key("only"), {image = img})
+	niello.frame_end()
+	cmd, found := find_image_cmd()
+	testing.expect(t, found, "image command emitted")
+	if found {
+		testing.expect_value(t, cmd.radius, u8(12))
+	}
+
+	// Unrounded box: radius zero, the plain draw.
+	niello.test_reset()
+	ctx = niello.test_context()
+	fake_install([][2]f32{{400, 200}})
+	img, _ = niello.image_load_memory([]byte{1})
+	niello.mint(&img_box, niello.NO_UNIT, {
+		size = niello.Size{niello.fixed(100), niello.fixed(100)},
+	})
+	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
+	niello.show(img_box, niello.key("only"), {image = img})
+	niello.frame_end()
+	cmd, found = find_image_cmd()
+	testing.expect(t, found, "image command emitted")
+	if found {
+		testing.expect_value(t, cmd.radius, u8(0))
+	}
+}

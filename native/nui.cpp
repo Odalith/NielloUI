@@ -491,13 +491,19 @@ bool ValidateCommands(const UiDrawCmd* commands, int32_t count) {
     return scopes.empty();
 }
 
+// Corner radius clamped to half the smaller side, matching the engine's
+// hit test (point_in_node). Commands carry the raw style radius; every
+// consumer clamps with this one formula so fill, clip, and pick agree.
+float ClampedRadius(const UiDrawCmd& command) {
+    return std::min(static_cast<float>(command.radius),
+                    std::min(command.bounds_w, command.bounds_h) * 0.5f);
+}
+
 void DrawRect(SkCanvas* canvas, const UiDrawCmd& command) {
     const SkRect rect = Bounds(command);
     if (rect.isEmpty()) return;
 
-    const float radius = std::min(
-        static_cast<float>(command.radius),
-        std::min(command.bounds_w, command.bounds_h) * 0.5f);
+    const float radius = ClampedRadius(command);
     const SkRRect outer = SkRRect::MakeRectXY(rect, radius, radius);
 
     SkPaint paint;
@@ -564,6 +570,16 @@ void DrawImage(SkCanvas* canvas, const UiDrawCmd& command) {
 
     const SkRect source = SkRect::MakeXYWH(
         command.src_x, command.src_y, command.src_w, command.src_h);
+    // A rounded node rounds its own image, like its fill: clip the
+    // draw to the drawn rect's rounded shape (the dest rect, which
+    // is the node rect for filling fits). Radius zero keeps the
+    // plain draw; the clamp is the shared ClampedRadius formula.
+    const float radius = ClampedRadius(command);
+    SkAutoCanvasRestore rounded_clip(canvas, radius > 0);
+    if (radius > 0) {
+        canvas->clipRRect(SkRRect::MakeRectXY(Bounds(command), radius, radius),
+                          SkClipOp::kIntersect, true);
+    }
     canvas->drawImageRect(
         entry.texture.get(), source, Bounds(command), sampling, nullptr,
         SkCanvas::kStrict_SrcRectConstraint);
@@ -654,11 +670,19 @@ void Replay(SkCanvas* canvas, const UiDrawCmd* commands,
             case UI_CMD_IMAGE:
                 DrawImage(canvas, command);
                 break;
-            case UI_CMD_PUSH_CLIP:
+            case UI_CMD_PUSH_CLIP: {
                 canvas->save();
-                canvas->clipRect(
-                    Bounds(command), SkClipOp::kIntersect, true);
+                const float radius = ClampedRadius(command);
+                if (radius > 0) {
+                    canvas->clipRRect(
+                        SkRRect::MakeRectXY(Bounds(command), radius, radius),
+                        SkClipOp::kIntersect, true);
+                } else {
+                    canvas->clipRect(
+                        Bounds(command), SkClipOp::kIntersect, true);
+                }
                 break;
+            }
             case UI_CMD_PUSH_OPACITY: {
                 const SkRect bounds = Bounds(command);
                 canvas->saveLayerAlpha(&bounds, command.opacity);

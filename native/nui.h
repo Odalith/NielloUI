@@ -35,7 +35,7 @@ typedef struct UiDrawCmd {
     uint8_t  _pad0[3];
     float    bounds_x, bounds_y, bounds_w, bounds_h; // DIP
     uint8_t  color[4];        // RGBA; for Text commands this is the text color
-    uint8_t  radius;          // corner radius (Rect/Overlay only)
+    uint8_t  radius;          // corner radius (Rect/Overlay/Push_Clip/Image); raw style value, clamped by the backend
     uint8_t  _pad1;
     uint16_t border_width;    // inset border; 0 = none
     uint8_t  border_color[4]; // RGBA
