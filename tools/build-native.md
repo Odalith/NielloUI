@@ -1,7 +1,7 @@
 # Building the NielloUI native backend (maintainers)
 
 Goal: produce `niello-native-<platform>.zip` — one fat static archive
-(`nui_render` + Skia + Dawn merged) plus `include/nui.h` — for
+(`nui_native` + Skia + Dawn merged) plus `include/nui.h` — for
 `linux-x64`, `macos-arm64`, and `windows-x64`, then attach the three zips to
 a GitHub Release. App authors then just run `tools/fetch-native.sh`
 (`fetch-native.ps1` on Windows). Binaries are never committed (enforced by
@@ -151,12 +151,12 @@ Record the Skia revision next to each release for reproducibility:
 git -C "$SKIA_DIR" rev-parse HEAD
 ```
 
-## 5. Build `nui_render`
+## 5. Build `nui_native`
 
 From `NielloUI/native/` (`nui.h`, `nui.cpp`, `util.cpp`):
 
 ```cmake
-add_library(nui_render STATIC nui.cpp util.cpp)
+add_library(nui_native STATIC nui.cpp util.cpp)
 ```
 
 Point it at the Skia checkout's `include/`, the `out/niello-<platform>/gen`
@@ -167,7 +167,7 @@ this shape; the release variant passes `-DNIELLO_SKIA_OUT=niello-<platform>`
 ## 6. Merge into one fat archive
 
 Merge `libskia.a` + `libdawn_combined.a` (+ any sibling Dawn archives from
-§4) + `libnui_render.a` into a single archive so downstream links exactly
+§4) + `libnui_native.a` into a single archive so downstream links exactly
 one native lib plus system libs (SDL3, Vulkan, Freetype, Fontconfig,
 Threads, and the codec system libs — zlib, libpng, libjpeg,
 libwebp AND libwebpdemux (the WebP demuxer is a sibling DSO;
@@ -186,7 +186,7 @@ them one per rebuild until the whole family was named).
   CREATE libniello_render.a
   ADDLIB out/niello-linux-x64/libskia.a
   ADDLIB out/niello-linux-x64/libdawn_combined.a
-  ADDLIB <nui_render build dir>/libnui_render.a
+  ADDLIB <nui_native build dir>/libnui_native.a
   SAVE
   END
   ```
@@ -199,7 +199,7 @@ them one per rebuild until the whole family was named).
   libtool -static -o libniello_render.a \
     out/niello-macos-arm64/libskia.a \
     out/niello-macos-arm64/libdawn_combined.a \
-    <nui_render build dir>/libnui_render.a
+    <nui_native build dir>/libnui_native.a
   ```
 
 - **Windows** — `lib.exe`:
@@ -207,7 +207,7 @@ them one per rebuild until the whole family was named).
   lib.exe /OUT:niello_render.lib ^
     out\niello-windows-x64\skia.lib ^
     out\niello-windows-x64\dawn_combined.lib ^
-    <nui_render build dir>\nui_render.lib
+    <nui_native build dir>\nui_native.lib
   ```
 
 Windows CRT caveat: if the Odin app's link fails with `LNK2038`
@@ -232,7 +232,7 @@ to a GitHub Release (tag like `native-v0.1.0`); `tools/fetch-native.sh` /
 `.github/workflows/native.yml`: matrix over `ubuntu-24.04`,
 `windows-2022`, `macos-14`; per job: install depot_tools, sync the Skia
 checkout at the pinned revision, `gn gen` with the §2 args, `ninja skia`,
-build `nui_render`, merge per §6, zip, `upload-artifact`. A release job on
+build `nui_native`, merge per §6, zip, `upload-artifact`. A release job on
 tag `native-v*` downloads the three artifacts and creates the GitHub
 Release with them.
 

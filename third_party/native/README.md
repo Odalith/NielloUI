@@ -9,7 +9,7 @@ distributed through GitHub Releases, not committed here.
 ```
 third_party/native/
   linux-x64/
-    lib/libniello_render.a   # fat archive: nui_render + Skia + Dawn
+    lib/libniello_render.a   # fat archive: nui_native + Skia + Dawn
     include/nui.h            # the C API (mirrored by niello/sdl/ffi.odin)
   windows-x64/
     lib/niello_render.lib
@@ -32,7 +32,7 @@ handle from the SDL window at runtime and picks the right surface path.
 
 1. Build Skia per platform with Graphite + Dawn (see `skiasdl/skia build.txt`
    for the gn args).
-2. Build the `nui_render` static lib from `skiasdl/` (`nui.h`, `nui.cpp`,
+2. Build the `nui_native` static lib from `skiasdl/` (`nui.h`, `nui.cpp`,
    `util.cpp`).
 3. Merge the archives into one fat static lib per platform
    (`ar -M` / `libtool -static`), so downstream links a single archive plus
