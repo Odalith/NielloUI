@@ -84,6 +84,12 @@
 //     node focus signals in the same sync, so the Active gain is
 //     processed first. The application object never carries Active.
 //     Fixed 2026-10-31.
+//   - The window object also emits window:activate / window:deactivate
+//     (org.a11y.atspi.Event.Window, same body shape as the Focus
+//     event) on focus transitions, including a first sync that
+//     starts focused: toolkits emit both themselves and Orca needs
+//     both, announcing the window title from the Activate event.
+//     Fixed 2026-10-31.
 
 #include "nui.h"
 #include "dbus.h"
@@ -1901,6 +1907,15 @@ Pending_Signal focus_signal(const std::string &path) {
 	        event_body("", 0, 0, "s", [](dbus::Writer &w) { w.str(""); })};
 }
 
+// Window activation events: toolkits emit window:activate /
+// window:deactivate themselves (GTK gtkatspicontext.c, paired since
+// 2021 — Orca needs both to decide how to handle a window, including
+// announcing its title). Same body shape as the Focus event.
+Pending_Signal window_event_signal(const std::string &path, const char *member) {
+	return {path, "org.a11y.atspi.Event.Window", member, "siiva{sv}",
+	        event_body("", 0, 0, "s", [](dbus::Writer &w) { w.str(""); })};
+}
+
 Pending_Signal cache_add_signal(const Snapshot &snap, const Target &t) {
 	dbus::Writer w;
 	write_cache_item(w, snap, t);
@@ -2027,13 +2042,21 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 			    [&](dbus::Writer &w) { w.str(nw.title); }));
 		}
 
-		// Window-state changes, from the OLD window to the NEW one.
-		// Runs BEFORE the node additions/changes below, so a focus
-		// gain that lands in the same sync as a node's Focused gain
-		// reaches clients as Active first, then the focus: Orca
-		// gates locus movement on the window carrying Active. A
-		// brand-new window needs no diff: its AddAccessible item
+		// Window activation + state changes, from the OLD window to
+		// the NEW one. Runs BEFORE the node additions/changes below,
+		// so a focus gain that lands in the same sync as a node's
+		// Focused gain reaches clients as Active first, then the
+		// focus: Orca gates locus movement on the window carrying
+		// Active, and announces the window from window:activate.
+		// The activation event fires on every focus transition,
+		// including a brand-new window that starts focused (old is
+		// a default Shadow_Window, focused=false). The state diff
+		// is skipped for a brand-new window: its AddAccessible item
 		// already carries the current states.
+		if (nw.focused != old.focused) {
+			out.push_back(window_event_signal(
+			    window_path(ctx_id), nw.focused ? "Activate" : "Deactivate"));
+		}
 		if (!is_new_window) {
 			uint64_t old_win_bits = atspi_window_state_bits(old);
 			uint64_t new_win_bits = atspi_window_state_bits(nw);
