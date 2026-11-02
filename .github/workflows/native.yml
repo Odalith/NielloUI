@@ -114,6 +114,11 @@ jobs:
           for d in dawn harfbuzz icu; do
             test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
           done
+          # bin/ninja is downloaded, not checked in (same as bin/gn):
+          # depot_tools' `ninja` wrapper needs a bootstrapped checkout
+          # ("python3_bin_reldir.txt not found" on a fresh clone), so
+          # fetch the DEPS-pinned ninja into skia/bin instead.
+          python3 skia/bin/fetch-ninja
           # NOTE: full sync is several GB; this runs only when the pin changes.
 
       - name: restore base build cache
@@ -133,7 +138,7 @@ jobs:
           bin/gn gen out/${{ matrix.out }} --args='${{ matrix.gn_args }}'
           # `ninja skia` never builds SkShaper: it lives under the
           # `modules` aggregate as its own archive (recipe §3).
-          ninja -C out/${{ matrix.out }} skia modules/skshaper
+          bin/ninja -C out/${{ matrix.out }} skia modules/skshaper
           # Windows archives are .lib, not .a (recipe §3).
           if [ "${{ matrix.plat }}" = "windows-x64" ]; then
             test -f "out/${{ matrix.out }}/skshaper.lib" || { echo "skshaper.lib not built (recipe §3)" >&2; exit 1; }
