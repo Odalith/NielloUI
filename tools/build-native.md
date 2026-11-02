@@ -1,7 +1,7 @@
 # Building the NielloUI native backend (maintainers)
 
 Goal: produce `niello-native-<platform>.zip` — one fat static archive
-(`nui_render` + Skia + Dawn merged) plus `include/nui.h` — for
+(`nui_native` + Skia + Dawn merged) plus `include/nui.h` — for
 `linux-x64`, `macos-arm64`, and `windows-x64`, then attach the three zips to
 a GitHub Release. App authors then just run `tools/fetch-native.sh`
 (`fetch-native.ps1` on Windows). Binaries are never committed (enforced by
@@ -19,12 +19,11 @@ overrides on macOS; F7(a) gate the CMake `find_package` calls by
 platform; F8 `macos-15` runner; F9 the full 21-function native
 surface (below). §2 and §8 below carry the ruled flags.
 
-Precondition: this branch still carries the pre-#23 `nui.h`
-(13 functions), the pre-rename `nui_render` naming, and the
-ungated `find_package` calls. Do not cut a release from this
-branch before main is merged in — the merge brings the
-21-function `nui.h`, the `ffi.odin` mirrors, the `nui_native`
-rename, the AT-SPI objects, and the F7 gating.
+Post-merge state (2026-11-01, PR #24): main is merged in — `nui.h`
+names the 21-function surface, `ffi.odin` mirrors it, the target is
+`nui_native`, and the AT-SPI objects build on Linux. Still open:
+F7(a), gating the CMake `find_package` calls by platform (neither
+side had it; separate work, not a merge leftover).
 
 **Frozen native surface — ruled target** (F9, 2026-11-01): a release
 pins exactly the ABI in `native/nui.h` — 21 functions: `nui_init`,
@@ -39,10 +38,8 @@ pins exactly the ABI in `native/nui.h` — 21 functions: `nui_init`,
 release train, not a patch. Count note: the freeze fork said "20",
 but 13 + 2 + 2 + 4 = 21 and `nui.h` declares 21;
 `nui_atspi_sync` carries the trailing `win_focused` parameter.
-This branch's `nui.h` still names the 13-function surface — the
-21-function freeze takes effect when main is merged in (see the
-precondition above); the 2026-10-22 thirteen-function freeze is
-superseded.
+The 2026-10-22 thirteen-function freeze is superseded; the
+21-function surface is in `native/nui.h` on main now.
 
 `tools/build-native.sh` scripts the linux-x64 path below end to end;
 the Windows and macOS paths are proven by hand once, then automated
@@ -209,12 +206,12 @@ The scripted Linux path is `tools/build-native.sh`, invoked as
 and the push path does not guarantee the mode — do not rely on
 `./tools/build-native.sh`.
 
-## 5. Build `nui_render`
+## 5. Build `nui_native`
 
 From `NielloUI/native/` (`nui.h`, `nui.cpp`, `util.cpp`):
 
 ```cmake
-add_library(nui_render STATIC nui.cpp util.cpp)
+add_library(nui_native STATIC nui.cpp util.cpp)
 ```
 
 Point it at the Skia checkout's `include/`, the `out/niello-<platform>/gen`
@@ -225,7 +222,7 @@ this shape; the release variant passes `-DNIELLO_SKIA_OUT=niello-<platform>`
 ## 6. Merge into one fat archive
 
 Merge `libskia.a` + `libdawn_combined.a` + `libskshaper.a` + `libharfbuzz.a` (+ any sibling Dawn archives from
-§4) + `libnui_render.a` into a single archive so downstream links exactly
+§4) + `libnui_native.a` into a single archive so downstream links exactly
 one native lib plus system libs (SDL3, Vulkan, Freetype, Fontconfig,
 Threads).
 
@@ -238,7 +235,7 @@ Threads).
   ADDLIB out/niello-linux-x64/libdawn_combined.a
   ADDLIB out/niello-linux-x64/libskshaper.a
   ADDLIB out/niello-linux-x64/libharfbuzz.a
-  ADDLIB <nui_render build dir>/libnui_render.a
+  ADDLIB <nui_native build dir>/libnui_native.a
   SAVE
   END
   ```
@@ -253,7 +250,7 @@ Threads).
     out/niello-macos-arm64/libdawn_combined.a \
     out/niello-macos-arm64/libskshaper.a \
     out/niello-macos-arm64/libharfbuzz.a \
-    <nui_render build dir>/libnui_render.a
+    <nui_native build dir>/libnui_native.a
   ```
 
 - **Windows** — `lib.exe`:
@@ -263,7 +260,7 @@ Threads).
     out\niello-windows-x64\dawn_combined.lib ^
     out\niello-windows-x64\skshaper.lib ^
     out\niello-windows-x64\harfbuzz.lib ^
-    <nui_render build dir>\nui_render.lib
+    <nui_native build dir>\nui_native.lib
   ```
 
 Windows CRT caveat: if the Odin app's link fails with `LNK2038`
@@ -289,7 +286,7 @@ to a GitHub Release (tag like `native-v0.1.0`); `tools/fetch-native.sh` /
 `windows-2022`, `macos-15` (F8 ruling; the `macos-14` image retired
 2026-11-02); per job: install depot_tools, sync the Skia
 checkout at the pinned revision, `gn gen` with the §2 args, `ninja skia`,
-build `nui_render`, merge per §6, zip, `upload-artifact`. Dawn needs
+build `nui_native`, merge per §6, zip, `upload-artifact`. Dawn needs
 CMake 3.30+; `ubuntu-24.04` ships 3.28, so the Linux job provisions
 a newer CMake (pip/Kitware) — verify at the first CI run. A release job on
 tag `native-v*` downloads the three artifacts and creates the GitHub

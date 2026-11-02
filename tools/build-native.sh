@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds dist/niello-native-linux-x64.zip — the fat prebuilt archive
-# (nui_render + Skia + Dawn + skcms + wuffs + SkShaper + HarfBuzz) plus include/nui.h, in
+# (nui_native + Skia + Dawn + skcms + wuffs + SkShaper + HarfBuzz) plus include/nui.h, in
 # the third_party/native layout (see tools/build-native.md, which
 # this script follows step for step).
 #
@@ -70,7 +70,7 @@ if [ ! -f "$SKIA_DIR/$OUT/libskshaper.a" ]; then
 	exit 1
 fi
 
-# 3. nui_render against this out dir.
+# 3. nui_native against this out dir.
 cmake -S "$ROOT/native" -B "$WORK/nui" \
 	-DSKIA_DIR="$SKIA_DIR" \
 	-DNIELLO_SKIA_OUT="niello-${PLAT}" \
@@ -88,7 +88,7 @@ MRI="$WORK/merge.mri"
 		fi
 		echo "ADDLIB $SKIA_DIR/$OUT/$a"
 	done
-	echo "ADDLIB $WORK/nui/libnui_render.a"
+	echo "ADDLIB $WORK/nui/libnui_native.a"
 	echo "SAVE"
 	echo "END"
 } > "$MRI"
