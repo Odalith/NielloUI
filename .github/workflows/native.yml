@@ -1,0 +1,285 @@
+# Prebuilt native backends (TODO #11). Builds the Skia+Dawn base per
+# platform, compiles nui.cpp against it, merges the fat archive, and
+# zips it in the third_party/native layout (see tools/build-native.md).
+#
+# Two-tier by design (his call 2026-10-22): the Skia+Dawn base is rebuilt
+# only when the pinned Skia revision changes (or the gn args change —
+# bump the -v1 key suffix then); ordinary releases only compile
+# nui.cpp + merge + zip — minutes, not an hour of 10x-billed macos-15 time.
+#
+# Pin file: tools/skia-rev.txt holds one line — the Skia revision tested
+# on his machine (the same rev build-native.sh records into BUILD-INFO.txt).
+# Both tiers read it; the caches key off it.
+#
+# Scope note (2026-11-01): F7(a) — gating the CMake find_package calls
+# by platform — is implemented in native/CMakeLists.txt, so all three
+# pack jobs configure; the macOS/Windows link sets are the documented
+# ones for Dawn + Skia and unproven until the first run. Windows CRT
+# alignment stays a manual check (recipe §6) even after this workflow
+# is green.
+#
+# GN args are the build-native.md §2 blocks (F1–F8 ruled 2026-11-01,
+# F9 freeze): bundled sourcing (F1b) + DNG/PIEX trim (F4) + the
+# HarfBuzz correction from the 2026-11-01 consume test
+# (skia_use_system_harfbuzz=false). Merge commands from §6; zip layout
+# from §7.
+
+name: native-release
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'native-v*'
+
+jobs:
+  # ---- tier 1: build (or restore) the Skia+Dawn base per platform ----
+  base:
+    name: base (${{ matrix.plat }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - plat: linux-x64
+            runner: ubuntu-24.04
+            out: niello-linux-x64
+            gn_args: >
+              is_official_build=true is_debug=false
+              skia_enable_graphite=true skia_enable_ganesh=false
+              skia_use_vulkan=true skia_use_dawn=true dawn_enable_vulkan=true
+              skia_use_webgpu=true skia_use_vma=true
+              skia_use_partition_alloc=false
+              skia_use_dng_sdk=false skia_use_piex=false
+              skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false
+              cc="clang" cxx="clang++"
+          - plat: macos-arm64
+            runner: macos-15
+            out: niello-macos-arm64
+            gn_args: >
+              is_official_build=true is_debug=false
+              skia_enable_graphite=true skia_enable_ganesh=false
+              skia_use_dawn=true dawn_enable_metal=true
+              dawn_enable_vulkan=false dawn_enable_d3d12=false
+              skia_use_webgpu=true skia_use_vma=true
+              skia_use_partition_alloc=false
+              skia_use_dng_sdk=false skia_use_piex=false
+              skia_use_system_expat=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false
+              target_cpu="arm64"
+          - plat: windows-x64
+            runner: windows-2022
+            out: niello-windows-x64
+            gn_args: >
+              is_official_build=true is_debug=false
+              skia_enable_graphite=true skia_enable_ganesh=false
+              skia_use_dawn=true dawn_enable_d3d12=true
+              dawn_enable_vulkan=false dawn_enable_metal=false
+              skia_use_webgpu=true skia_use_vma=true
+              skia_use_partition_alloc=false
+              skia_use_dng_sdk=false skia_use_piex=false
+              skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false
+              target_os="win" target_cpu="x64"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: read pinned skia rev
+        id: rev
+        shell: bash
+        run: echo "rev=$(cat tools/skia-rev.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: restore skia checkout cache
+        id: src-cache
+        uses: actions/cache@v4
+        with:
+          path: skia
+          key: skia-src-${{ steps.rev.outputs.rev }}
+
+      - name: sync skia checkout
+        if: steps.src-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          # depot_tools for gn + the bundled clang-cl on Windows
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
+          export PATH="$PWD/depot_tools:$PATH"
+          git clone https://skia.googlesource.com/skia.git skia
+          git -C skia checkout "${{ steps.rev.outputs.rev }}"
+          python3 depot_tools/gclient.py sync --no-history -j8
+          # NOTE: full sync is several GB; this runs only when the pin changes.
+
+      - name: restore base build cache
+        id: base-cache
+        uses: actions/cache@v4
+        with:
+          path: skia/out/${{ matrix.out }}
+          # Bump the -v1 suffix when gn_args change: the key pins the Skia rev only.
+          key: skia-base-${{ matrix.plat }}-${{ steps.rev.outputs.rev }}-v1
+
+      - name: build skia+dawn base
+        if: steps.base-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          export PATH="$PWD/depot_tools:$PATH"
+          cd skia
+          bin/gn gen out/${{ matrix.out }} --args='${{ matrix.gn_args }}'
+          # `ninja skia` never builds SkShaper: it lives under the
+          # `modules` aggregate as its own archive (recipe §3).
+          ninja -C out/${{ matrix.out }} skia modules/skshaper
+          test -f "out/${{ matrix.out }}/libskshaper.a" || { echo "libskshaper.a not built (recipe §3)" >&2; exit 1; }
+
+  # ---- tier 2: compile nui.cpp against the base, merge, zip ----
+  pack:
+    name: pack (${{ matrix.plat }})
+    needs: base
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - plat: linux-x64
+            runner: ubuntu-24.04
+            out: niello-linux-x64
+            lib: lib/libniello_render.a
+          - plat: macos-arm64
+            runner: macos-15
+            out: niello-macos-arm64
+            lib: lib/libniello_render.a
+          - plat: windows-x64
+            runner: windows-2022
+            out: niello-windows-x64
+            lib: lib/niello_render.lib
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: read pinned skia rev
+        id: rev
+        shell: bash
+        run: echo "rev=$(cat tools/skia-rev.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: restore skia checkout cache
+        id: src-cache
+        uses: actions/cache@v4
+        with:
+          path: skia
+          key: skia-src-${{ steps.rev.outputs.rev }}
+
+      - name: sync skia checkout
+        if: steps.src-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
+          export PATH="$PWD/depot_tools:$PATH"
+          git clone https://skia.googlesource.com/skia.git skia
+          git -C skia checkout "${{ steps.rev.outputs.rev }}"
+          python3 depot_tools/gclient.py sync --no-history -j8
+
+      - name: restore base build cache
+        uses: actions/cache@v4
+        with:
+          path: skia/out/${{ matrix.out }}
+          key: skia-base-${{ matrix.plat }}-${{ steps.rev.outputs.rev }}-v1
+
+      - name: check base cache restored
+        shell: bash
+        run: test -d "skia/out/${{ matrix.out }}" || { echo "base build cache missed after base job — re-run the workflow" >&2; exit 1; }
+
+      - name: install linux build deps
+        if: matrix.plat == 'linux-x64'
+        shell: bash
+        run: |
+          # find_package calls are gated to Linux by F7(a); the Linux
+          # configure still needs the dev packages installed.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libfreetype6-dev libfontconfig1-dev libvulkan-dev
+          # CMakeLists requires CMake 4.3; ubuntu-24.04 ships 3.28.
+          pip3 install --break-system-packages --upgrade cmake
+          cmake --version
+
+      - name: build nui_native
+        shell: bash
+        run: |
+          cmake -S native -B build/nui \
+            -DSKIA_DIR="$PWD/skia" \
+            -DNIELLO_SKIA_OUT="${{ matrix.out }}" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/nui -j
+          # NOTE: SKIA_DIR is the restored checkout (src cache) + built out
+          # dir (base cache); both key off the pinned rev.
+
+      - name: merge fat archive (linux)
+        if: matrix.plat == 'linux-x64'
+        shell: bash
+        run: |
+          mkdir -p stage/lib
+          { echo "CREATE stage/lib/libniello_render.a"
+            for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a libharfbuzz.a; do
+              test -f "skia/out/${{ matrix.out }}/$a" || { echo "missing $a" >&2; exit 1; }
+              echo "ADDLIB $PWD/skia/out/${{ matrix.out }}/$a"
+            done
+            echo "ADDLIB $PWD/build/nui/libnui_native.a"
+            echo "SAVE"; echo "END"; } > merge.mri
+          ar -M < merge.mri   # MRI avoids .o basename collisions (recipe §6)
+
+      - name: merge fat archive (macos)
+        if: matrix.plat == 'macos-arm64'
+        shell: bash
+        run: |
+          mkdir -p stage/lib
+          libtool -static -o stage/lib/libniello_render.a \
+            skia/out/${{ matrix.out }}/libskia.a skia/out/${{ matrix.out }}/libdawn_combined.a \
+            skia/out/${{ matrix.out }}/libskcms.a skia/out/${{ matrix.out }}/libwuffs.a \
+            skia/out/${{ matrix.out }}/libskshaper.a skia/out/${{ matrix.out }}/libharfbuzz.a \
+            build/nui/libnui_native.a
+
+      - name: merge fat archive (windows)
+        if: matrix.plat == 'windows-x64'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force stage/lib | Out-Null
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $lib = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools -find '**\lib.exe' | Select-Object -First 1
+          & $lib /OUT:stage\lib\niello_render.lib `
+            skia\out\${{ matrix.out }}\skia.lib skia\out\${{ matrix.out }}\dawn_combined.lib `
+            skia\out\${{ matrix.out }}\skcms.lib skia\out\${{ matrix.out }}\wuffs.lib `
+            skia\out\${{ matrix.out }}\skshaper.lib skia\out\${{ matrix.out }}\harfbuzz.lib `
+            build\nui\Release\nui_native.lib
+          # CRT caveat (recipe §6): LNK2038 on the first real Odin link means
+          # the GN runtime-library flag disagrees with the Odin toolchain —
+          # align in GN args, verified by hand, not here.
+
+      - name: stage zip
+        shell: bash
+        run: |
+          mkdir -p stage/include
+          cp native/nui.h stage/include/
+          { echo "platform: ${{ matrix.plat }}"
+            echo "skia_rev: $(cat tools/skia-rev.txt)"
+            echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner: ${{ matrix.runner }}"; } > stage/BUILD-INFO.txt
+          (cd stage && zip -qr "../niello-native-${{ matrix.plat }}.zip" .)
+
+      - name: upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: niello-native-${{ matrix.plat }}
+          path: niello-native-${{ matrix.plat }}.zip
+
+  # ---- tag push: attach all three zips to the GitHub Release ----
+  publish:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/native-v')
+    needs: pack
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: niello-native-*
+          merge-multiple: true
+      - name: create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" niello-native-*.zip \
+            --title "${{ github.ref_name }}" \
+            --notes "Prebuilt native backends (nui_native + Skia + Dawn + SkShaper + HarfBuzz). See tools/build-native.md for the recipe and provenance."
