@@ -19,11 +19,11 @@ overrides on macOS; F7(a) gate the CMake `find_package` calls by
 platform; F8 `macos-15` runner; F9 the full 21-function native
 surface (below). §2 and §8 below carry the ruled flags.
 
-Post-merge state (2026-11-01, PR #24): main is merged in — `nui.h`
+Post-merge state (2026-11-01, PR #24 + F7): main is merged in — `nui.h`
 names the 21-function surface, `ffi.odin` mirrors it, the target is
-`nui_native`, and the AT-SPI objects build on Linux. Still open:
-F7(a), gating the CMake `find_package` calls by platform (neither
-side had it; separate work, not a merge leftover).
+`nui_native`, and the AT-SPI objects build on Linux. F7(a) is
+implemented in `native/CMakeLists.txt`: the `find_package` calls are
+gated to Linux, and macOS/Windows link their platform system libs.
 
 **Frozen native surface — ruled target** (F9, 2026-11-01): a release
 pins exactly the ABI in `native/nui.h` — 21 functions: `nui_init`,

@@ -43,10 +43,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         atspi.cpp)
 endif()
 
-find_package(Freetype REQUIRED)
-find_package(Fontconfig REQUIRED)
+# F7(a) (TODO #11): the system-package lookups are gated by platform.
+# Only the Linux backend needs the system font stack (Freetype +
+# Fontconfig) and the Vulkan loader: Skia resolves those symbols from
+# the merged archives, and the other platforms have no system
+# Fontconfig or Vulkan loader to find — macOS uses CoreText + Metal,
+# Windows uses DirectWrite + D3D12. Threads is needed everywhere
+# (std::thread in the backend).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Freetype REQUIRED)
+    find_package(Fontconfig REQUIRED)
+    find_package(Vulkan REQUIRED)
+endif()
 find_package(Threads REQUIRED)
-find_package(Vulkan REQUIRED)
 # NOTE: no SDL3 here. The C++ backend takes platform window handles from the
 # Odin side (UiNativeHandles); SDL lives entirely in Odin.
 
@@ -58,18 +67,56 @@ target_include_directories(nui_native PRIVATE
         ${SKIA_DIR}/out/${NIELLO_SKIA_OUT}/gen/third_party/dawn/include
 )
 
-target_link_directories(nui_render PRIVATE
+target_link_directories(nui_native PRIVATE
         ${SKIA_DIR}/out/${NIELLO_SKIA_OUT}
 )
 
+# The Skia and Dawn archives reference each other; GNU ld needs them in
+# a --start-group/--end-group pair, while ld64 and link.exe re-search
+# archives on their own (and reject the GNU flags).
+set(NUI_GROUP_START "")
+set(NUI_GROUP_END "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(NUI_GROUP_START "-Wl,--start-group")
+    set(NUI_GROUP_END "-Wl,--end-group")
+endif()
+
 target_link_libraries(nui_native PRIVATE
-        -Wl,--start-group
+        ${NUI_GROUP_START}
         skia
         dawn_combined
-        -Wl,--end-group
-        Vulkan::Vulkan
-        Freetype::Freetype
-        Fontconfig::Fontconfig
+        ${NUI_GROUP_END}
         Threads::Threads
         ${CMAKE_DL_LIBS}
 )
+# Linux-only system libs (F7(a) gating above): Skia's Linux font stack
+# and Dawn's Vulkan backend. They come after the archives so the
+# static link resolves Skia's references into them.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(nui_native PRIVATE
+            Vulkan::Vulkan
+            Freetype::Freetype
+            Fontconfig::Fontconfig
+    )
+endif()
+# macOS: Dawn's Metal backend + Skia's macOS surface. The documented
+# set; the first CI link names anything this vintage still wants.
+if(APPLE)
+    target_link_libraries(nui_native PRIVATE
+            "-framework Metal"
+            "-framework Foundation"
+            "-framework QuartzCore"
+            "-framework CoreGraphics"
+            "-framework IOKit"
+    )
+endif()
+# Windows: Dawn's D3D12 backend (d3d12/dxgi/dxguid) + Skia's
+# DirectWrite font manager (dwrite). Same caveat as macOS.
+if(WIN32)
+    target_link_libraries(nui_native PRIVATE
+            d3d12
+            dxgi
+            dxguid
+            dwrite
+    )
+endif()
