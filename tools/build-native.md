@@ -203,6 +203,12 @@ Record the Skia revision next to each release for reproducibility:
 git -C "$SKIA_DIR" rev-parse HEAD
 ```
 
+The scripted Linux path is `tools/build-native.sh`, invoked as
+`bash tools/build-native.sh` (with `SKIA_DIR` set). Invoke it via
+`bash`: the file may land in the tree without the executable bit,
+and the push path does not guarantee the mode — do not rely on
+`./tools/build-native.sh`.
+
 ## 5. Build `nui_render`
 
 From `NielloUI/native/` (`nui.h`, `nui.cpp`, `util.cpp`):
