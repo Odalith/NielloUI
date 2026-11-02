@@ -106,15 +106,22 @@ skia_use_system_libpng=false
 skia_use_system_libwebp=false
 skia_use_system_zlib=false
 skia_use_system_harfbuzz=false
+skia_use_system_icu=false
 ```
 
 Bundled-flag spellings were SkiaSharp's at m156; the 2026-11-01
-linux-x64 build (rev f3bd16e6) proves them, with one correction from
-the consume test: HarfBuzz needs `skia_use_system_harfbuzz=false`
+linux-x64 build (rev f3bd16e6) proves them, with two corrections from
+the consume tests: HarfBuzz needs `skia_use_system_harfbuzz=false`
 explicitly, or the fat archive carries 54 undefined `hb_*` references
 and no HarfBuzz objects (SkShaper's harfbuzz backend does not link).
-ICU needs no flag: the same consume test shows every `u_*` reference
-resolves inside the archive at the current defaults.
+ICU needs `skia_use_system_icu=false` explicitly too:
+`is_official_build` defaults the system-ICU branch on (Skia's
+`third_party/icu/icu.gni`), which expects system ICU headers —
+present on the Manjaro build box, absent on bare CI runners, where
+the build died on `unicode/ubidi.h`. The run-3 consume test's clean
+`u_*` result was the build box's system ICU masking the gap; the
+archive never contained ICU. Bundled ICU objects land in `libskia.a`
+via the existing merge, no merge-list change needed.
 
 **linux-x64** — deliberately diverges from the §0 tested config
 (F1b ruling):
@@ -128,6 +135,14 @@ cxx="clang++"
 ```
 
 (`target_cpu` defaults to `x64` on an x64 host.)
+
+Linux build prerequisites: the base build needs X11 and FontConfig
+headers — `libx11-dev`, `libx11-xcb-dev`, `libfontconfig1-dev`
+(Debian/Ubuntu; the CI installs the same set). On Arch the same
+headers ship with `libx11`, `libxcb`, `fontconfig` — no `-dev`
+split. Without them, Dawn's CMake `find_package(X11 REQUIRED)` fails
+and the Skia FontConfig / Dawn X11-xcb compiles die on missing
+headers, not on NielloUI code.
 
 **macos-arm64**:
 
@@ -178,6 +193,30 @@ excluded it — check the effective `skia_use_harfbuzz` /
 not ship a release whose `nui_measure_word` would link-fail.
 
 ## 4. Build commands
+
+### Synced checkout
+
+`gn gen` needs a depot_tools-synced checkout at the pinned revision
+(`tools/skia-rev.txt`) — `bin/gn` is downloaded by the sync, never
+checked in, and the externals (Dawn, HarfBuzz, ICU) land only via
+`git-sync-deps`. Check out the pinned revision first, so DEPS at
+that revision determines which externals sync:
+
+```sh
+git clone 'https://chromium.googlesource.com/chromium/tools/depot_tools.git'
+export PATH="${PWD}/depot_tools:${PATH}"
+git clone 'https://skia.googlesource.com/skia.git'
+cd skia
+git checkout <rev from tools/skia-rev.txt>
+GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps
+```
+
+`GIT_SYNC_DEPS_SKIP_EMSDK=1` skips the Emscripten activation step;
+desktop builds never use it. `git-sync-deps` also runs `bin/fetch-gn`,
+so `bin/gn` exists afterwards. The CI workflow
+(`.github/workflows/native.yml`) runs this same flow. Do not
+substitute `gclient sync`: the checkout has no `.gclient`, the sync
+no-ops silently, and the build then dies on the missing `bin/gn`.
 
 From the Skia checkout (or `$SKIA_DIR`):
 

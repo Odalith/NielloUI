@@ -51,6 +51,7 @@ bin/gn gen "$OUT" --args='
   skia_use_system_libwebp=false
   skia_use_system_zlib=false
   skia_use_system_harfbuzz=false
+  skia_use_system_icu=false
   cc="clang"
   cxx="clang++"
 '
