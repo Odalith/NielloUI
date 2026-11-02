@@ -103,6 +103,21 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
+          # gclient sync needs a .gclient config naming the checkout as an
+          # unmanaged solution; without it sync dies with "client not
+          # configured". managed=False leaves the pinned checkout alone
+          # and syncs only the DEPS externals.
+          cat > .gclient <<'EOF'
+          solutions = [
+            {
+              "name": "skia",
+              "url": "https://skia.googlesource.com/skia.git",
+              "deps_file": "DEPS",
+              "managed": False,
+              "custom_deps": {},
+            },
+          ]
+          EOF
           python3 depot_tools/gclient.py sync --no-history -j8
           # NOTE: full sync is several GB; this runs only when the pin changes.
 
@@ -124,7 +139,12 @@ jobs:
           # `ninja skia` never builds SkShaper: it lives under the
           # `modules` aggregate as its own archive (recipe §3).
           ninja -C out/${{ matrix.out }} skia modules/skshaper
-          test -f "out/${{ matrix.out }}/libskshaper.a" || { echo "libskshaper.a not built (recipe §3)" >&2; exit 1; }
+          # Windows archives are .lib, not .a (recipe §3).
+          if [ "${{ matrix.plat }}" = "windows-x64" ]; then
+            test -f "out/${{ matrix.out }}/skshaper.lib" || { echo "skshaper.lib not built (recipe §3)" >&2; exit 1; }
+          else
+            test -f "out/${{ matrix.out }}/libskshaper.a" || { echo "libskshaper.a not built (recipe §3)" >&2; exit 1; }
+          fi
 
   # ---- tier 2: compile nui.cpp against the base, merge, zip ----
   pack:
@@ -170,6 +190,21 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
+          # gclient sync needs a .gclient config naming the checkout as an
+          # unmanaged solution; without it sync dies with "client not
+          # configured". managed=False leaves the pinned checkout alone
+          # and syncs only the DEPS externals.
+          cat > .gclient <<'EOF'
+          solutions = [
+            {
+              "name": "skia",
+              "url": "https://skia.googlesource.com/skia.git",
+              "deps_file": "DEPS",
+              "managed": False,
+              "custom_deps": {},
+            },
+          ]
+          EOF
           python3 depot_tools/gclient.py sync --no-history -j8
 
       - name: restore base build cache
