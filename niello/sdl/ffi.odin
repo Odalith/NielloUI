@@ -43,7 +43,7 @@ import niello "../"
 // first link on those platforms.
 when ODIN_OS == .Linux {
 	foreign import native {
-		"../../third_party/native/linux-x64/lib/libniello_render.a",
+		"../../third_party/native/linux-x64/lib/libniello_native.a",
 		"system:SDL3",
 		"system:vulkan",
 		"system:freetype",
@@ -57,7 +57,7 @@ when ODIN_OS == .Linux {
 	}
 } else when ODIN_OS == .Darwin {
 	foreign import native {
-		"../../third_party/native/macos-arm64/lib/libniello_render.a",
+		"../../third_party/native/macos-arm64/lib/libniello_native.a",
 		"system:SDL3",
 		"system:c++",
 		"framework:Metal",
@@ -68,7 +68,7 @@ when ODIN_OS == .Linux {
 	}
 } else when ODIN_OS == .Windows {
 	foreign import native {
-		"../../third_party/native/windows-x64/lib/niello_render.lib",
+		"../../third_party/native/windows-x64/lib/niello_native.lib",
 		"system:SDL3",
 		"system:d3d12",
 		"system:dxgi",

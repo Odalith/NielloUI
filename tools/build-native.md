@@ -230,7 +230,7 @@ Threads).
   that extract-and-re-add would cause):
 
   ```
-  CREATE libniello_render.a
+  CREATE libniello_native.a
   ADDLIB out/niello-linux-x64/libskia.a
   ADDLIB out/niello-linux-x64/libdawn_combined.a
   ADDLIB out/niello-linux-x64/libskshaper.a
@@ -245,7 +245,7 @@ Threads).
 
 - **macOS** — `libtool`:
   ```
-  libtool -static -o libniello_render.a \
+  libtool -static -o libniello_native.a \
     out/niello-macos-arm64/libskia.a \
     out/niello-macos-arm64/libdawn_combined.a \
     out/niello-macos-arm64/libskshaper.a \
@@ -255,7 +255,7 @@ Threads).
 
 - **Windows** — `lib.exe`:
   ```
-  lib.exe /OUT:niello_render.lib ^
+  lib.exe /OUT:niello_native.lib ^
     out\niello-windows-x64\skia.lib ^
     out\niello-windows-x64\dawn_combined.lib ^
     out\niello-windows-x64\skshaper.lib ^
@@ -272,7 +272,7 @@ downstream. Verify with a real Odin link before publishing the Windows zip.
 
 ```
 niello-native-<platform>.zip
-├── lib/libniello_render.a   # niello_render.lib on Windows
+├── lib/libniello_native.a   # niello_native.lib on Windows
 └── include/nui.h
 ```
 

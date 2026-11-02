@@ -80,7 +80,7 @@ cmake --build "$WORK/nui" -j
 # 4. Merge the fat archive: exactly the set app links name.
 MRI="$WORK/merge.mri"
 {
-	echo "CREATE $WORK/libniello_render.a"
+	echo "CREATE $WORK/libniello_native.a"
 	for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a libharfbuzz.a; do
 		if [ ! -f "$SKIA_DIR/$OUT/$a" ]; then
 			echo "build-native: expected archive missing: $OUT/$a" >&2
@@ -98,7 +98,7 @@ ar -M < "$MRI"
 STAGE="$WORK/stage"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/lib" "$STAGE/include"
-cp "$WORK/libniello_render.a" "$STAGE/lib/"
+cp "$WORK/libniello_native.a" "$STAGE/lib/"
 cp "$ROOT/native/nui.h" "$STAGE/include/"
 {
 	echo "platform: $PLAT"

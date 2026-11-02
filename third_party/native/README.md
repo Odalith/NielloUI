@@ -9,13 +9,13 @@ distributed through GitHub Releases, not committed here.
 ```
 third_party/native/
   linux-x64/
-    lib/libniello_render.a   # fat archive: nui_native + Skia + Dawn
+    lib/libniello_native.a   # fat archive: nui_native + Skia + Dawn
     include/nui.h            # the C API (mirrored by niello/sdl/ffi.odin)
   windows-x64/
-    lib/niello_render.lib
+    lib/niello_native.lib
     include/nui.h
   macos-arm64/
-    lib/libniello_render.a
+    lib/libniello_native.a
     include/nui.h
 ```
 
