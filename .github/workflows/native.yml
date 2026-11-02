@@ -21,8 +21,10 @@
 # GN args are the build-native.md §2 blocks (F1–F8 ruled 2026-11-01,
 # F9 freeze): bundled sourcing (F1b) + DNG/PIEX trim (F4) + the
 # HarfBuzz correction from the 2026-11-01 consume test
-# (skia_use_system_harfbuzz=false). Merge commands from §6; zip layout
-# from §7.
+# (skia_use_system_harfbuzz=false) + skia_use_system_icu=false:
+# is_official_build defaults system ICU on, which expects system
+# headers no bare runner has; bundled ICU matches F1(b).
+# Merge commands from §6; zip layout from §7.
 
 name: native-release
 
@@ -51,7 +53,7 @@ jobs:
               skia_use_webgpu=true skia_use_vma=true
               skia_use_partition_alloc=false
               skia_use_dng_sdk=false skia_use_piex=false
-              skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false
+              skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false
               cc="clang" cxx="clang++"
           - plat: macos-arm64
             runner: macos-15
@@ -64,7 +66,7 @@ jobs:
               skia_use_webgpu=true skia_use_vma=true
               skia_use_partition_alloc=false
               skia_use_dng_sdk=false skia_use_piex=false
-              skia_use_system_expat=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false
+              skia_use_system_expat=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false
               target_cpu="arm64"
           - plat: windows-x64
             runner: windows-2022
@@ -77,7 +79,7 @@ jobs:
               skia_use_webgpu=true skia_use_vma=true
               skia_use_partition_alloc=false
               skia_use_dng_sdk=false skia_use_piex=false
-              skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false
+              skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false
               target_os="win" target_cpu="x64"
     steps:
       - uses: actions/checkout@v4
@@ -130,6 +132,15 @@ jobs:
           path: skia/out/${{ matrix.out }}
           # Bump the -v1 suffix when gn_args change: the key pins the Skia rev only.
           key: skia-base-${{ matrix.plat }}-${{ steps.rev.outputs.rev }}-v1
+
+      - name: install linux base deps
+        if: matrix.plat == 'linux-x64' && steps.base-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          # Dawn's CMake requires X11 headers (find_package(X11 REQUIRED)
+          # in src/dawn/native/CMakeLists.txt); the ubuntu runner has none.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libx11-dev
 
       - name: build skia+dawn base
         if: steps.base-cache.outputs.cache-hit != 'true'
