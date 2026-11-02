@@ -287,7 +287,11 @@ jobs:
             -DSKIA_DIR="$PWD/skia" \
             -DNIELLO_SKIA_OUT="${{ matrix.out }}" \
             -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/nui -j
+          # --config Release: the VS generator is multi-config and
+          # defaults to Debug (CMAKE_BUILD_TYPE is ignored there); the
+          # merge step expects build/nui/Release/nui_native.lib.
+          # Single-config generators ignore --config.
+          cmake --build build/nui -j --config Release
           # NOTE: SKIA_DIR is the restored checkout (src cache) + built out
           # dir (base cache); both key off the pinned rev.
 
@@ -322,7 +326,15 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force stage/lib | Out-Null
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $lib = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools -find '**\lib.exe' | Select-Object -First 1
+          # vswhere -find '**\lib.exe' returned nothing on the runner
+          # (empty result, then `& $null`): locate lib.exe under the
+          # install path instead, and fail loudly if it is not there.
+          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools -property installationPath
+          if (-not $installPath) { throw "vswhere found no VS installation with VC.Tools" }
+          $lib = Get-ChildItem "$installPath\VC\Tools\MSVC" -Recurse -Filter lib.exe |
+            Where-Object { $_.FullName -match 'Hostx64\\x64' } |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $lib) { throw "lib.exe (Hostx64\x64) not found under $installPath" }
           & $lib /OUT:stage\lib\niello_native.lib `
             skia\out\${{ matrix.out }}\skia.lib skia\out\${{ matrix.out }}\dawn_combined.lib `
             skia\out\${{ matrix.out }}\skcms.lib skia\out\${{ matrix.out }}\wuffs.lib `
