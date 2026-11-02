@@ -400,6 +400,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # gh resolves the repository from the git checkout; without
+      # this step the workspace has no .git and `gh release create`
+      # dies with "not a git repository" (2026-11-02 tag run).
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: niello-native-*
