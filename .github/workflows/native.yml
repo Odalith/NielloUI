@@ -138,9 +138,11 @@ jobs:
         shell: bash
         run: |
           # Dawn's CMake requires X11 headers (find_package(X11 REQUIRED)
-          # in src/dawn/native/CMakeLists.txt); the ubuntu runner has none.
+          # in src/dawn/native/CMakeLists.txt), Dawn's X11Functions also
+          # needs X11/Xlib-xcb.h, and Skia's FontConfig port needs
+          # fontconfig headers; the ubuntu runner has none of them.
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libx11-dev
+          sudo apt-get install -y -qq libx11-dev libx11-xcb-dev libfontconfig1-dev
 
       - name: build skia+dawn base
         if: steps.base-cache.outputs.cache-hit != 'true'
