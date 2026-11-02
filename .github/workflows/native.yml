@@ -93,7 +93,11 @@ jobs:
         id: src-cache
         uses: actions/cache@v4
         with:
-          path: skia
+          # Shared across platforms: exclude the build outputs, which are
+          # per-platform (cached separately, keyed by platform).
+          path: |
+            skia
+            !skia/out
           key: skia-src-${{ steps.rev.outputs.rev }}
 
       - name: sync skia checkout
@@ -124,6 +128,21 @@ jobs:
           # skia/bin — and the build step calls that path.
           python3 skia/bin/fetch-ninja
           # NOTE: full sync is several GB; this runs only when the pin changes.
+
+      - name: fetch platform build tools
+        shell: bash
+        run: |
+          # The src cache is shared across platforms, but bin/gn and
+          # third_party/ninja/ninja are PLATFORM binaries, and
+          # fetch-ninja trusts bin/ninja.version: a foreign save looks
+          # "up to date" to it, so re-running the fetchers alone would
+          # keep the wrong binaries. Delete the stamped tools so both
+          # fetchers unconditionally install this runner's binaries.
+          # Runs on every job, hit or miss: git-sync-deps covers the
+          # miss path, this covers the cache-hit path.
+          rm -f skia/bin/gn skia/bin/gn.exe skia/third_party/ninja/ninja skia/third_party/ninja/ninja.exe skia/bin/ninja.version
+          python3 skia/bin/fetch-gn
+          python3 skia/bin/fetch-ninja
 
       - name: restore base build cache
         id: base-cache
@@ -200,7 +219,11 @@ jobs:
         id: src-cache
         uses: actions/cache@v4
         with:
-          path: skia
+          # Shared across platforms: exclude the build outputs, which are
+          # per-platform (cached separately, keyed by platform).
+          path: |
+            skia
+            !skia/out
           key: skia-src-${{ steps.rev.outputs.rev }}
 
       - name: sync skia checkout
