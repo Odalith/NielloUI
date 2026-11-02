@@ -98,27 +98,22 @@ jobs:
         if: steps.src-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          # depot_tools for gn + the bundled clang-cl on Windows
+          # depot_tools for ninja + the bundled clang-cl on Windows
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          # gclient sync needs a .gclient config naming the checkout as an
-          # unmanaged solution; without it sync dies with "client not
-          # configured". managed=False leaves the pinned checkout alone
-          # and syncs only the DEPS externals.
-          cat > .gclient <<'EOF'
-          solutions = [
-            {
-              "name": "skia",
-              "url": "https://skia.googlesource.com/skia.git",
-              "deps_file": "DEPS",
-              "managed": False,
-              "custom_deps": {},
-            },
-          ]
-          EOF
-          python3 depot_tools/gclient.py sync --no-history -j8
+          # His proven local flow, NOT gclient: git-sync-deps reads DEPS,
+          # checks out the externals shallow, and runs bin/fetch-gn, so
+          # bin/gn exists for the build step. The gclient path died twice
+          # (missing .gclient, then missing bin/gn: DEPS has no hooks).
+          # SKIP_EMSDK: desktop builds never use Emscripten; the var is
+          # git-sync-deps' own opt-out for its emsdk activation step.
+          (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          # Fail loudly if the externals did not land.
+          for d in dawn harfbuzz icu; do
+            test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
+          done
           # NOTE: full sync is several GB; this runs only when the pin changes.
 
       - name: restore base build cache
@@ -190,22 +185,12 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          # gclient sync needs a .gclient config naming the checkout as an
-          # unmanaged solution; without it sync dies with "client not
-          # configured". managed=False leaves the pinned checkout alone
-          # and syncs only the DEPS externals.
-          cat > .gclient <<'EOF'
-          solutions = [
-            {
-              "name": "skia",
-              "url": "https://skia.googlesource.com/skia.git",
-              "deps_file": "DEPS",
-              "managed": False,
-              "custom_deps": {},
-            },
-          ]
-          EOF
-          python3 depot_tools/gclient.py sync --no-history -j8
+          # Same proven flow as the base job: git-sync-deps (not gclient).
+          (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          # Fail loudly if the externals did not land.
+          for d in dawn harfbuzz icu; do
+            test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
+          done
 
       - name: restore base build cache
         uses: actions/cache@v4
