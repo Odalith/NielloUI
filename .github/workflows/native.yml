@@ -326,15 +326,33 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force stage/lib | Out-Null
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          # vswhere -find '**\lib.exe' returned nothing on the runner
-          # (empty result, then `& $null`): locate lib.exe under the
-          # install path instead, and fail loudly if it is not there.
-          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools -property installationPath
-          if (-not $installPath) { throw "vswhere found no VS installation with VC.Tools" }
-          $lib = Get-ChildItem "$installPath\VC\Tools\MSVC" -Recurse -Filter lib.exe |
-            Where-Object { $_.FullName -match 'Hostx64\\x64' } |
-            Select-Object -First 1 -ExpandProperty FullName
-          if (-not $lib) { throw "lib.exe (Hostx64\x64) not found under $installPath" }
+          # The -requires Microsoft.VisualStudio.Component.VC.Tools
+          # query returns nothing on this runner even though CMake
+          # finds VS 2022 fine, so don't filter by component: search
+          # every VS installation for lib.exe and take the first hit.
+          $installPaths = & $vswhere -all -products * -property installationPath
+          if (-not $installPaths) { throw "vswhere found no VS installations" }
+          Write-Host "VS installations: $installPaths"
+          $lib = $null
+          foreach ($p in $installPaths) {
+            $found = Get-ChildItem "$p\VC\Tools\MSVC" -Recurse -Filter lib.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'Hostx64\\x64' } |
+              Select-Object -First 1 -ExpandProperty FullName
+            if ($found) { $lib = $found; break }
+          }
+          if (-not $lib) { throw "lib.exe (Hostx64\x64) not found under any VS installation" }
+          # Fail loudly naming any missing input, instead of letting
+          # lib.exe report it cryptically (mirrors the Linux merge).
+          $inputs = @(
+            "skia\out\${{ matrix.out }}\skia.lib",
+            "skia\out\${{ matrix.out }}\dawn_combined.lib",
+            "skia\out\${{ matrix.out }}\skcms.lib",
+            "skia\out\${{ matrix.out }}\wuffs.lib",
+            "skia\out\${{ matrix.out }}\skshaper.lib",
+            "skia\out\${{ matrix.out }}\harfbuzz.lib",
+            "build\nui\Release\nui_native.lib"
+          )
+          foreach ($in in $inputs) { if (-not (Test-Path $in)) { throw "missing input lib: $in" } }
           & $lib /OUT:stage\lib\niello_native.lib `
             skia\out\${{ matrix.out }}\skia.lib skia\out\${{ matrix.out }}\dawn_combined.lib `
             skia\out\${{ matrix.out }}\skcms.lib skia\out\${{ matrix.out }}\wuffs.lib `
