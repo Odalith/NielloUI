@@ -162,18 +162,20 @@ confirm the toolchain resolves to clang-cl before the long build starts.
 
 ## 3. SkShaper check (required for `nui_measure_word` / `nui_line_height`)
 
-The text-measuring callbacks shape with SkShaper. Before cutting release
-builds, verify SkShaper actually made it into each platform's build:
+The text-measuring callbacks shape with SkShaper. `ninja skia` never
+builds it: SkShaper lives under the `modules` aggregate as its own
+archive, so every platform build runs `ninja skia modules/skshaper`
+(§4) and the check is the built archive, not graph presence:
 
 ```
-ninja -C out/niello-<platform> -t targets all | grep -i skshaper
-# or: ls out/niello-<platform>/obj/modules/skshaper/
+ls out/niello-<platform>/libskshaper.a
 ```
 
-If it is absent, the `skia` target needs the skshaper module wired in —
-check the module's `BUILD.gn` against what the `skia` target pulls in
-rather than guessing at flags. Do not ship a release whose
-`nui_measure_word` would link-fail.
+If the `modules/skshaper` target is unknown to ninja, a GN condition
+excluded it — check the effective `skia_use_harfbuzz` / `skia_use_icu`
+values (`bin/gn args out/niello-<platform> --list`) and the module's
+`BUILD.gn` / `skia_enable_skshaper` rather than guessing at flags. Do
+not ship a release whose `nui_measure_word` would link-fail.
 
 ## 4. Build commands
 
@@ -181,7 +183,7 @@ From the Skia checkout (or `$SKIA_DIR`):
 
 ```sh
 bin/gn gen out/niello-<platform> --args="<platform args from §2>"
-ninja -C out/niello-<platform> skia
+ninja -C out/niello-<platform> skia modules/skshaper
 ```
 
 With `skia_use_dawn=true`, the Dawn targets build in the same graph. The
@@ -189,7 +191,7 @@ testbed links `dawn_combined`, so after ninja finishes, enumerate the
 archives to merge:
 
 ```sh
-ls out/niello-<platform>/*.a   # expect libskia.a, libdawn_combined.a, ...
+ls out/niello-<platform>/*.a   # expect libskia.a, libdawn_combined.a, libskshaper.a, libskcms.a, libwuffs.a
 ```
 
 Record the Skia revision next to each release for reproducibility:
@@ -213,7 +215,7 @@ this shape; the release variant passes `-DNIELLO_SKIA_OUT=niello-<platform>`
 
 ## 6. Merge into one fat archive
 
-Merge `libskia.a` + `libdawn_combined.a` (+ any sibling Dawn archives from
+Merge `libskia.a` + `libdawn_combined.a` + `libskshaper.a` (+ any sibling Dawn archives from
 §4) + `libnui_render.a` into a single archive so downstream links exactly
 one native lib plus system libs (SDL3, Vulkan, Freetype, Fontconfig,
 Threads).
@@ -225,6 +227,7 @@ Threads).
   CREATE libniello_render.a
   ADDLIB out/niello-linux-x64/libskia.a
   ADDLIB out/niello-linux-x64/libdawn_combined.a
+  ADDLIB out/niello-linux-x64/libskshaper.a
   ADDLIB <nui_render build dir>/libnui_render.a
   SAVE
   END
@@ -238,6 +241,7 @@ Threads).
   libtool -static -o libniello_render.a \
     out/niello-macos-arm64/libskia.a \
     out/niello-macos-arm64/libdawn_combined.a \
+    out/niello-macos-arm64/libskshaper.a \
     <nui_render build dir>/libnui_render.a
   ```
 
@@ -246,6 +250,7 @@ Threads).
   lib.exe /OUT:niello_render.lib ^
     out\niello-windows-x64\skia.lib ^
     out\niello-windows-x64\dawn_combined.lib ^
+    out\niello-windows-x64\skshaper.lib ^
     <nui_render build dir>\nui_render.lib
   ```
 

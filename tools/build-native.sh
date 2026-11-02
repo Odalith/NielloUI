@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds dist/niello-native-linux-x64.zip — the fat prebuilt archive
-# (nui_render + Skia + Dawn + skcms + wuffs) plus include/nui.h, in
+# (nui_render + Skia + Dawn + skcms + wuffs + SkShaper) plus include/nui.h, in
 # the third_party/native layout (see tools/build-native.md, which
 # this script follows step for step).
 #
@@ -53,13 +53,19 @@ bin/gn gen "$OUT" --args='
   cc="clang"
   cxx="clang++"
 '
-ninja -C "$OUT" skia
+ninja -C "$OUT" skia modules/skshaper
 
-# 2. SkShaper must be in the graph — nui_measure_word and
+# 2. SkShaper must be BUILT, not merely present in the graph —
+#    `ninja skia` never builds it: it lives under the `modules`
+#    aggregate, as its own libskshaper.a. nui_measure_word and
 #    nui_line_height shape with it, and a release whose text
-#    callbacks link-fail is worse than no release (§3).
-if ! ninja -C "$OUT" -t targets all | grep -qi skshaper; then
-	echo "build-native: SkShaper not in the build graph — see build-native.md §3" >&2
+#    callbacks link-fail is worse than no release (§3). The check
+#    is the archive itself: if the modules/skshaper target is not
+#    in the graph at all, the ninja step above fails first with
+#    "unknown target", which means a GN condition (harfbuzz/icu)
+#    excluded it — see §3.
+if [ ! -f "$SKIA_DIR/$OUT/libskshaper.a" ]; then
+	echo "build-native: libskshaper.a not built — see build-native.md §3" >&2
 	exit 1
 fi
 
@@ -74,7 +80,7 @@ cmake --build "$WORK/nui" -j
 MRI="$WORK/merge.mri"
 {
 	echo "CREATE $WORK/libniello_render.a"
-	for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a; do
+	for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a; do
 		if [ ! -f "$SKIA_DIR/$OUT/$a" ]; then
 			echo "build-native: expected archive missing: $OUT/$a" >&2
 			exit 1
