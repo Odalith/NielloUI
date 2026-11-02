@@ -24,10 +24,12 @@ mkdir -p "$WORK" "$DIST"
 REV="$(git -C "$SKIA_DIR" rev-parse HEAD)"
 echo "build-native: skia rev $REV"
 
-# 1. Configure + build Skia with Dawn/Graphite — the tested
-#    linux-x64 args (build-native.md §2). The Metal/D3D12 flags
-#    belong to the other platforms' args blocks, inside the
-#    quotes; they are not missing here, they are not Linux's.
+# 1. Configure + build Skia with Dawn/Graphite — the ruled
+#    linux-x64 args (F1b/F4; build-native.md §2). Deliberately
+#    diverges from the §0 tested args: bundled deps + DNG/PIEX
+#    trim. The Metal/D3D12 flags belong to the other platforms'
+#    args blocks, inside the quotes; they are not missing here,
+#    they are not Linux's.
 cd "$SKIA_DIR"
 bin/gn gen "$OUT" --args='
   is_official_build=true
@@ -40,6 +42,14 @@ bin/gn gen "$OUT" --args='
   skia_use_webgpu=true
   skia_use_vma=true
   skia_use_partition_alloc=false
+  skia_use_dng_sdk=false
+  skia_use_piex=false
+  skia_use_system_expat=false
+  skia_use_system_freetype2=false
+  skia_use_system_libjpeg_turbo=false
+  skia_use_system_libpng=false
+  skia_use_system_libwebp=false
+  skia_use_system_zlib=false
   cc="clang"
   cxx="clang++"
 '

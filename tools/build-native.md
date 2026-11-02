@@ -7,14 +7,42 @@ a GitHub Release. App authors then just run `tools/fetch-native.sh`
 (`fetch-native.ps1` on Windows). Binaries are never committed (enforced by
 `.gitignore`).
 
-**Frozen native surface** (re-frozen 2026-10-22, after the multi-window
-merge replaced the old five-function surface): a release pins exactly the
-per-window ABI in `native/nui.h` — `nui_init`, `nui_create_window`,
-`nui_destroy_window`, `nui_resize`, `nui_set_refresh_rate`,
-`nui_is_resizing`, `nui_render`, `nui_present_cached`,
-`nui_register_font`, `nui_register_font_family`, `nui_measure_word`,
-`nui_line_height`, `nui_shutdown` — mirrored by `niello/sdl/ffi.odin`.
-Changing any signature means a new native release train, not a patch.
+## Ruled build options (2026-11-01, F1–F9)
+
+The Skia build options are ruled (brief `Skia_Build_Options_Plan.md`):
+F1(b) bundled third-party deps everywhere ("just work"); F2(a)
+clang-cl from depot_tools' bundled LLVM; F3(a) pin the tested Skia
+vintage in `tools/skia-rev.txt`; F4(a) defaults on plus the
+DNG/PIEX trim; F5(a) exactly one Dawn backend per platform;
+F6 macOS deployment target 13 (Dawn's minimum), drop the `cc`/`cxx`
+overrides on macOS; F7(a) gate the CMake `find_package` calls by
+platform; F8 `macos-15` runner; F9 the full 21-function native
+surface (below). §2 and §8 below carry the ruled flags.
+
+Precondition: this branch still carries the pre-#23 `nui.h`
+(13 functions), the pre-rename `nui_render` naming, and the
+ungated `find_package` calls. Do not cut a release from this
+branch before main is merged in — the merge brings the
+21-function `nui.h`, the `ffi.odin` mirrors, the `nui_native`
+rename, the AT-SPI objects, and the F7 gating.
+
+**Frozen native surface — ruled target** (F9, 2026-11-01): a release
+pins exactly the ABI in `native/nui.h` — 21 functions: `nui_init`,
+`nui_create_window`, `nui_destroy_window`, `nui_resize`,
+`nui_set_refresh_rate`, `nui_is_resizing`, `nui_render`,
+`nui_present_cached`, `nui_register_font`, `nui_register_font_family`,
+`nui_measure_word`, `nui_line_height`, `nui_image_decode`,
+`nui_image_release`, `nui_gpu_cache_bytes`, `nui_purge_gpu_cache`,
+`nui_atspi_start`, `nui_atspi_stop`, `nui_atspi_sync`,
+`nui_atspi_remove_window`, `nui_shutdown` — mirrored by
+`niello/sdl/ffi.odin`. Changing any signature means a new native
+release train, not a patch. Count note: the freeze fork said "20",
+but 13 + 2 + 2 + 4 = 21 and `nui.h` declares 21;
+`nui_atspi_sync` carries the trailing `win_focused` parameter.
+This branch's `nui.h` still names the 13-function surface — the
+21-function freeze takes effect when main is merged in (see the
+precondition above); the 2026-10-22 thirteen-function freeze is
+superseded.
 
 `tools/build-native.sh` scripts the linux-x64 path below end to end;
 the Windows and macOS paths are proven by hand once, then automated
@@ -73,13 +101,28 @@ skia_use_dawn=true
 skia_use_webgpu=true
 skia_use_vma=true
 skia_use_partition_alloc=false
+skia_use_dng_sdk=false
+skia_use_piex=false
+skia_use_system_expat=false
+skia_use_system_libjpeg_turbo=false
+skia_use_system_libpng=false
+skia_use_system_libwebp=false
+skia_use_system_zlib=false
 ```
 
-**linux-x64** — the tested config, unchanged:
+Bundled-flag spellings are SkiaSharp's at m156; confirm with
+`gn args --list` against the pinned checkout at CI-write time.
+HarfBuzz/ICU stay at defaults (on) — bundled from DEPS under F1(b),
+which is what SkShaper needs; their sourcing-flag spellings, if
+any, are confirmed at the same check.
+
+**linux-x64** — deliberately diverges from the §0 tested config
+(F1b ruling):
 
 ```
 skia_use_vulkan=true
 dawn_enable_vulkan=true
+skia_use_system_freetype2=false
 cc="clang"
 cxx="clang++"
 ```
@@ -97,8 +140,11 @@ Notes: Dawn-on-macOS is Metal — the SDL window's native handle resolves to
 an `NSWindow` and the surface path is `CAMetalLayer`, so there is no reason
 to also build Dawn's Vulkan backend into this archive; leaving
 `dawn_enable_vulkan` out keeps the static lib lean. `cc`/`cxx` overrides are
-harmless here (Xcode CLT `clang` is on `PATH`) — keep or drop. Build on
-arm64 hardware or a `macos-14`+ CI runner (Apple Silicon).
+harmless here (Xcode CLT `clang` is on `PATH`) — drop the
+overrides (F6 ruling). Deployment target 13 (F6, Dawn's minimum;
+GN spelling verified against the pinned checkout at CI-write
+time). Build on arm64 hardware or a `macos-15`+ CI runner
+(Apple Silicon).
 
 **windows-x64**:
 
@@ -106,6 +152,7 @@ arm64 hardware or a `macos-14`+ CI runner (Apple Silicon).
 target_os="win"
 target_cpu="x64"
 dawn_enable_d3d12=true
+skia_use_system_freetype2=false
 ```
 
 Notes: **drop the `cc="clang"` / `cxx="clang++"` overrides** on Windows.
@@ -222,9 +269,12 @@ to a GitHub Release (tag like `native-v0.1.0`); `tools/fetch-native.sh` /
 ## 8. CI (later, once the matrix is proven by hand)
 
 `.github/workflows/native.yml`: matrix over `ubuntu-24.04`,
-`windows-2022`, `macos-14`; per job: install depot_tools, sync the Skia
+`windows-2022`, `macos-15` (F8 ruling; the `macos-14` image retired
+2026-11-02); per job: install depot_tools, sync the Skia
 checkout at the pinned revision, `gn gen` with the §2 args, `ninja skia`,
-build `nui_render`, merge per §6, zip, `upload-artifact`. A release job on
+build `nui_render`, merge per §6, zip, `upload-artifact`. Dawn needs
+CMake 3.30+; `ubuntu-24.04` ships 3.28, so the Linux job provisions
+a newer CMake (pip/Kitware) — verify at the first CI run. A release job on
 tag `native-v*` downloads the three artifacts and creates the GitHub
 Release with them.
 
