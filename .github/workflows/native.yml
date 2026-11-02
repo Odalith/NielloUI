@@ -137,6 +137,12 @@ jobs:
         run: |
           export PATH="$PWD/depot_tools:$PATH"
           cd skia
+          # Dawn's CMake sub-build finds its ninja via `which ninja`: the
+          # depot_tools wrapper on PATH is unbootstrapped on a fresh
+          # clone ("python3_bin_reldir.txt not found"), so put the
+          # DEPS-pinned real ninja first. depot_tools stays on PATH
+          # behind it for the toolchain lookups.
+          export PATH="$PWD/third_party/ninja:$PATH"
           bin/gn gen out/${{ matrix.out }} --args='${{ matrix.gn_args }}'
           # `ninja skia` never builds SkShaper: it lives under the
           # `modules` aggregate as its own archive (recipe §3).
