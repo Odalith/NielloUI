@@ -424,3 +424,131 @@ test_damage_on_text_change_same_size :: proc(t: ^testing.T) {
 	res = dmg_frame()
 	testing.expect(t, !res.changed, "frame is clean again after the text change")
 }
+
+@(test)
+test_draw_list_rounded_clip :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	root: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(400), niello.fixed(300)}})
+	outer: niello.Unit
+	niello.mint(
+		&outer,
+		niello.NO_UNIT,
+		{
+			size = niello.Size{niello.fixed(200), niello.fixed(200)},
+			color = [4]u8{0, 0, 255, 255},
+			overflow = .Clip,
+			corner_radius = 12,
+		},
+	)
+	inner_clip: niello.Unit
+	niello.mint(
+		&inner_clip,
+		niello.NO_UNIT,
+		{
+			size = niello.Size{niello.fixed(100), niello.fixed(100)},
+			color = [4]u8{0, 255, 0, 255},
+			overflow = .Clip,
+			corner_radius = 6,
+		},
+	)
+	leaf: niello.Unit
+	niello.mint(&leaf, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(50)}, color = [4]u8{255, 0, 0, 255}})
+	square: niello.Unit
+	niello.mint(
+		&square,
+		niello.NO_UNIT,
+		{
+			size = niello.Size{niello.fixed(80), niello.fixed(80)},
+			color = [4]u8{255, 255, 0, 255},
+			overflow = .Clip,
+		},
+	)
+
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	if _, ok := niello.begin(root); ok {
+		if _, ok2 := niello.begin(outer); ok2 {
+			if _, ok3 := niello.begin(inner_clip); ok3 {
+				niello.show(leaf)
+			}
+		}
+		niello.show(square)
+	}
+	niello.frame_end()
+
+	cmds := niello.draw_list()
+
+	// Collect the clip scopes in emission order with their radii.
+	clips := [dynamic]u8{}
+	defer delete(clips)
+	clip_depth, leaf_idx := 0, -1
+	want_red := [4]u8{255, 0, 0, 255}
+	for c, idx in cmds {
+		#partial switch c.tag {
+		case .Push_Clip:
+			append(&clips, c.radius)
+			clip_depth += 1
+		case .Pop_Clip:
+			clip_depth -= 1
+		case .Rect:
+			if c.color == want_red {
+				leaf_idx = idx
+			}
+		}
+		testing.expect(t, clip_depth >= 0, "clips never pop unopened")
+	}
+	testing.expect(t, clip_depth == 0, "all clip scopes closed by stream end")
+	testing.expect(t, len(clips) == 3, "outer + inner + square clip scopes emitted")
+	if len(clips) == 3 {
+		testing.expect(t, clips[0] == 12, "outer clip carries the outer corner radius")
+		testing.expect(t, clips[1] == 6, "nested clip carries its own corner radius")
+		testing.expect(t, clips[2] == 0, "unrounded clip carries radius zero")
+	}
+	testing.expect(t, leaf_idx >= 0, "leaf paints inside the nested clip scopes")
+}
+
+@(test)
+test_draw_list_scroll_clip_radius :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	root: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {size = niello.Size{niello.fixed(400), niello.fixed(300)}})
+	scroller: niello.Unit
+	niello.mint(
+		&scroller,
+		niello.NO_UNIT,
+		{
+			size = niello.Size{niello.fixed(200), niello.fixed(200)},
+			color = [4]u8{0, 0, 255, 255},
+			scroll = .Vertical,
+			corner_radius = 10,
+		},
+	)
+	content: niello.Unit
+	niello.mint(
+		&content,
+		niello.NO_UNIT,
+		{size = niello.Size{niello.fixed(200), niello.fixed(400)}, color = [4]u8{255, 0, 0, 255}},
+	)
+
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+	if _, ok := niello.begin(root); ok {
+		if _, ok2 := niello.begin(scroller); ok2 {
+			niello.show(content)
+		}
+	}
+	niello.frame_end()
+
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Push_Clip {
+			found = true
+			testing.expect(t, c.radius == 10, "scroll clip carries the corner radius")
+			testing.expect(t, c.bounds.size[0] == 200 && c.bounds.size[1] == 200, "scroll clip covers the viewport")
+		}
+	}
+	testing.expect(t, found, "scroll container emits a clip scope")
+}

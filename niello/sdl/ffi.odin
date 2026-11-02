@@ -3,7 +3,8 @@
 // The native side (see ../../native/nui.h) is a static library exposing a small C
 // API: nui_init / nui_create_window / nui_resize / nui_set_refresh_rate /
 // nui_render / nui_present_cached / nui_register_font / nui_measure_word /
-// nui_line_height / nui_destroy_window / nui_shutdown. Multi-window (M2):
+// nui_line_height / nui_destroy_window / nui_shutdown / nui_gpu_cache_bytes /
+// nui_purge_gpu_cache. Multi-window (M2):
 // the device + Graphite context are shared; each window renders through
 // its own opaque Window handle.
 //
@@ -18,20 +19,31 @@ import niello "../"
 // Draw_Cmd's memory layout IS the FFI ABI (../../native/nui.h mirrors it as
 // UiDrawCmd with a static_assert). This fires at compile time if the struct
 // ever drifts, so the two sides cannot silently disagree.
-#assert(size_of(niello.Draw_Cmd) == 72, "niello.Draw_Cmd must stay 72 bytes: it is the FFI ABI")
+#assert(size_of(niello.Draw_Cmd) == 96, "niello.Draw_Cmd must stay 96 bytes: it is the FFI ABI")
 #assert(size_of(niello.Rect) == 16, "niello.Rect must stay 16 bytes: it is the FFI ABI")
 #assert(size_of(Native_Handles) == size_of(rawptr) * 8, "Native_Handles must match UiNativeHandles")
+#assert(size_of(A11y_FFI_Node) == 80, "A11y_FFI_Node must match UiA11yNode in ../../native/nui.h (80 bytes)")
 
-// System libraries the native backend needs on every platform.
-// The static lib itself (nui_render) comes from
-// third_party/native/<platform>/lib — see tools/fetch-native.sh — and is
-// found via -extra-linker-flags:"-L<path>".
+// System libraries the native backend needs. The static libs
+// (nui_native + Skia + Dawn) come from third_party/native/<platform>/
+// — see tools/fetch-native.sh — and are found via
+// -extra-linker-flags:"-L<path> --start-group ..." until TODO #11's
+// merged archive lets this import name the one file by path.
+// The codec libs (z/png/jpeg/webp/webpdemux) are here because
+// Skia's codec modules reference them; they stayed latent until
+// image decode (#13) first pulled the codec objects into a link.
 foreign import native {
-	"system:nui_render",
+	"system:nui_native",
 	"system:SDL3",
 	"system:vulkan",
 	"system:freetype",
 	"system:fontconfig",
+	"system:stdc++",
+	"system:z",
+	"system:png",
+	"system:jpeg",
+	"system:webp",
+	"system:webpdemux",
 }
 
 // Window is the opaque per-window backend handle (nui_window* in C).
@@ -89,6 +101,117 @@ foreign native {
 	// slant is 0=upright, 1=italic, 2=oblique (Font_Slant order).
 	measure_word :: proc(family: u32, weight: i32, slant: i32, size_px: f32, text: [^]u8, len: i64) -> f32 ---
 	line_height  :: proc(family: u32, weight: i32, slant: i32, size_px: f32) -> f32 ---
+
+	// Images (TODO #13): decode encoded bytes to a backend image
+	// id (0 = failure); release drops it. Ids are never reused.
+	image_decode  :: proc(data: [^]u8, len: i32, max_w: i32, max_h: i32, out_w: ^f32, out_h: ^f32) -> u32 ---
+	image_release :: proc(id: u32) ---
+
+	// GPU resource cache diagnostics: bytes the shared Graphite
+	// context currently counts against its cache budget, and a
+	// purge of every purgeable resource (after draining submitted
+	// work). For leak hunting: purge between measurements to
+	// separate "still cached, evictable" from "actually leaked".
+	gpu_cache_bytes :: proc() -> u64 ---
+	purge_gpu_cache :: proc() ---
+
+	// Accessibility export (TODO #23 M2, Linux only): the native
+	// AT-SPI exporter (native/atspi.cpp). Foreign declarations
+	// alone emit no references, so non-Linux links stay clean;
+	// the call sites in app.odin are `when ODIN_OS == .Linux`
+	// guarded. The native library must be rebuilt after pulling
+	// this (new objects in the static archive).
+	atspi_start         :: proc(app_name: cstring) -> c.int ---
+	atspi_stop          :: proc() ---
+	atspi_sync          :: proc(ctx_id: i32, nodes: [^]A11y_FFI_Node, count: i32, window_title: cstring, win_x, win_y, win_w, win_h, win_focused: i32) ---
+	atspi_remove_window :: proc(ctx_id: i32) ---
+}
+
+// A11y_FFI_Node is the FFI projection of one mirror node for the
+// AT-SPI exporter. Field order IS the ABI (UiA11yNode in
+// ../../native/nui.h, statically asserted above). Strings borrow
+// the mirror's owned storage: valid until the next frame_end, and
+// sync runs inside the same frame pass, so borrowing is sound.
+// Flags/state are built explicitly by the helpers below — a
+// bit_set's backing layout is not ABI, so it is never transmuted.
+A11y_FFI_Node :: struct {
+	id:          u64,
+	parent:      i32,
+	role:        u32, // Odin A11y_Role ordinal (Avalonia order)
+	name:        cstring,
+	description: cstring,
+	flags:       u32, // A11y_Flag bit positions (ORDER IS ABI)
+	state:       u32, // A11y_State_Flag bit positions (ORDER IS ABI)
+	x, y, w, h:  f32, // DIP, window-relative
+	has_value:   i32,
+	value_num:   f32,
+	value_min:   f32,
+	value_max:   f32,
+	value_text:  cstring,
+}
+
+a11y_ffi_cstring :: proc(s: string) -> cstring {
+	if len(s) == 0 {
+		return nil
+	}
+	return cstring(raw_data(s))
+}
+
+a11y_ffi_flags :: proc(flags: niello.A11y_Flags) -> u32 {
+	bits: u32
+	if .Checked in flags {
+		bits |= 1 << 0
+	}
+	if .Selected in flags {
+		bits |= 1 << 1
+	}
+	if .Expanded in flags {
+		bits |= 1 << 2
+	}
+	if .ReadOnly in flags {
+		bits |= 1 << 3
+	}
+	if .Required in flags {
+		bits |= 1 << 4
+	}
+	if .Multiline in flags {
+		bits |= 1 << 5
+	}
+	return bits
+}
+
+a11y_ffi_state :: proc(state: niello.A11y_State) -> u32 {
+	bits: u32
+	if .Disabled in state {
+		bits |= 1 << 0
+	}
+	if .Focused in state {
+		bits |= 1 << 1
+	}
+	if .Offscreen in state {
+		bits |= 1 << 2
+	}
+	if .Scroll_X in state {
+		bits |= 1 << 3
+	}
+	if .Scroll_Y in state {
+		bits |= 1 << 4
+	}
+	if .Focusable in state {
+		bits |= 1 << 5
+	}
+	return bits
+}
+
+// The backend hooks are wired at package init — assignment only,
+// no FFI calls — so app code can use hook-backed core services
+// (notably image_load, which decodes immediately) before run().
+@(init)
+wire_backend_hooks :: proc "contextless" () {
+	niello.measure_word_hook = hook_measure_word
+	niello.line_height_hook = hook_line_height
+	niello.decode_image_hook = hook_decode_image
+	niello.release_image_hook = hook_release_image
 }
 
 // hook_measure_word / hook_line_height adapt the C measurement procs to
@@ -102,6 +225,25 @@ hook_measure_word :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, 
 
 hook_line_height :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32) -> f32 {
 	return line_height(u32(font), i32(weight), i32(slant), size)
+}
+
+// hook_decode_image / hook_release_image adapt the C image procs
+// to niello's image hooks (wired next to the measure hooks in
+// app.odin's startup).
+hook_decode_image :: proc(data: []byte, max_w, max_h: int) -> (backend: u32, w, h: f32, ok: bool) {
+	if len(data) == 0 {
+		return 0, 0, 0, false
+	}
+	ow, oh: f32
+	id := image_decode(raw_data(data), i32(len(data)), i32(max_w), i32(max_h), &ow, &oh)
+	if id == 0 {
+		return 0, 0, 0, false
+	}
+	return id, ow, oh, true
+}
+
+hook_release_image :: proc(backend: u32) {
+	image_release(backend)
 }
 
 // register_font binds a font family id to a font FILE on disk (a bundled

@@ -10,6 +10,11 @@ import "base:runtime"
 
 Unit_Rec :: struct {
 	style: Style, // resolved, owned values
+	gen:   u64,   // visual-write generation (§5 stamps): bumped by
+	              // touch/touch_unmarked when a VISUAL_FIELDS field is
+	              // written. Instances remember the gen they last
+	              // painted with; a mismatch is damage — the exact,
+	              // versioned replacement for re-hashing the style.
 
 	// §8 cold-store metadata.
 	explicit: Fields, // fields set directly at mint (for propagate)
@@ -83,6 +88,8 @@ Store :: struct {
 	// The word cache is content-addressed (font, style, text ->
 	// metrics), so it is shared by every window: a word measured
 	// for one window is a free hit for all the others.
+	images:           [dynamic]Image_Rec, // the image registry (§3.25);
+	                                      // index = Image id, slot 0 sentinel
 	text_cache:       map[u64]Text_Entry,
 	ellipsis_widths: map[u64]f32,
 }
@@ -162,6 +169,19 @@ Context :: struct {
 	// that reads it are what the NIELLO_DEBUG gate removes.
 	debug_nodes: [dynamic]Debug_Node,
 
+	// Accessibility mirror (§3.9, TODO #23, a11y.odin): this
+	// context's last completed frame as a flat A11y_Node array,
+	// maintained at every frame_end, UNGATED — screen readers are
+	// prod behavior, not debug tooling. Entries own their strings
+	// (cloned at mirror build, freed on change/removal/teardown);
+	// a11y_order borrows them and is valid until the next
+	// frame_end. a11y_gen counts mirror builds (sweep marker);
+	// a11y_idx is build scratch: frame-node index -> order index.
+	a11y_entries: map[Instance]A11y_Entry,
+	a11y_order:   [dynamic]A11y_Node,
+	a11y_gen:     u64,
+	a11y_idx:     [dynamic]int,
+
 	// What the debug channel painted into this context's last
 	// presented frame (debug.odin): frame_end compares the live
 	// channel against these to damage exactly the transitions —
@@ -203,6 +223,21 @@ Context :: struct {
 	press_chains:  [Mouse_Button][dynamic]Instance,
 	clicked_id:    Instance, // set at a release dispatch, valid for one declare
 	clicked_chain: [dynamic]Instance,
+	// Drag state (§3.28): a left press whose displacement from the
+	// grab point crosses DRAG_THRESHOLD becomes a drag on the same
+	// capture. The ended snapshot, like clicked's, is valid for
+	// exactly one declare.
+	drag_active:          bool,
+	drag_grab:            Vec2, // pointer position at the press
+	drag_total_v:         Vec2, // live displacement from the grab point
+	drag_delta_v:         Vec2, // pointer movement in the last dispatch
+	drag_started_flag:    bool, // threshold crossed at the last dispatch
+	drag_ended_id:        Instance,
+	drag_ended_chain:     [dynamic]Instance,
+	drag_ended_completed: bool, // release (true) vs capture loss (false)
+	drag_ended_total:     Vec2,
+	prev_pointer_pos:     Vec2,
+	prev_pointer_valid:   bool,
 	focus_id:      Instance, // keyboard focus (§3.17): traversal, click,
 	                         // or programmatic; input_keys/input_text
 	                         // route to it
@@ -270,6 +305,10 @@ Context :: struct {
 	pick_clip:      [dynamic]Rect,
 	eff:            [dynamic]Style,
 	disabled_flags: [dynamic]bool,
+	state_stamp:    [dynamic]u64, // per-node interaction state stamp
+	                              // (resolve_styles, input.odin):
+	                              // which overlay layers are active,
+	                              // folded with those units' gens
 
 	layout_gen:  u32,
 	frame_index: u64,
@@ -341,6 +380,7 @@ free_store :: proc() {
 	}
 	delete(store.text_cache)
 	delete(store.ellipsis_widths)
+	delete(store.images) // registry only; backend images die with the backend
 	// Unit styles own their reference-typed fields (cloned on write —
 	// see store_spans in public.odin).
 	for &rec in store.units {
@@ -392,6 +432,7 @@ free_context :: proc(ctx: ^Context) {
 	when NIELLO_DEBUG {
 		delete(ctx.debug_nodes)
 	}
+	a11y_free_mirror(ctx)
 	delete(ctx.instances)
 	delete(ctx.damage)
 	delete(ctx.popups)
@@ -411,6 +452,7 @@ free_context :: proc(ctx: ^Context) {
 		delete(ctx.press_chains[b])
 	}
 	delete(ctx.key_press_chain)
+	delete(ctx.drag_ended_chain)
 	delete(ctx.frame_text)
 	delete(ctx.keys_scratch)
 	delete(ctx.seen_ids)
@@ -420,6 +462,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.pick_clip)
 	delete(ctx.eff)
 	delete(ctx.disabled_flags)
+	delete(ctx.state_stamp)
 }
 
 // journal_gc retires the journal prefix every live context has
@@ -503,6 +546,9 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	if d.smooth_ms != nil { f += {.Smooth_Ms} }
 	if d.overscroll != nil { f += {.Overscroll} }
 	if d.overscroll_px != nil { f += {.Overscroll_Px} }
+	if d.image       != nil { f += {.Image} }
+	if d.image_fit   != nil { f += {.Image_Fit} }
+	if d.image_interp != nil { f += {.Image_Interp} }
 	return f
 }
 
@@ -520,6 +566,9 @@ touch :: proc(u: Unit, f: Fields) {
 	rec.dirty += f
 	rec.explicit += f
 	store.gen += 1
+	if f & VISUAL_FIELDS != {} {
+		rec.gen += 1
+	}
 }
 
 // touch_unmarked is touch without the explicit marking: propagate's
@@ -533,6 +582,9 @@ touch_unmarked :: proc(u: Unit, f: Fields) {
 	}
 	rec.dirty += f
 	store.gen += 1
+	if f & VISUAL_FIELDS != {} {
+		rec.gen += 1
+	}
 }
 
 style_of :: proc(u: Unit) -> ^Style {
@@ -590,13 +642,19 @@ Scroll_Glide :: struct {
 	              // this target.
 }
 
-// One committed instance: its last rect plus the hash of its last
-// committed resolved content (style values + text). Pass F damages an
-// instance whose hash changed even when its rect didn't move — §5's
-// "changed → new rect" covers text edits and set() restyles, not just
-// motion.
+// One committed instance: its last rect plus the change stamps it
+// last painted with (§5, the stamps scheme): the unit's visual
+// generation, the digest of its declare-presented content, and its
+// interaction state stamp. Pass F damages an instance whose stamps
+// moved even when its rect didn't — "changed → new rect" covers
+// text edits and set() restyles, not just motion. (Replaced the
+// per-instance content hash 2026-10-23: styles are versioned by
+// their write funnel, so re-mixing every resolved value every
+// frame re-proved what the generations already knew.)
 Inst_Rec :: struct {
-	rect: Rect,
-	hash: u64,
-	unit: Unit, // the unit this instance instantiates (cross-context reads, M4)
+	rect:  Rect,
+	gen:   u64,
+	digest: u64,
+	stamp: u64,
+	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
 }

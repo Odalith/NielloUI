@@ -57,6 +57,7 @@ Field :: enum u8 {
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
 	Text_Spans, Cursor, Scroll_Chain, Smooth_Scroll, Smooth_Ms,
 	Overscroll, Overscroll_Px,
+	Image, Image_Fit, Image_Interp,
 }
 // Text_Wrap is layout-invalidating (controls pass-C participation);
 // Align is layout-invalidating (controls child positioning);
@@ -81,6 +82,24 @@ ALL_FIELDS :: Fields{
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
 	.Text_Spans, .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
 	.Overscroll, .Overscroll_Px,
+	.Image, .Image_Fit, .Image_Interp,
+}
+
+// VISUAL_FIELDS is ALL_FIELDS minus the fields that steer behavior
+// without reaching the draw list — the exclusion the old content
+// hash documented: Cursor is host state; Scroll_Chain, the Smooth
+// pair and the Overscroll pair steer dispatch and glides. A write
+// touching only these must not repaint, so the per-unit visual
+// generation (the §5 stamps, state.odin) advances only on
+// VISUAL_FIELDS writes. Written out in full, like ALL_FIELDS.
+VISUAL_FIELDS :: Fields{
+	.Color, .Font_Color, .Border_Color,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis,
+	.Padding, .Gap, .Corner_Radius, .Opacity,
+	.Layout, .Align, .Size, .Scroll, .Overflow,
+	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
+	.Text_Spans,
+	.Image, .Image_Fit, .Image_Interp,
 }
 
 Layout :: enum u8 {
@@ -279,6 +298,14 @@ Style :: struct {
 	                           // resistance, then springs back (§3.22)
 	overscroll_px: u16,        // the band's max distance past an end
 	                           // scrollable ancestor; default true
+
+	// Image content (§3.25): the node paints this image in its
+	// rect (behind its text and children — a leaf is an image
+	// control, a container gets a background image). NO_IMAGE =
+	// no image. Fit/interp steer the paint only.
+	image:       Image,      // default NO_IMAGE
+	image_fit:   Image_Fit,  // default .Uniform
+	image_interp: Image_Interp, // default .High
 }
 
 default_style :: proc() -> Style {
@@ -303,6 +330,8 @@ default_style :: proc() -> Style {
 		scroll_chain = true,
 		smooth_ms    = 150,
 		overscroll_px = 64,
+		image_fit    = .Uniform,
+		image_interp = .High,
 	}
 }
 
@@ -345,6 +374,10 @@ Style_Decl :: struct {
 	overscroll:   Maybe(bool),
 	overscroll_px: Maybe(u16), // default 64
 
+	image:       Maybe(Image),
+	image_fit:   Maybe(Image_Fit),
+	image_interp: Maybe(Image_Interp),
+
 	hover, press, focus, disabled: Unit, // automatic state overlays, declared as data
 	focusable: bool,                     // reserved seam: participates in keyboard focus traversal
 
@@ -362,6 +395,16 @@ With :: struct {
 	text_spans: Maybe([]Text_Span), // per-instance rich-text overrides; wins
 	                                // over Style.text_spans. Copied at declare
 	                                // time (small), so no borrow contract.
+	image: Maybe(Image), // per-instance image swap; wins over
+	                     // Style.image, and Maybe(NO_IMAGE) clears
+	                     // the base image for this instance (§3.25)
+	static_values: bool, // the presented values above (text, spans,
+	                     // image) never change for this instance's
+	                     // lifetime; the engine skips their change
+	                     // detection (§5 stamps). Debug builds still
+	                     // compute and assert. Style writes, state
+	                     // and geometry detection are unaffected —
+	                     // the promise covers presented values only.
 	disabled: bool,
 	anchored: bool, // an overlay child (§3.20): removed from flow
 	                // in any container — no flow slot, no waterfill,
@@ -376,9 +419,19 @@ With :: struct {
 	variant:  Unit,          // persistent per-instance overlay (e.g. selected)
 	anchor:   Maybe([2]f32), // overlay positioning hint
 
-	label: Maybe(string), // reserved seam for accessibility: accessible name,
-	                      // copied like text. Roles/descriptions extend With
-	                      // later without breaking existing call sites.
+	label: Maybe(string), // accessibility: accessible name, copied
+	                      // like text (§3.9). When unset, the mirror
+	                      // falls back to the node's text.
+
+	// Accessibility semantics (§3.9, TODO #23): role, description,
+	// value, and state flags, declared per instance like the rest
+	// of With. A node with none of these set (role .None, no
+	// label/description/value/flags) has no semantics and does
+	// not appear in the mirror.
+	role:        A11y_Role, // .None = unset
+	description: Maybe(string), // accessible description, copied like text
+	value:       A11y_Value, // value for value-bearing roles; text copied like text
+	a11y_flags: A11y_Flags, // Checked/Selected/Expanded/ReadOnly/Required/Multiline
 
 	user: rawptr,
 }
@@ -578,6 +631,9 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	case .Smooth_Ms: s.smooth_ms = must(v, u16)
 	case .Overscroll: s.overscroll = must(v, bool)
 	case .Overscroll_Px: s.overscroll_px = must(v, u16)
+	case .Image:       s.image       = must(v, Image)
+	case .Image_Fit:   s.image_fit   = must(v, Image_Fit)
+	case .Image_Interp: s.image_interp = must(v, Image_Interp)
 	}
 }
 
@@ -632,9 +688,26 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 	}
 }
 
+// set is a no-op on an equal value, like propagate (skips equal fields)
+// and edit (diffs before writing): a blind write used to bump the
+// generation and damage every frame, which is how a per-frame write of
+// an unchanged value kept an app framing at vsync forever — a footgun
+// no app author can see from their side. The comparison runs BEFORE
+// any clone, so Text / Text_Spans never delete + re-clone on a no-op.
+// One exception, kept deliberate: a field with a glide in flight is
+// NOT a no-op even when the value equals the live (mid-glide) value —
+// the explicit write's job there is to cancel the glide, and skipping
+// it would let the glide carry the value away afterwards.
 set_any :: proc(u: Unit, f: Field, v: any) {
-	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
 	rec := &store.units[int(u)]
+	if !field_gliding(u, f) {
+		tmp: Style
+		style_set_any(&tmp, f, v)
+		if field_equal(&rec.style, &tmp, f) {
+			return
+		}
+	}
+	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
 	#partial switch f {
 	case .Text:
 		store_text(&rec.style.text, must(v, string))
@@ -690,6 +763,9 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_opt(&s.smooth_ms, decl.smooth_ms)
 	apply_opt(&s.overscroll, decl.overscroll)
 	apply_opt(&s.overscroll_px, decl.overscroll_px)
+	apply_opt(&s.image, decl.image)
+	apply_opt(&s.image_fit, decl.image_fit)
+	apply_opt(&s.image_interp, decl.image_interp)
 
 	rec := &store.units[int(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
@@ -1022,6 +1098,9 @@ frame_end :: proc() -> Frame_Result {
 	// Debug snapshot (TODO #18): after the commit, before the
 	// journal settles — a no-op unless built with NIELLO_DEBUG.
 	debug_snapshot_build()
+	// Accessibility mirror (§3.9, TODO #23): same position, but
+	// UNGATED — screen readers are prod behavior.
+	a11y_mirror_build()
 	journal_consume()
 	update_animation_wake()
 	// Debug channel transitions (TODO #18): a highlight or tint
@@ -1140,6 +1219,72 @@ pressed :: proc(i: Instance) -> bool {
 // exactly one declare: the one after the release.
 clicked :: proc(i: Instance) -> bool {
 	return chain_contains(g.clicked_chain[:], i)
+}
+
+// ============ drag queries (§3.28) ============
+// A left press whose displacement from the grab point crosses
+// DRAG_THRESHOLD (4 DIP) becomes a drag on the same press capture.
+// The drag belongs to the press target and bubbles like the other
+// queries; an ancestor claims or disclaims a descendant's drag by
+// subtraction (dragging(header) && !dragging(close_btn)). Drag and
+// click are orthogonal: a drag's release completes the drag, and the
+// click is evaluated independently — press, drag off, drag back,
+// release over the target clicks. Capture loss — focus loss,
+// cursor departure, the target leaving the tree — cancels it.
+
+// dragging reports a drag is active on the instance (or a descendant).
+dragging :: proc(i: Instance) -> bool {
+	return g.drag_active && chain_contains(g.press_chains[.Left][:], i)
+}
+
+// drag_started reports the drag crossed the threshold in this frame's
+// dispatch. True for exactly one declare.
+drag_started :: proc(i: Instance) -> bool {
+	return g.drag_started_flag && dragging(i)
+}
+
+// drag_ended reports the drag on the instance (or a descendant) ended
+// in this frame's dispatch. True for exactly one declare.
+drag_ended :: proc(i: Instance) -> bool {
+	return chain_contains(g.drag_ended_chain[:], i)
+}
+
+// drag_completed distinguishes how the drag ended: released (true)
+// vs cancelled by capture loss (false). Meaningful only with
+// drag_ended.
+drag_completed :: proc(i: Instance) -> bool {
+	return g.drag_ended_completed && drag_ended(i)
+}
+
+// drag_delta is the pointer's movement in the last dispatch, window
+// DIP — zero unless a drag is active or just ended.
+drag_delta :: proc() -> Vec2 {
+	if g.drag_active || g.drag_ended_id != 0 {
+		return g.drag_delta_v
+	}
+	return Vec2{}
+}
+
+// drag_total is the pointer's displacement from the grab point —
+// live while dragging; on the drag_ended declare, the final total.
+drag_total :: proc() -> Vec2 {
+	if g.drag_active {
+		return g.drag_total_v
+	}
+	if g.drag_ended_id != 0 {
+		return g.drag_ended_total
+	}
+	return Vec2{}
+}
+
+// drag_pos is the pointer position relative to the instance's
+// committed rect origin — the slider's raw material. {0,0} when the
+// instance has no committed rect.
+drag_pos :: proc(i: Instance) -> Vec2 {
+	if r, ok := rect(i); ok {
+		return g.pointer_pos - r.pos
+	}
+	return Vec2{}
 }
 
 // hover_duration is how long the cursor has been inside i's subtree, in
@@ -1330,10 +1475,26 @@ wake_pending :: proc(ctx: ^Context) -> bool {
 	return sync.atomic_load(&ctx.wake_requested)
 }
 
+// wake_in is the app-facing timer: it asks for another frame of the
+// bound context roughly ms from now, in engine time, by registering
+// a deadline frame_end folds into next_wake_ms (the earliest pending
+// deadline wins). Call it during declare; re-arm it every frame
+// while the condition holds — a seek refresh while playing, a
+// debounce quiet window — and stop calling it when the condition
+// ends: a due deadline fires with the frame that runs and is gone,
+// so an idle app registers nothing and the host blocks on OS
+// events. Relative-only by design: there is no public clock, and a
+// timer that needs to know WHICH expiry fired carries that as an
+// app-level message (the one-inbox pattern, Async_Inbox_Design.md).
+wake_in :: proc(ms: u32) {
+	schedule_wake_in(ms)
+}
+
 // schedule_wake_in registers an engine deadline ms from now, in engine
 // time; frame_end reports the nearest pending deadline as
 // next_wake_ms. Engine subsystems register here — tweens, transients,
-// hover-delay thresholds (§8). Not app-facing API: apps use context_wake(ctx).
+// hover-delay thresholds (§8). wake_in above is the same registry,
+// app-facing.
 // Until those subsystems land, the registry stays empty in a static
 // UI and next_wake_ms is max(u32).
 schedule_wake_in :: proc(ms: u32) {

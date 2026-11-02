@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.3)
-project(nui_render CXX)
+project(nui_native CXX)
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,11 +25,23 @@ set(NIELLO_SKIA_OUT "Release" CACHE STRING "Skia GN out dir name")
 # The NielloUI native backend: a static library exposing the nui_* C API
 # (see nui.h). SDL appears only as a borrowed window handle; the event loop
 # and window lifecycle live on the Odin side.
-add_library(nui_render STATIC
+add_library(nui_native STATIC
         nui.cpp
         nui.h
         util.cpp
         util.h)
+
+# AT-SPI accessibility export (TODO #23 M2): the hand-rolled D-Bus
+# wire client + exporter. Linux only — the D-Bus transport is a Unix
+# socket and the bus protocols are Linux-desktop concepts. The Odin
+# side guards its calls with `when ODIN_OS == .Linux`, so other
+# platforms link clean without these objects.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(nui_native PRIVATE
+        dbus.cpp
+        dbus.h
+        atspi.cpp)
+endif()
 
 find_package(Freetype REQUIRED)
 find_package(Fontconfig REQUIRED)
@@ -38,7 +50,7 @@ find_package(Vulkan REQUIRED)
 # NOTE: no SDL3 here. The C++ backend takes platform window handles from the
 # Odin side (UiNativeHandles); SDL lives entirely in Odin.
 
-target_include_directories(nui_render PRIVATE
+target_include_directories(nui_native PRIVATE
         ${SKIA_DIR}
         ${SKIA_DIR}/include
         ${SKIA_DIR}/out/${NIELLO_SKIA_OUT}/gen
@@ -50,7 +62,7 @@ target_link_directories(nui_render PRIVATE
         ${SKIA_DIR}/out/${NIELLO_SKIA_OUT}
 )
 
-target_link_libraries(nui_render PRIVATE
+target_link_libraries(nui_native PRIVATE
         -Wl,--start-group
         skia
         dawn_combined

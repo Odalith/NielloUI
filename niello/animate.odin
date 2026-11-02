@@ -151,7 +151,7 @@ lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
 	case .Text, .Font, .Font_Weight, .Font_Slant, .Text_Spans,
 	     .Text_Wrap, .Whitespace, .Ellipsis, .Layout, .Align, .Scroll, .Overflow,
 	     .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
-	     .Overscroll, .Overscroll_Px:
+	     .Overscroll, .Overscroll_Px, .Image, .Image_Fit, .Image_Interp:
 		copy_field(dst, b, f)
 	}
 }
@@ -201,6 +201,9 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 	case .Smooth_Ms: return a.smooth_ms == b.smooth_ms
 	case .Overscroll: return a.overscroll == b.overscroll
 	case .Overscroll_Px: return a.overscroll_px == b.overscroll_px
+	case .Image:       return a.image == b.image
+	case .Image_Fit:   return a.image_fit == b.image_fit
+	case .Image_Interp: return a.image_interp == b.image_interp
 	}
 	return true
 }

@@ -19,7 +19,15 @@ Frame_Node :: struct {
 	                              // copied, so no borrow contract
 	spans_hash:     u64,    // hash of spans; 0 when nil. The text cache keys
 	                        // on this alongside the font tuple.
+	digest:         u64,    // §5 stamp: hash of the per-instance
+	                        // presented content as resolved here —
+	                        // (text_hash, spans_hash, image). Pass F
+	                        // compares it against the committed record;
+	                        // everything style-side is covered by the
+	                        // unit generation instead.
 	has_text:        bool,
+	image:           Image, // resolved at declare: With.image wins
+	                        // over the unit's style image (§3.25)
 	focusable:       bool, // resolved at declare: With.focusable wins
 	                       // over the unit's Style_Decl.focusable
 	anchored:        bool, // With.anchored, resolved at declare (§3.20)
@@ -134,6 +142,10 @@ declare_as :: proc(
 	id := identity_of(parent_id, unit, k)
 
 	text := resolve_text(with, style_of(unit))
+	img := style_of(unit).image
+	if v, ok := with.image.?; ok {
+		img = v
+	}
 	if _, ok := with.text.?; ok {
 		// The documented contract (§2 strings): With.text is COPIED
 		// into the frame arena at declare time. The caller's buffer
@@ -143,6 +155,23 @@ declare_as :: proc(
 		// (This copy was designed but never implemented until a
 		// demo's rows all rendered the buffer's final contents.)
 		text = copy_frame_text(text)
+	}
+	// Accessibility strings (§3.9) get the same treatment as text:
+	// copied into the frame arena at declare time, so the stored
+	// With borrows arena memory, never caller scratch. The mirror
+	// (a11y.odin) copies them again into owned storage at frame_end,
+	// since it outlives the frame arena. Only nodes that declare
+	// semantics pay these copies. (Params are immutable, so the
+	// shadow below is what the appended Frame_Node stores.)
+	with := with
+	if lb, ok := with.label.?; ok {
+		with.label = copy_frame_text(lb)
+	}
+	if d, ok := with.description.?; ok {
+		with.description = copy_frame_text(d)
+	}
+	if len(with.value.text) > 0 {
+		with.value.text = copy_frame_text(with.value.text)
 	}
 	has_text := len(text) > 0
 	text_hash := u64(0)
@@ -155,6 +184,13 @@ declare_as :: proc(
 		text_hash = str_hash(text)
 		spans, spans_hash = resolve_spans(with, style_of(unit))
 	}
+	// The presented-content digest (§5 stamps): three folds over
+	// values already computed above — the text and span hashes the
+	// text cache needed anyway, plus the resolved image handle.
+	digest := u64(14695981039346656037)
+	digest = hash_mix(digest, text_hash)
+	digest = hash_mix(digest, spans_hash)
+	digest = hash_mix(digest, u64(img))
 	append(
 		&g.nodes,
 		Frame_Node{
@@ -164,9 +200,11 @@ declare_as :: proc(
 			with = with,
 			text = text,
 			text_hash = text_hash,
+			digest = digest,
 			spans = spans,
 			spans_hash = spans_hash,
 			has_text = has_text,
+			image = img,
 			focusable = with.focusable.? or_else store.units[int(unit)].focusable,
 			anchored = with.anchored,
 			is_container = is_container,

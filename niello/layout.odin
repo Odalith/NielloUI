@@ -99,9 +99,11 @@ resolve_popup_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 // popup_position resolves a popup root's top-left (§3.19): the
 // anchor's last committed rect (pass F commits after positioning,
 // so g.instances still holds it) plus this frame's resolved size.
-// The placement side flips when the content would leave the
-// viewport there and fits on the opposite side; the cross axis
-// clamps into the viewport. Nothing paints outside the viewport.
+// Anchored placements flip when the content would leave the
+// viewport there and fit on the opposite side; the cross axis
+// clamps into the viewport. .At and .Center have no anchor to flip
+// around: .At clamps the point into the viewport, .Center centers.
+// Nothing paints outside the viewport.
 popup_position :: proc(r: int) -> Vec2 {
 	nd := &g.nodes[r]
 	size := g.lay[r].size
@@ -118,16 +120,16 @@ popup_position :: proc(r: int) -> Vec2 {
 		)
 	}
 	if nd.popup_place == .At {
-		p := nd.popup_at
-		// Reflect around the point on any axis that overflows,
-		// like a context menu opening up-left at the corner.
-		if p.x + size.x > vp.x {
-			p.x = nd.popup_at.x - size.x
-		}
-		if p.y + size.y > vp.y {
-			p.y = nd.popup_at.y - size.y
-		}
-		return clamp_to_view(p, size, vp)
+		// The point is app-owned state (a dragged dialog's
+		// position, a menu's cursor point): place the top-left
+		// at it and clamp into the viewport. Reflecting around
+		// the point — the old behavior — broke app-owned
+		// positions: dragging a dialog to the right edge jumped
+		// it left by its full width when the far edge crossed
+		// the viewport, and back when it crossed back.
+		// Clamping pins at the edge instead, with no
+		// discontinuity.
+		return clamp_to_view(nd.popup_at, size, vp)
 	}
 	a_rec, ok := g.instances[nd.popup_anchor]
 	a := a_rec.rect
@@ -251,7 +253,18 @@ measure_text_all :: proc() {
 			// shrinkable it should have taken from. The X mirror of
 			// this is the ellipsis fold inside measure_text.
 			g.lay[i].min_c = Vec2{minw, uw.y}
-		} else if !nd.is_container {
+		}
+		if !nd.is_container && nd.image != NO_IMAGE {
+			// An image leaf's intrinsic is the image's size; with
+			// text present the two overlap-paint (image behind
+			// text), so the content is the elementwise max. The
+			// image scales freely — it adds no min_c floor.
+			if sz, ok := image_intrinsic(nd.image); ok {
+				g.lay[i].content.x = max(g.lay[i].content.x, sz.x)
+				g.lay[i].content.y = max(g.lay[i].content.y, sz.y)
+			}
+		}
+		if !nd.has_text && !nd.is_container {
 			// Plain leaf: FIXED axes contribute their value as content so FIT
 			// parents can accumulate them; everything else contributes 0.
 			for a in 0 ..< 2 {
@@ -619,55 +632,6 @@ wrap_text :: proc() {
 // ---------------------------------------------------------------------------
 // Pass F: positioning, instance rects, damage, overflow
 
-// content_hash fingerprints everything about a node that reaches the draw
-// list: the resolved style's value fields plus the declare-time text and
-// span hashes. The string/slice fields are covered by those hashes rather
-// than by their headers. Cursor, Scroll_Chain, the Smooth_* pair and Overscroll_* are
-// deliberately excluded: none is visual (cursor is host state; the rest
-// steer dispatch and glides), so changing them must not repaint.
-@(private)
-content_hash :: proc(i: int) -> u64 {
-	s := node_style(i)
-	nd := &g.nodes[i]
-	h := u64(14695981039346656037)
-	mixc :: proc(h: u64, c: Color) -> u64 {
-		return hash_mix(h, u64(c[0]) | u64(c[1]) << 8 | u64(c[2]) << 16 | u64(c[3]) << 24)
-	}
-	h = mixc(h, s.color)
-	h = mixc(h, s.font_color)
-	h = mixc(h, s.border_color)
-	h = hash_mix(h, u64(s.font))
-	h = hash_mix(h, u64(transmute(u32)(s.font_size)))
-	h = hash_mix(h, u64(s.font_weight))
-	h = hash_mix(h, u64(s.font_slant))
-	h = hash_mix(h, nd.text_hash)
-	h = hash_mix(h, nd.spans_hash)
-	for v in s.padding {
-		h = hash_mix(h, u64(v))
-	}
-	h = hash_mix(h, u64(s.gap))
-	h = hash_mix(h, u64(s.border_width))
-	h = hash_mix(h, u64(s.corner_radius))
-	h = hash_mix(h, u64(s.opacity))
-	h = hash_mix(h, u64(s.layout))
-	for a in 0 ..< 2 {
-		sz := s.size[a]
-		h = hash_mix(h, u64(sz.kind))
-		h = hash_mix(h, u64(transmute(u32)(sz.value)))
-		h = hash_mix(h, u64(transmute(u32)(sz.min)))
-		h = hash_mix(h, u64(transmute(u32)(sz.max)))
-		h = hash_mix(h, u64(s.align[a]))
-	}
-	h = hash_mix(h, u64(s.scroll))
-	h = hash_mix(h, u64(s.wrap))
-	h = hash_mix(h, u64(s.ellipsis ? 1 : 0))
-	h = hash_mix(h, u64(s.overflow))
-	h = mixc(h, s.overlay_color)
-	h = mixc(h, s.overlay_border_color)
-	h = hash_mix(h, u64(s.overlay_border_width))
-	return h
-}
-
 rect_union :: proc(a, b: Rect) -> Rect {
 	min_p := Vec2{min(a.pos.x, b.pos.x), min(a.pos.y, b.pos.y)}
 	max_a := Vec2{a.pos.x + a.size.x, a.pos.y + a.size.y}
@@ -838,28 +802,51 @@ position_and_damage :: proc() {
 	// Commit rects + damage: old ∪ new, expanded by overflow (children painting
 	// outside their bounds must be covered). §5's rule is "changed → new
 	// rect": changed means the committed CONTENT changed, not just the
-	// rect — a same-size text edit or a set() restyle damages too, via the
-	// per-instance content hash.
+	// rect — a same-size text edit or a set() restyle damages too. The
+	// change model is the stamps (§5): the unit's visual generation
+	// (exact — every style write funnels through touch), the node's
+	// presented-content digest from declare, and the interaction
+	// state stamp from resolve_styles. A live transient damages
+	// unconditionally: its blend factor moves every frame without
+	// any stamp moving.
 	if g.instances == nil {
 		g.instances = make(map[Instance]Inst_Rec)
 	}
 	for i in 0 ..< n {
-		id := g.nodes[i].identity
+		nd := &g.nodes[i]
+		id := nd.identity
 		new := Rect{g.lay[i].pos, g.lay[i].size}
-		h := content_hash(i)
+		ugen := store.units[int(nd.unit)].gen
+		stamp := i < len(g.state_stamp) ? g.state_stamp[i] : 0
+		_, tr_now := g.transients[id]
 		old, ok := g.instances[id] // the one map op per node
+		when NIELLO_DEBUG {
+			if ok && nd.with.static_values {
+				assert(old.digest == nd.digest,
+					"niello: With.static_values promise broken — a static instance's presented values changed")
+			}
+		}
 		if !ok {
 			r := new
 			r.size.x += g.lay[i].overfl.x
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
-		} else if old.rect != new || old.hash != h {
+		} else if old.rect != new || old.gen != ugen || old.stamp != stamp ||
+		          tr_now || (!nd.with.static_values && old.digest != nd.digest) {
 			r := rect_union(old.rect, new)
 			r.size.x += g.lay[i].overfl.x
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
 		}
-		g.instances[id] = Inst_Rec{rect = new, hash = h, unit = g.nodes[i].unit}
+		// A static_values instance freezes its baseline digest: the
+		// promise is for the instance's lifetime, so if detection is
+		// ever re-armed (the flag dropped), drift since birth is
+		// what it compares against.
+		committed_digest := nd.digest
+		if ok && nd.with.static_values {
+			committed_digest = old.digest
+		}
+		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit}
 	}
 	// Recycle: an instance that was committed before but not declared
 	// this frame is gone, and its last rect is damage — otherwise its
