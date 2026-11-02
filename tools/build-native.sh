@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds dist/niello-native-linux-x64.zip — the fat prebuilt archive
-# (nui_render + Skia + Dawn + skcms + wuffs + SkShaper) plus include/nui.h, in
+# (nui_render + Skia + Dawn + skcms + wuffs + SkShaper + HarfBuzz) plus include/nui.h, in
 # the third_party/native layout (see tools/build-native.md, which
 # this script follows step for step).
 #
@@ -50,6 +50,7 @@ bin/gn gen "$OUT" --args='
   skia_use_system_libpng=false
   skia_use_system_libwebp=false
   skia_use_system_zlib=false
+  skia_use_system_harfbuzz=false
   cc="clang"
   cxx="clang++"
 '
@@ -62,7 +63,7 @@ ninja -C "$OUT" skia modules/skshaper
 #    callbacks link-fail is worse than no release (§3). The check
 #    is the archive itself: if the modules/skshaper target is not
 #    in the graph at all, the ninja step above fails first with
-#    "unknown target", which means a GN condition (harfbuzz/icu)
+#    "unknown target", which means a GN condition (harfbuzz)
 #    excluded it — see §3.
 if [ ! -f "$SKIA_DIR/$OUT/libskshaper.a" ]; then
 	echo "build-native: libskshaper.a not built — see build-native.md §3" >&2
@@ -80,7 +81,7 @@ cmake --build "$WORK/nui" -j
 MRI="$WORK/merge.mri"
 {
 	echo "CREATE $WORK/libniello_render.a"
-	for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a; do
+	for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a libharfbuzz.a; do
 		if [ ! -f "$SKIA_DIR/$OUT/$a" ]; then
 			echo "build-native: expected archive missing: $OUT/$a" >&2
 			exit 1

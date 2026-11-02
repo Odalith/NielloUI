@@ -108,13 +108,16 @@ skia_use_system_libjpeg_turbo=false
 skia_use_system_libpng=false
 skia_use_system_libwebp=false
 skia_use_system_zlib=false
+skia_use_system_harfbuzz=false
 ```
 
-Bundled-flag spellings are SkiaSharp's at m156; confirm with
-`gn args --list` against the pinned checkout at CI-write time.
-HarfBuzz/ICU stay at defaults (on) — bundled from DEPS under F1(b),
-which is what SkShaper needs; their sourcing-flag spellings, if
-any, are confirmed at the same check.
+Bundled-flag spellings were SkiaSharp's at m156; the 2026-11-01
+linux-x64 build (rev f3bd16e6) proves them, with one correction from
+the consume test: HarfBuzz needs `skia_use_system_harfbuzz=false`
+explicitly, or the fat archive carries 54 undefined `hb_*` references
+and no HarfBuzz objects (SkShaper's harfbuzz backend does not link).
+ICU needs no flag: the same consume test shows every `u_*` reference
+resolves inside the archive at the current defaults.
 
 **linux-x64** — deliberately diverges from the §0 tested config
 (F1b ruling):
@@ -172,8 +175,8 @@ ls out/niello-<platform>/libskshaper.a
 ```
 
 If the `modules/skshaper` target is unknown to ninja, a GN condition
-excluded it — check the effective `skia_use_harfbuzz` / `skia_use_icu`
-values (`bin/gn args out/niello-<platform> --list`) and the module's
+excluded it — check the effective `skia_use_harfbuzz` /
+`skia_use_system_harfbuzz` values (`bin/gn args out/niello-<platform> --list`) and the module's
 `BUILD.gn` / `skia_enable_skshaper` rather than guessing at flags. Do
 not ship a release whose `nui_measure_word` would link-fail.
 
@@ -215,7 +218,7 @@ this shape; the release variant passes `-DNIELLO_SKIA_OUT=niello-<platform>`
 
 ## 6. Merge into one fat archive
 
-Merge `libskia.a` + `libdawn_combined.a` + `libskshaper.a` (+ any sibling Dawn archives from
+Merge `libskia.a` + `libdawn_combined.a` + `libskshaper.a` + `libharfbuzz.a` (+ any sibling Dawn archives from
 §4) + `libnui_render.a` into a single archive so downstream links exactly
 one native lib plus system libs (SDL3, Vulkan, Freetype, Fontconfig,
 Threads).
@@ -228,6 +231,7 @@ Threads).
   ADDLIB out/niello-linux-x64/libskia.a
   ADDLIB out/niello-linux-x64/libdawn_combined.a
   ADDLIB out/niello-linux-x64/libskshaper.a
+  ADDLIB out/niello-linux-x64/libharfbuzz.a
   ADDLIB <nui_render build dir>/libnui_render.a
   SAVE
   END
@@ -242,6 +246,7 @@ Threads).
     out/niello-macos-arm64/libskia.a \
     out/niello-macos-arm64/libdawn_combined.a \
     out/niello-macos-arm64/libskshaper.a \
+    out/niello-macos-arm64/libharfbuzz.a \
     <nui_render build dir>/libnui_render.a
   ```
 
@@ -251,6 +256,7 @@ Threads).
     out\niello-windows-x64\skia.lib ^
     out\niello-windows-x64\dawn_combined.lib ^
     out\niello-windows-x64\skshaper.lib ^
+    out\niello-windows-x64\harfbuzz.lib ^
     <nui_render build dir>\nui_render.lib
   ```
 
