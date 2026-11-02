@@ -24,26 +24,57 @@ import niello "../"
 #assert(size_of(Native_Handles) == size_of(rawptr) * 8, "Native_Handles must match UiNativeHandles")
 #assert(size_of(A11y_FFI_Node) == 80, "A11y_FFI_Node must match UiA11yNode in ../../native/nui.h (80 bytes)")
 
-// System libraries the native backend needs. The static libs
-// (nui_native + Skia + Dawn) come from third_party/native/<platform>/
-// — see tools/fetch-native.sh — and are found via
-// -extra-linker-flags:"-L<path> --start-group ..." until TODO #11's
-// merged archive lets this import name the one file by path.
-// The codec libs (z/png/jpeg/webp/webpdemux) are here because
-// Skia's codec modules reference them; they stayed latent until
-// image decode (#13) first pulled the codec objects into a link.
-foreign import native {
-	"system:nui_native",
-	"system:SDL3",
-	"system:vulkan",
-	"system:freetype",
-	"system:fontconfig",
-	"system:stdc++",
-	"system:z",
-	"system:png",
-	"system:jpeg",
-	"system:webp",
-	"system:webpdemux",
+// The native backend ships as ONE fat archive per platform
+// (nui_native + Skia + Dawn, merged per tools/build-native.md §6),
+// fetched by tools/fetch-native.sh into third_party/native/<platform>/.
+// Each platform names its archive by path relative to THIS file, so a
+// consumer links with a plain `odin run` — no -L flag, no --start-group,
+// no symlink. Foreign imports are file-scoped on this Odin vintage, so
+// the import must live in this file, next to the `foreign native` block
+// below; the platform choice is the `when` chain here, not separate
+// files. The system libs are the ones each platform needs beyond the
+// archive. Linux keeps the proven set — the codec libs (z/png/jpeg/
+// webp/webpdemux) are here because Skia's codec modules reference
+// them; they stayed latent until image decode (#13) first pulled the
+// codec objects into a link. macOS links the C++ runtime as libc++
+// plus the Metal frameworks the archive references (mirroring
+// native/CMakeLists.txt); Windows links the D3D12/DirectWrite system
+// libs the same way. The macOS/Windows sets are unproven until the
+// first link on those platforms.
+when ODIN_OS == .Linux {
+	foreign import native {
+		"../../third_party/native/linux-x64/lib/libniello_render.a",
+		"system:SDL3",
+		"system:vulkan",
+		"system:freetype",
+		"system:fontconfig",
+		"system:stdc++",
+		"system:z",
+		"system:png",
+		"system:jpeg",
+		"system:webp",
+		"system:webpdemux",
+	}
+} else when ODIN_OS == .Darwin {
+	foreign import native {
+		"../../third_party/native/macos-arm64/lib/libniello_render.a",
+		"system:SDL3",
+		"system:c++",
+		"framework:Metal",
+		"framework:Foundation",
+		"framework:QuartzCore",
+		"framework:CoreGraphics",
+		"framework:IOKit",
+	}
+} else when ODIN_OS == .Windows {
+	foreign import native {
+		"../../third_party/native/windows-x64/lib/niello_render.lib",
+		"system:SDL3",
+		"system:d3d12",
+		"system:dxgi",
+		"system:dxguid",
+		"system:dwrite",
+	}
 }
 
 // Window is the opaque per-window backend handle (nui_window* in C).

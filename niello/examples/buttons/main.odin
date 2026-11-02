@@ -12,7 +12,7 @@
 // Build (needs the native backend for your platform — see
 // third_party/native/README.md):
 //
-//	odin run niello/examples/buttons -extra-linker-flags:"-L..."
+//	odin run niello/examples/buttons
 package main
 
 import "core:fmt"

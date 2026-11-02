@@ -6,7 +6,7 @@
 // Build (needs the native backend for your platform — see
 // third_party/native/README.md):
 //
-//	odin run niello/examples/hello -extra-linker-flags:"-L..."
+//	odin run niello/examples/hello
 package main
 
 import niello "../.."

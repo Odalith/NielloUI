@@ -12,7 +12,7 @@
 // Build (needs the native backend for your platform — see
 // third_party/native/README.md):
 //
-//	odin run niello/examples/scroll -extra-linker-flags:"-L..."
+//	odin run niello/examples/scroll
 package main
 
 import "core:fmt"

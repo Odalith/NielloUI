@@ -9,7 +9,7 @@
 // Build (needs the native backend for your platform — see
 // third_party/native/README.md):
 //
-//	odin run niello/examples/images -extra-linker-flags:"-L..."
+//	odin run niello/examples/images
 package main
 
 import niello "../.."

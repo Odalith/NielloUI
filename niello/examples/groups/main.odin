@@ -19,7 +19,7 @@
 // Build (needs the native backend for your platform — see
 // third_party/native/README.md):
 //
-//	odin run niello/examples/groups -extra-linker-flags:"-L..."
+//	odin run niello/examples/groups
 package main
 
 import "core:fmt"

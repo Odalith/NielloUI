@@ -15,7 +15,7 @@
 // Build (needs the native backend for your platform — see
 // third_party/native/README.md, and rebuild it after pulling M2):
 //
-//	odin run niello/examples/a11y -extra-linker-flags:"-L..."
+//	odin run niello/examples/a11y
 package main
 
 import "core:fmt"
