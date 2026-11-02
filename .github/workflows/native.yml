@@ -263,9 +263,26 @@ jobs:
           pip3 install --break-system-packages --upgrade cmake
           cmake --version
 
+      - name: install cmake 4.3 (windows)
+        if: matrix.plat == 'windows-x64'
+        shell: bash
+        run: |
+          # CMakeLists requires CMake 4.3; the windows-2022 image ships
+          # 3.31.6. Same pip route as the Linux step; the Scripts dir
+          # goes on PATH for the later steps via GITHUB_PATH.
+          scripts="$(python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))")"
+          python3 -m pip install --upgrade "cmake>=4.3"
+          export PATH="$scripts:$PATH"
+          cmake --version
+          echo "$scripts" >> "$GITHUB_PATH"
+
       - name: build nui_native
         shell: bash
         run: |
+          # The Linux runner's default compiler is GCC 13, which has no
+          # C++26 support (CMakeLists sets CXX_STANDARD 26); the Skia
+          # build already uses clang, so configure with clang too.
+          if [ "${{ matrix.plat }}" = "linux-x64" ]; then export CC=clang CXX=clang++; fi
           cmake -S native -B build/nui \
             -DSKIA_DIR="$PWD/skia" \
             -DNIELLO_SKIA_OUT="${{ matrix.out }}" \
