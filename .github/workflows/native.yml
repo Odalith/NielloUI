@@ -371,7 +371,19 @@ jobs:
             echo "skia_rev: $(cat tools/skia-rev.txt)"
             echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "runner: ${{ matrix.runner }}"; } > stage/BUILD-INFO.txt
-          (cd stage && zip -qr "../niello-native-${{ matrix.plat }}.zip" .)
+          # No `zip` binary on the windows-2022 runner (Git Bash), and
+          # python3 is already a hard dependency of the sync/fetch
+          # steps, so build the archive with the stdlib zipfile module
+          # on all three platforms: one code path, same layout.
+          python3 - <<'PY'
+          import os, zipfile
+          out = "niello-native-${{ matrix.plat }}.zip"
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+              for root, dirs, files in os.walk("stage"):
+                  for f in sorted(files):
+                      p = os.path.join(root, f)
+                      z.write(p, os.path.relpath(p, "stage").replace(os.sep, "/"))
+          PY
 
       - name: upload zip
         uses: actions/upload-artifact@v4
