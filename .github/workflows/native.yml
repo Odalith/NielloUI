@@ -233,12 +233,47 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          # Retry once on failure: git-sync-deps resumes over
-          # already-cloned externals, so a second pass completes
-          # whatever the first pass's transport errors dropped.
+          # Fallback on failure (container-only; run 3 showed a
+          # multithreaded retry reproduces the same failure):
+          # git-sync-deps starts one thread per dep with no throttle,
+          # so a serial pass over the same DEPS entries removes
+          # concurrency from the equation and names each repo as it
+          # goes. Same git commands as git-sync-deps itself.
           if ! (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps); then
-            sleep 30
-            (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+            echo "git-sync-deps failed; serial fallback over DEPS"
+            python3 - <<'PY'
+          import os, subprocess
+          ns = {}
+          exec("def Var(x): return vars[x]\n" + open("skia/DEPS").read(), ns)
+          for directory in sorted(ns["deps"]):
+              v = ns["deps"][directory]
+              if not isinstance(v, str):
+                  continue
+              repo, sha = v.split("@", 1)
+              target = os.path.join("skia", directory)
+              print(f"== {directory} {repo} {sha}", flush=True)
+              if os.path.isdir(target):
+                  toplevel = subprocess.run(
+                      ["git", "rev-parse", "--show-toplevel"], cwd=target,
+                      capture_output=True, text=True).stdout.strip()
+                  ok = (os.path.realpath(toplevel) == os.path.realpath(target)
+                        if toplevel else False)
+                  if not ok:
+                      subprocess.check_call(["rm", "-rf", target])
+              if not os.path.isdir(target):
+                  subprocess.check_call(["git", "clone", "--quiet", "--depth=1",
+                                         "--no-checkout", repo, target])
+              r = subprocess.call(["git", "checkout", "--quiet", sha],
+                                  cwd=target, stderr=subprocess.DEVNULL)
+              if r != 0:
+                  subprocess.check_call(["git", "remote", "set-url", "origin", repo],
+                                        cwd=target)
+                  subprocess.check_call(["git", "fetch", "--quiet", "--depth=1",
+                                         repo, sha], cwd=target)
+                  subprocess.check_call(["git", "checkout", "--quiet", sha],
+                                        cwd=target)
+          print("serial fallback complete", flush=True)
+          PY
           fi
           for d in dawn harfbuzz icu; do
             test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
@@ -502,12 +537,47 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          # Retry once on failure: git-sync-deps resumes over
-          # already-cloned externals, so a second pass completes
-          # whatever the first pass's transport errors dropped.
+          # Fallback on failure (container-only; run 3 showed a
+          # multithreaded retry reproduces the same failure):
+          # git-sync-deps starts one thread per dep with no throttle,
+          # so a serial pass over the same DEPS entries removes
+          # concurrency from the equation and names each repo as it
+          # goes. Same git commands as git-sync-deps itself.
           if ! (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps); then
-            sleep 30
-            (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+            echo "git-sync-deps failed; serial fallback over DEPS"
+            python3 - <<'PY'
+          import os, subprocess
+          ns = {}
+          exec("def Var(x): return vars[x]\n" + open("skia/DEPS").read(), ns)
+          for directory in sorted(ns["deps"]):
+              v = ns["deps"][directory]
+              if not isinstance(v, str):
+                  continue
+              repo, sha = v.split("@", 1)
+              target = os.path.join("skia", directory)
+              print(f"== {directory} {repo} {sha}", flush=True)
+              if os.path.isdir(target):
+                  toplevel = subprocess.run(
+                      ["git", "rev-parse", "--show-toplevel"], cwd=target,
+                      capture_output=True, text=True).stdout.strip()
+                  ok = (os.path.realpath(toplevel) == os.path.realpath(target)
+                        if toplevel else False)
+                  if not ok:
+                      subprocess.check_call(["rm", "-rf", target])
+              if not os.path.isdir(target):
+                  subprocess.check_call(["git", "clone", "--quiet", "--depth=1",
+                                         "--no-checkout", repo, target])
+              r = subprocess.call(["git", "checkout", "--quiet", sha],
+                                  cwd=target, stderr=subprocess.DEVNULL)
+              if r != 0:
+                  subprocess.check_call(["git", "remote", "set-url", "origin", repo],
+                                        cwd=target)
+                  subprocess.check_call(["git", "fetch", "--quiet", "--depth=1",
+                                         repo, sha], cwd=target)
+                  subprocess.check_call(["git", "checkout", "--quiet", sha],
+                                        cwd=target)
+          print("serial fallback complete", flush=True)
+          PY
           fi
           for d in dawn harfbuzz icu; do
             test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
