@@ -202,6 +202,16 @@ jobs:
           update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
           update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
           clang --version
+          # Dawn's CMake sub-build (build_dawn.py, run during the ninja
+          # base build) needs `cmake` in PATH — run 5 died on
+          # "cmake not found in PATH" at libdawn_combined.a, the same
+          # omission class as run 1's SDL failure. Jammy apt cmake is
+          # 3.22, below Dawn's 3.30+ floor, so use the same pip route
+          # as pack-linux (no --break-system-packages: jammy pip
+          # predates PEP 668 and lacks the flag). Do NOT add apt
+          # `cmake` here.
+          python3 -m pip install --upgrade "cmake>=4.3"
+          cmake --version
           apt-get install -y -qq libx11-dev libx11-xcb-dev libfontconfig1-dev
 
       - name: read pinned skia rev
