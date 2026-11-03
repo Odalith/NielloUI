@@ -233,12 +233,16 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          # Fallback on failure (container-only; run 3 showed a
-          # multithreaded retry reproduces the same failure):
-          # git-sync-deps starts one thread per dep with no throttle,
-          # so a serial pass over the same DEPS entries removes
-          # concurrency from the equation and names each repo as it
-          # goes. Same git commands as git-sync-deps itself.
+          # Fallback on failure (container-only; runs 1-4):
+          # run 4's serial pass named the first failure (libavif) and
+          # killed the concurrency and HTTP/1.1 hypotheses: six DEPS
+          # mirrors advertise NO HEAD (libavif, libjxl, oboe,
+          # unicodetools, vello, webgpu-headers — exactly the six
+          # fatals in every run). `git clone` without --branch asks
+          # for HEAD; jammy git 2.34 dies on that, newer git clones
+          # empty and recovers via fetch — which is why the proven
+          # flow works on host runners and not here. The fallback
+          # below never asks for HEAD: init + fetch pinned sha.
           if ! (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps); then
             echo "git-sync-deps failed; serial fallback over DEPS"
             python3 - <<'PY'
@@ -261,17 +265,18 @@ jobs:
                   if not ok:
                       subprocess.check_call(["rm", "-rf", target])
               if not os.path.isdir(target):
-                  subprocess.check_call(["git", "clone", "--quiet", "--depth=1",
-                                         "--no-checkout", repo, target])
-              r = subprocess.call(["git", "checkout", "--quiet", sha],
-                                  cwd=target, stderr=subprocess.DEVNULL)
-              if r != 0:
-                  subprocess.check_call(["git", "remote", "set-url", "origin", repo],
-                                        cwd=target)
-                  subprocess.check_call(["git", "fetch", "--quiet", "--depth=1",
-                                         repo, sha], cwd=target)
-                  subprocess.check_call(["git", "checkout", "--quiet", sha],
-                                        cwd=target)
+                  subprocess.check_call(["git", "init", "--quiet", target])
+                  subprocess.check_call(["git", "-C", target, "remote", "add", "origin", repo])
+              else:
+                  # Partial checkout left by the failed git-sync-deps
+                  # pass: point origin at the DEPS repo (tolerate a
+                  # missing origin) before fetching the pinned sha.
+                  if subprocess.call(["git", "-C", target, "remote", "set-url", "origin", repo]) != 0:
+                      subprocess.check_call(["git", "-C", target, "remote", "add", "origin", repo])
+              # Fetch is deliberately NOT --quiet: if this fails, the
+              # server's reason is the next diagnosis.
+              subprocess.check_call(["git", "-C", target, "fetch", "--depth=1", "origin", sha])
+              subprocess.check_call(["git", "-C", target, "checkout", "--quiet", sha])
           print("serial fallback complete", flush=True)
           PY
           fi
@@ -537,12 +542,16 @@ jobs:
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          # Fallback on failure (container-only; run 3 showed a
-          # multithreaded retry reproduces the same failure):
-          # git-sync-deps starts one thread per dep with no throttle,
-          # so a serial pass over the same DEPS entries removes
-          # concurrency from the equation and names each repo as it
-          # goes. Same git commands as git-sync-deps itself.
+          # Fallback on failure (container-only; runs 1-4):
+          # run 4's serial pass named the first failure (libavif) and
+          # killed the concurrency and HTTP/1.1 hypotheses: six DEPS
+          # mirrors advertise NO HEAD (libavif, libjxl, oboe,
+          # unicodetools, vello, webgpu-headers — exactly the six
+          # fatals in every run). `git clone` without --branch asks
+          # for HEAD; jammy git 2.34 dies on that, newer git clones
+          # empty and recovers via fetch — which is why the proven
+          # flow works on host runners and not here. The fallback
+          # below never asks for HEAD: init + fetch pinned sha.
           if ! (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps); then
             echo "git-sync-deps failed; serial fallback over DEPS"
             python3 - <<'PY'
@@ -565,17 +574,18 @@ jobs:
                   if not ok:
                       subprocess.check_call(["rm", "-rf", target])
               if not os.path.isdir(target):
-                  subprocess.check_call(["git", "clone", "--quiet", "--depth=1",
-                                         "--no-checkout", repo, target])
-              r = subprocess.call(["git", "checkout", "--quiet", sha],
-                                  cwd=target, stderr=subprocess.DEVNULL)
-              if r != 0:
-                  subprocess.check_call(["git", "remote", "set-url", "origin", repo],
-                                        cwd=target)
-                  subprocess.check_call(["git", "fetch", "--quiet", "--depth=1",
-                                         repo, sha], cwd=target)
-                  subprocess.check_call(["git", "checkout", "--quiet", sha],
-                                        cwd=target)
+                  subprocess.check_call(["git", "init", "--quiet", target])
+                  subprocess.check_call(["git", "-C", target, "remote", "add", "origin", repo])
+              else:
+                  # Partial checkout left by the failed git-sync-deps
+                  # pass: point origin at the DEPS repo (tolerate a
+                  # missing origin) before fetching the pinned sha.
+                  if subprocess.call(["git", "-C", target, "remote", "set-url", "origin", repo]) != 0:
+                      subprocess.check_call(["git", "-C", target, "remote", "add", "origin", repo])
+              # Fetch is deliberately NOT --quiet: if this fails, the
+              # server's reason is the next diagnosis.
+              subprocess.check_call(["git", "-C", target, "fetch", "--depth=1", "origin", sha])
+              subprocess.check_call(["git", "-C", target, "checkout", "--quiet", sha])
           print("serial fallback complete", flush=True)
           PY
           fi
