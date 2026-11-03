@@ -26,6 +26,17 @@
 # headers no bare runner has; bundled ICU matches F1(b).
 # Merge commands from §6; zip layout from §7.
 
+# Linux floor (2026-11-03): the 24.04-built linux-x64 archive cannot
+# link on Ubuntu 22.04 (__isoc23_* / _M_replace_cold — glibc 2.38+ /
+# GCC 13-era libstdc++). The Linux platform now builds inside an
+# ubuntu:22.04 container (base-linux / pack-linux jobs below; the
+# linux-x64 matrix entries are gone). sdl3-linux builds the
+# bundled SDL3 the same way, as a separate artifact with no
+# `needs`. Base cache key is -v2: -v1
+# holds 24.04-built objects and must never restore here. Publish
+# still needs only `pack` in this phase (dispatch iteration, no
+# releases); add pack-linux to `needs` when a tag is cut.
+
 name: native-release
 
 on:
@@ -43,18 +54,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - plat: linux-x64
-            runner: ubuntu-24.04
-            out: niello-linux-x64
-            gn_args: >
-              is_official_build=true is_debug=false
-              skia_enable_graphite=true skia_enable_ganesh=false
-              skia_use_vulkan=true skia_use_dawn=true dawn_enable_vulkan=true
-              skia_use_webgpu=true skia_use_vma=true
-              skia_use_partition_alloc=false
-              skia_use_dng_sdk=false skia_use_piex=false
-              skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false
-              cc="clang" cxx="clang++"
           - plat: macos-arm64
             runner: macos-15
             out: niello-macos-arm64
@@ -152,17 +151,6 @@ jobs:
           # Bump the -v1 suffix when gn_args change: the key pins the Skia rev only.
           key: skia-base-${{ matrix.plat }}-${{ steps.rev.outputs.rev }}-v1
 
-      - name: install linux base deps
-        if: matrix.plat == 'linux-x64' && steps.base-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          # Dawn's CMake requires X11 headers (find_package(X11 REQUIRED)
-          # in src/dawn/native/CMakeLists.txt), Dawn's X11Functions also
-          # needs X11/Xlib-xcb.h, and Skia's FontConfig port needs
-          # fontconfig headers; the ubuntu runner has none of them.
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libx11-dev libx11-xcb-dev libfontconfig1-dev
-
       - name: build skia+dawn base
         if: steps.base-cache.outputs.cache-hit != 'true'
         shell: bash
@@ -186,6 +174,89 @@ jobs:
             test -f "out/${{ matrix.out }}/libskshaper.a" || { echo "libskshaper.a not built (recipe §3)" >&2; exit 1; }
           fi
 
+  # ---- tier 1 (jammy): Skia+Dawn base inside ubuntu:22.04 ----
+  base-linux:
+    name: base (linux-x64)
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install container toolchain
+        shell: bash
+        run: |
+          # §2 script, base-job dep set (X11 + fontconfig).
+          # Runs as root; no sudo in the container.
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl gnupg git python3 python3-pip \
+            pkg-config build-essential zip unzip
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
+            > /etc/apt/sources.list.d/llvm-toolchain-jammy-18.list
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends clang-18 lld-18
+          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+          update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+          clang --version
+          apt-get install -y -qq libx11-dev libx11-xcb-dev libfontconfig1-dev
+
+      - name: read pinned skia rev
+        id: rev
+        shell: bash
+        run: echo "rev=$(cat tools/skia-rev.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: restore skia checkout cache
+        id: src-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            skia
+            !skia/out
+          key: skia-src-${{ steps.rev.outputs.rev }}
+
+      - name: sync skia checkout
+        if: steps.src-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
+          export PATH="$PWD/depot_tools:$PATH"
+          git clone https://skia.googlesource.com/skia.git skia
+          git -C skia checkout "${{ steps.rev.outputs.rev }}"
+          (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          for d in dawn harfbuzz icu; do
+            test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
+          done
+          python3 skia/bin/fetch-ninja
+
+      - name: fetch platform build tools
+        shell: bash
+        run: |
+          rm -f skia/bin/gn skia/bin/gn.exe skia/third_party/ninja/ninja skia/third_party/ninja/ninja.exe skia/bin/ninja.version
+          python3 skia/bin/fetch-gn
+          python3 skia/bin/fetch-ninja
+
+      - name: restore base build cache
+        id: base-cache
+        uses: actions/cache@v4
+        with:
+          path: skia/out/niello-linux-x64
+          key: skia-base-linux-x64-${{ steps.rev.outputs.rev }}-v2
+
+      - name: build skia+dawn base
+        if: steps.base-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          export PATH="$PWD/depot_tools:$PATH"
+          cd skia
+          export PATH="$PWD/third_party/ninja:$PATH"
+          bin/gn gen out/niello-linux-x64 --args='is_official_build=true is_debug=false skia_enable_graphite=true skia_enable_ganesh=false skia_use_vulkan=true skia_use_dawn=true dawn_enable_vulkan=true skia_use_webgpu=true skia_use_vma=true skia_use_partition_alloc=false skia_use_dng_sdk=false skia_use_piex=false skia_use_system_expat=false skia_use_system_freetype2=false skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false skia_use_system_libwebp=false skia_use_system_zlib=false skia_use_system_harfbuzz=false skia_use_system_icu=false cc="clang" cxx="clang++"'
+          third_party/ninja/ninja -C out/niello-linux-x64 skia modules/skshaper
+          test -f "out/niello-linux-x64/libskshaper.a" || { echo "libskshaper.a not built (recipe §3)" >&2; exit 1; }
+
   # ---- tier 2: compile nui.cpp against the base, merge, zip ----
   pack:
     name: pack (${{ matrix.plat }})
@@ -195,10 +266,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - plat: linux-x64
-            runner: ubuntu-24.04
-            out: niello-linux-x64
-            lib: lib/libniello_native.a
           - plat: macos-arm64
             runner: macos-15
             out: niello-macos-arm64
@@ -251,18 +318,6 @@ jobs:
         shell: bash
         run: test -d "skia/out/${{ matrix.out }}" || { echo "base build cache missed after base job — re-run the workflow" >&2; exit 1; }
 
-      - name: install linux build deps
-        if: matrix.plat == 'linux-x64'
-        shell: bash
-        run: |
-          # find_package calls are gated to Linux by F7(a); the Linux
-          # configure still needs the dev packages installed.
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libfreetype6-dev libfontconfig1-dev libvulkan-dev
-          # CMakeLists requires CMake 4.3; ubuntu-24.04 ships 3.28.
-          pip3 install --break-system-packages --upgrade cmake
-          cmake --version
-
       - name: install cmake 4.3 (windows)
         if: matrix.plat == 'windows-x64'
         shell: bash
@@ -279,10 +334,6 @@ jobs:
       - name: build nui_native
         shell: bash
         run: |
-          # The Linux runner's default compiler is GCC 13, which has no
-          # C++26 support (CMakeLists sets CXX_STANDARD 26); the Skia
-          # build already uses clang, so configure with clang too.
-          if [ "${{ matrix.plat }}" = "linux-x64" ]; then export CC=clang CXX=clang++; fi
           cmake -S native -B build/nui \
             -DSKIA_DIR="$PWD/skia" \
             -DNIELLO_SKIA_OUT="${{ matrix.out }}" \
@@ -294,20 +345,6 @@ jobs:
           cmake --build build/nui -j --config Release
           # NOTE: SKIA_DIR is the restored checkout (src cache) + built out
           # dir (base cache); both key off the pinned rev.
-
-      - name: merge fat archive (linux)
-        if: matrix.plat == 'linux-x64'
-        shell: bash
-        run: |
-          mkdir -p stage/lib
-          { echo "CREATE stage/lib/libniello_native.a"
-            for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a libharfbuzz.a; do
-              test -f "skia/out/${{ matrix.out }}/$a" || { echo "missing $a" >&2; exit 1; }
-              echo "ADDLIB $PWD/skia/out/${{ matrix.out }}/$a"
-            done
-            echo "ADDLIB $PWD/build/nui/libnui_native.a"
-            echo "SAVE"; echo "END"; } > merge.mri
-          ar -M < merge.mri   # MRI avoids .o basename collisions (recipe §6)
 
       - name: merge fat archive (macos)
         if: matrix.plat == 'macos-arm64'
@@ -390,6 +427,267 @@ jobs:
         with:
           name: niello-native-${{ matrix.plat }}
           path: niello-native-${{ matrix.plat }}.zip
+
+  # ---- tier 2 (jammy): nui.cpp + merge + zip ----
+  pack-linux:
+    name: pack (linux-x64)
+    needs: base-linux
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install container toolchain
+        shell: bash
+        run: |
+          # §2 script, pack-job dep set (freetype + fontconfig + Vulkan)
+          # plus CMake 4.3 via pip (no --break-system-packages on jammy).
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl gnupg git python3 python3-pip \
+            pkg-config build-essential zip unzip
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
+            > /etc/apt/sources.list.d/llvm-toolchain-jammy-18.list
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends clang-18 lld-18
+          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+          update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+          apt-get install -y -qq libfreetype6-dev libfontconfig1-dev libvulkan-dev
+          python3 -m pip install --upgrade "cmake>=4.3"
+          cmake --version
+
+      - name: read pinned skia rev
+        id: rev
+        shell: bash
+        run: echo "rev=$(cat tools/skia-rev.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: restore skia checkout cache
+        id: src-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            skia
+            !skia/out
+          key: skia-src-${{ steps.rev.outputs.rev }}
+
+      - name: sync skia checkout
+        if: steps.src-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
+          export PATH="$PWD/depot_tools:$PATH"
+          git clone https://skia.googlesource.com/skia.git skia
+          git -C skia checkout "${{ steps.rev.outputs.rev }}"
+          (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          for d in dawn harfbuzz icu; do
+            test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
+          done
+
+      - name: restore base build cache
+        uses: actions/cache@v4
+        with:
+          path: skia/out/niello-linux-x64
+          key: skia-base-linux-x64-${{ steps.rev.outputs.rev }}-v2
+
+      - name: check base cache restored
+        shell: bash
+        run: test -d "skia/out/niello-linux-x64" || { echo "base build cache missed after base-linux — re-run the workflow" >&2; exit 1; }
+
+      - name: build nui_native
+        shell: bash
+        run: |
+          export CC=clang CXX=clang++
+          cmake -S native -B build/nui \
+            -DSKIA_DIR="$PWD/skia" \
+            -DNIELLO_SKIA_OUT="niello-linux-x64" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/nui -j --config Release
+
+      - name: merge fat archive (linux)
+        shell: bash
+        run: |
+          mkdir -p stage/lib
+          { echo "CREATE stage/lib/libniello_native.a"
+            for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a libharfbuzz.a; do
+              test -f "skia/out/niello-linux-x64/$a" || { echo "missing $a" >&2; exit 1; }
+              echo "ADDLIB $PWD/skia/out/niello-linux-x64/$a"
+            done
+            echo "ADDLIB $PWD/build/nui/libnui_native.a"
+            echo "SAVE"; echo "END"; } > merge.mri
+          ar -M < merge.mri
+
+      - name: stage zip
+        shell: bash
+        run: |
+          mkdir -p stage/include
+          cp native/nui.h stage/include/
+          { echo "platform: linux-x64"
+            echo "skia_rev: $(cat tools/skia-rev.txt)"
+            echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner: ubuntu:22.04 container on ubuntu-24.04"; } > stage/BUILD-INFO.txt
+          python3 - <<'PY'
+          import os, zipfile
+          out = "niello-native-linux-x64.zip"
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+              for root, dirs, files in os.walk("stage"):
+                  for f in sorted(files):
+                      p = os.path.join(root, f)
+                      z.write(p, os.path.relpath(p, "stage").replace(os.sep, "/"))
+          PY
+
+      - name: upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: niello-native-linux-x64
+          path: niello-native-linux-x64.zip
+
+  # ---- sdl3 (linux): shared libSDL3.so.0 inside ubuntu:22.04 ----
+  # Independent job: no `needs`. It shares nothing with base-linux /
+  # pack-linux, so an SDL failure never blocks the native archive
+  # proof and vice versa. Same container, same pin discipline:
+  # SDL release-3.4.12 (F1(a)); floor enforced in the check step
+  # (F4). Separate artifact; F3 fetch/artifact-separation is later.
+  sdl3-linux:
+    name: sdl3 (linux-x64)
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install container toolchain
+        shell: bash
+        run: |
+          # Same clang-18 setup as base-linux/pack-linux (jammy draft
+          # §2). Runs as root; no sudo in the container.
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl gnupg git python3 python3-pip \
+            pkg-config build-essential zip unzip
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
+            > /etc/apt/sources.list.d/llvm-toolchain-jammy-18.list
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends clang-18 lld-18
+          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+          update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+          clang --version
+
+      - name: install SDL build deps
+        shell: bash
+        run: |
+          # SDL's own Ubuntu 22.04+ list (SDL wiki README-linux), all
+          # features enabled, plus libvulkan-dev for the Vulkan video
+          # backend. A missing -dev package does NOT fail the build —
+          # SDL silently disables that backend — so the Wayland check
+          # below is the gate that proves this list was complete.
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            libasound2-dev libpulse-dev libaudio-dev libfribidi-dev \
+            libjack-dev libsndio-dev libsamplerate0-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libdrm-dev libgbm-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libdbus-1-dev libibus-1.0-dev libudev-dev libthai-dev \
+            libusb-1.0-0-dev \
+            libpipewire-0.3-dev libwayland-dev wayland-protocols \
+            libdecor-0-dev liburing-dev libvulkan-dev
+
+      - name: clone SDL 3.4.12
+        shell: bash
+        run: |
+          git clone --depth 1 --branch release-3.4.12 \
+            https://github.com/libsdl-org/SDL.git sdl
+          # Fail loudly if the checkout is not exactly the pinned tag.
+          test "$(git -C sdl describe --tags --exact-match)" = "release-3.4.12" || { echo "SDL checkout is not release-3.4.12" >&2; exit 1; }
+          git -C sdl rev-parse HEAD
+
+      - name: build SDL3
+        shell: bash
+        run: |
+          export CC=clang CXX=clang++
+          # CMAKE_INSTALL_LIBDIR=lib pins the install layout (no
+          # Debian multiarch subdir), so the check step's paths hold.
+          cmake -S sdl -B build/sdl \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/sdl-prefix" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF \
+            -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build build/sdl -j
+          cmake --install build/sdl
+          ls -la sdl-prefix/lib/libSDL3.so*
+
+      - name: check SDL3 floor, SONAME, version, and Wayland backend
+        shell: bash
+        run: |
+          LIB="sdl-prefix/lib/libSDL3.so.0"
+          # SONAME must be exactly libSDL3.so.0 — never rename to paper
+          # over a mismatch (the Mint .so.1/.so.0 lesson).
+          readelf -d "$LIB" | grep -q "SONAME.*\[libSDL3\.so\.0\]" || { echo "SONAME is not libSDL3.so.0" >&2; exit 1; }
+          # Installed version must be the pinned one.
+          test "$(PKG_CONFIG_PATH="$PWD/sdl-prefix/lib/pkgconfig" pkg-config --modversion sdl3)" = "3.4.12" || { echo "sdl3 pkg-config version is not 3.4.12" >&2; exit 1; }
+          # Wayland backend gate: SDL dlopens Wayland at run time, so
+          # ldd cannot prove the backend was built. The xdg-shell
+          # protocol strings exist only in a Wayland-enabled build.
+          strings "$LIB" | grep -q "xdg_wm_base" || { echo "Wayland backend not built (xdg-shell strings absent) — SDL dep list incomplete" >&2; exit 1; }
+          # F4 enforcement: fail if the floor rises above glibc 2.35 /
+          # the GCC 11 libstdc++ era on the shipped library.
+          python3 - "$LIB" <<'PY'
+          import re, subprocess, sys
+          lib = sys.argv[1]
+          out = subprocess.check_output(["readelf", "--version-info", lib], text=True)
+          bad = []
+          for major, minor in set(re.findall(r"\bGLIBC_(\d+)\.(\d+)", out)):
+              if (int(major), int(minor)) > (2, 35):
+                  bad.append(f"GLIBC_{major}.{minor}")
+          for patch in set(re.findall(r"\bGLIBCXX_3\.4\.(\d+)", out)):
+              if int(patch) > 29:
+                  bad.append(f"GLIBCXX_3.4.{patch}")
+          if bad:
+              print("floor violation on", lib, ":", ", ".join(sorted(bad)), file=sys.stderr)
+              sys.exit(1)
+          print("floor OK:", lib)
+          PY
+          # ldd baseline, for the record (M0/D8 set).
+          ldd "$LIB" || true
+
+      - name: stage zip
+        shell: bash
+        run: |
+          mkdir -p stage/lib
+          # cp -L: follow the install symlinks so the zip holds the real
+          # library as libSDL3.so.0. The link-time libSDL3.so symlink
+          # is created by the fetch script (F3 work), not shipped.
+          cp -L sdl-prefix/lib/libSDL3.so.0 stage/lib/
+          cp sdl/LICENSE.txt stage/
+          { echo "platform: linux-x64"
+            echo "sdl_tag: release-3.4.12"
+            echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner: ubuntu:22.04 container on ubuntu-24.04"; } > stage/BUILD-INFO.txt
+          python3 - <<'PY'
+          import os, zipfile
+          out = "niello-sdl3-linux-x64.zip"
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+              for root, dirs, files in os.walk("stage"):
+                  for f in sorted(files):
+                      p = os.path.join(root, f)
+                      z.write(p, os.path.relpath(p, "stage").replace(os.sep, "/"))
+          PY
+
+      - name: upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: niello-sdl3-linux-x64
+          path: niello-sdl3-linux-x64.zip
 
   # ---- tag push: attach all three zips to the GitHub Release ----
   publish:
