@@ -43,6 +43,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         atspi.cpp)
 endif()
 
+# F3 PROTOTYPE (TODO #19): X11 resize-sync participation, Linux
+# only. sync_x11.cpp is the only TU that includes Xlib/XSync, so
+# Xlib's macros never reach nui.cpp. The Odin side links the same
+# two libs via ffi.odin's foreign import. CI note: the Linux pack
+# job needs libxext-dev installed for the XSync headers.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(nui_native PRIVATE
+        sync_x11.cpp
+        sync_x11.h)
+endif()
+
 # F7(a) (TODO #11): the system-package lookups are gated by platform.
 # Only the Linux backend needs the system font stack (Freetype +
 # Fontconfig) and the Vulkan loader: Skia resolves those symbols from
@@ -97,6 +108,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             Vulkan::Vulkan
             Freetype::Freetype
             Fontconfig::Fontconfig
+    )
+endif()
+# F3 PROTOTYPE (TODO #19): Xlib + XSync (libXext), Linux only.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(X11 REQUIRED)
+    target_link_libraries(nui_native PRIVATE
+            X11::X11
+            X11::Xext
     )
 endif()
 # macOS: Dawn's Metal backend + Skia's macOS surface. The documented

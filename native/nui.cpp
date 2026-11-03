@@ -63,6 +63,12 @@
 #include "include/ports/SkTypeface_win.h"
 #endif
 
+#if defined(__linux__)
+// F3 PROTOTYPE (TODO #19): X11 resize-sync participation lives in
+// sync_x11.cpp so Xlib's macros never reach this file.
+#include "sync_x11.h"
+#endif
+
 // Defined in util.cpp; not exported through the public C header.
 bool NuiDawnBackendFailed() noexcept;
 
@@ -106,6 +112,13 @@ struct nui_window {
     int lastSkip = 0;  // PresentSkip below; 0 = last Present succeeded
     uint64_t lastDrainUs = 0;  // Synchronize() time of the last reconfigure
     int lastPresentStatus = -1;  // -1 = none yet, else wgpu::Status
+
+#if defined(__linux__)
+    // F3 PROTOTYPE (TODO #19). Null = inert (not X11, or setup
+    // failed). Owned: created in nui_create_window, destroyed in
+    // nui_destroy_window. Polled/acked in nui_render only.
+    SyncX11* sync = nullptr;
+#endif
 };
 
 namespace {
@@ -1197,6 +1210,14 @@ nui_window* nui_create_window(const UiNativeHandles* handles,
         }
 
         window->nextFrameTimeNs = NowNs();
+#if defined(__linux__)
+        // F3 PROTOTYPE (TODO #19): inert when the driver is not
+        // X11 or setup fails; see sync_x11.cpp.
+        if (window->driver == "x11") {
+            window->sync =
+                SyncX11_Create(window->handles.x11_window, g.trace);
+        }
+#endif
         g.windows.insert(window.get());
         return window.release();
     });
@@ -1205,6 +1226,13 @@ nui_window* nui_create_window(const UiNativeHandles* handles,
 void nui_destroy_window(nui_window* window) {
     ApiVoid("nui_destroy_window", [&] {
         if (!Live(window)) return;
+
+#if defined(__linux__)
+        // F3 PROTOTYPE (TODO #19): restore WM_PROTOCOLS and close
+        // the private X connection while the window still exists.
+        SyncX11_Destroy(window->sync);
+        window->sync = nullptr;
+#endif
 
         // Device-loss cleanup must remain possible even after Ready() fails.
         // On failure, handles are still released; no further rendering occurs.
@@ -1318,7 +1346,20 @@ int32_t nui_render(nui_window* window,
         }
 
         window->cacheValid = true;
+#if defined(__linux__)
+        // F3 PROTOTYPE (TODO #19): drain sync requests queued with
+        // this size change, so the ack below answers this frame's
+        // repaint. No-op when inert.
+        SyncX11_Poll(window->sync);
+#endif
         const bool presented = Present(*window);
+#if defined(__linux__)
+        // Ack only after a successful present: a skipped present
+        // means no new buffer, so the serial stays pending for the
+        // next successful frame (KWin's timeout paces the resize
+        // meanwhile). No-op when inert or nothing is pending.
+        if (presented) SyncX11_Ack(window->sync);
+#endif
 
         // Failed acquisition must not let repeated repaints accumulate
         // unbounded GPU work without reaching the presentation batch limit.
