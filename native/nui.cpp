@@ -96,6 +96,16 @@ struct nui_window {
     uint64_t copies = 0;
     uint64_t configurations = 0;
     uint64_t acquireFailures = 0;
+
+    // STEP 2 DIAGNOSTIC (TODO #19). Diagnostic-only state for the
+    // Step 2 trace run; strip this block and its uses after the
+    // table is read. Never read by production logic.
+    int lastAcquire = -1;  // -1 = none yet, else SurfaceGetCurrentTextureStatus
+    uint32_t acquiredWidth = 0;
+    uint32_t acquiredHeight = 0;
+    int lastSkip = 0;  // PresentSkip below; 0 = last Present succeeded
+    uint64_t lastDrainUs = 0;  // Synchronize() time of the last reconfigure
+    int lastPresentStatus = -1;  // -1 = none yet, else wgpu::Status
 };
 
 namespace {
@@ -255,17 +265,86 @@ void Pace(nui_window& window) {
     window.nextFrameTimeNs = NowNs() + window.targetFrameTimeNs;
 }
 
+// STEP 2 DIAGNOSTIC (TODO #19). Names for the Step 2 trace fields;
+// strip with the diagnostic block in nui_window after the table
+// is read. Production logic never reads these.
+enum class PresentSkip : int {
+    None = 0,
+    Configure,
+    Cache,
+    BatchDrain,
+    Acquire,
+    NoTexture,
+    NotReady,
+    StaleSize,
+    Encoder,
+    Commands,
+    Present,
+};
+
+const char* AcquireName(int status) noexcept {
+    switch (static_cast<wgpu::SurfaceGetCurrentTextureStatus>(status)) {
+        case wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal:
+            return "optimal";
+        case wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal:
+            return "suboptimal";
+        case wgpu::SurfaceGetCurrentTextureStatus::Timeout:
+            return "timeout";
+        case wgpu::SurfaceGetCurrentTextureStatus::Outdated:
+            return "outdated";
+        case wgpu::SurfaceGetCurrentTextureStatus::Lost:
+            return "lost";
+        case wgpu::SurfaceGetCurrentTextureStatus::Error:
+            return "error";
+    }
+    return "other";
+}
+
+const char* SkipName(int skip) noexcept {
+    switch (static_cast<PresentSkip>(skip)) {
+        case PresentSkip::None: return "none";
+        case PresentSkip::Configure: return "configure";
+        case PresentSkip::Cache: return "cache";
+        case PresentSkip::BatchDrain: return "batch_drain";
+        case PresentSkip::Acquire: return "acquire";
+        case PresentSkip::NoTexture: return "no_texture";
+        case PresentSkip::NotReady: return "not_ready";
+        case PresentSkip::StaleSize: return "stale_size";
+        case PresentSkip::Encoder: return "encoder";
+        case PresentSkip::Commands: return "commands";
+        case PresentSkip::Present: return "present";
+    }
+    return "other";
+}
+
 void Trace(const nui_window& window) noexcept {
     if (!g.trace) return;
+    // STEP 2 DIAGNOSTIC: milliseconds since the first trace line,
+    // so a flash in a screen recording maps to exact trace lines
+    // via the replays numbers visible in the recording.
+    static const uint64_t traceStartNs = NowNs();
+    const uint64_t elapsedMs = (NowNs() - traceStartNs) / 1'000'000;
     std::fprintf(
         stderr,
         "nui: replays=%llu copies=%llu configurations=%llu "
-        "acquire_failures=%llu size=%ux%u valid=%d\n",
+        "acquire_failures=%llu size=%ux%u valid=%d "
+        "t=%llums acq=%s acq_size=%ux%u skip=%s drain_us=%llu present=%s\n",
         static_cast<unsigned long long>(window.replays),
         static_cast<unsigned long long>(window.copies),
         static_cast<unsigned long long>(window.configurations),
         static_cast<unsigned long long>(window.acquireFailures),
-        window.width, window.height, static_cast<int>(window.cacheValid));
+        window.width, window.height, static_cast<int>(window.cacheValid),
+        static_cast<unsigned long long>(elapsedMs),
+        window.lastAcquire < 0 ? "none" : AcquireName(window.lastAcquire),
+        window.acquiredWidth, window.acquiredHeight,
+        SkipName(window.lastSkip),
+        static_cast<unsigned long long>(window.lastDrainUs),
+        window.lastPresentStatus < 0
+            ? "none"
+            : (window.lastPresentStatus ==
+                       static_cast<int>(wgpu::Status::Success)
+                   ? "ok"
+                   : "err"));
 }
 
 bool DrainQueue() {
@@ -719,7 +798,13 @@ bool Configure(nui_window& window) {
         window.config.height == window.height) return true;
 
     // Cache retirement and native swapchain changes are cold paths.
-    if (!Synchronize()) return false;
+    // STEP 2 DIAGNOSTIC: time the full drain; recorded even when
+    // Synchronize() fails, so a failed reconfigure still shows
+    // what the stall cost.
+    const uint64_t drainStartNs = NowNs();
+    const bool synchronized = Synchronize();
+    window.lastDrainUs = (NowNs() - drainStartNs) / 1000;
+    if (!synchronized) return false;
 
     if (window.recreateSurface || !window.surface) {
         window.configured = false;
@@ -813,15 +898,33 @@ bool EnsureCache(nui_window& window) {
 }
 
 bool Present(nui_window& window) {
-    if (!Configure(window) || !window.cacheValid ||
-        !window.cacheSurface || !window.cacheTexture) return false;
+    // STEP 2 DIAGNOSTIC: every false return below records its
+    // reason in lastSkip, so the next Trace line says WHY no
+    // present happened instead of leaving replays ahead of
+    // copies with no explanation. Behaviour is unchanged.
+    window.lastSkip = static_cast<int>(PresentSkip::None);
+    if (!Configure(window)) {
+        window.lastSkip = static_cast<int>(PresentSkip::Configure);
+        return false;
+    }
+    if (!window.cacheValid || !window.cacheSurface ||
+        !window.cacheTexture) {
+        window.lastSkip = static_cast<int>(PresentSkip::Cache);
+        return false;
+    }
 
     // Bounds shared-queue work without waiting after every present.
     if (g.pendingPresentations >= kPresentationBatchSize &&
-        !DrainQueue()) return false;
+        !DrainQueue()) {
+        window.lastSkip = static_cast<int>(PresentSkip::BatchDrain);
+        return false;
+    }
 
     wgpu::SurfaceTexture acquired{};
     window.surface.GetCurrentTexture(&acquired);
+    window.lastAcquire = static_cast<int>(acquired.status);
+    window.acquiredWidth = 0;
+    window.acquiredHeight = 0;
 
     switch (acquired.status) {
         case wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal:
@@ -830,27 +933,40 @@ bool Present(nui_window& window) {
 
         case wgpu::SurfaceGetCurrentTextureStatus::Timeout:
             ++window.acquireFailures;
+            window.lastSkip = static_cast<int>(PresentSkip::Acquire);
             return false;
 
         case wgpu::SurfaceGetCurrentTextureStatus::Outdated:
             ++window.acquireFailures;
             window.configured = false;
+            window.lastSkip = static_cast<int>(PresentSkip::Acquire);
             return false;
 
         case wgpu::SurfaceGetCurrentTextureStatus::Lost:
             ++window.acquireFailures;
             window.configured = false;
             window.recreateSurface = true;
+            window.lastSkip = static_cast<int>(PresentSkip::Acquire);
             return false;
 
         default:
             ++window.acquireFailures;
             g.failed = true;
             Log("unrecoverable surface acquisition failure");
+            window.lastSkip = static_cast<int>(PresentSkip::Acquire);
             return false;
     }
 
-    if (!acquired.texture || !Ready()) return false;
+    if (!acquired.texture) {
+        window.lastSkip = static_cast<int>(PresentSkip::NoTexture);
+        return false;
+    }
+    if (!Ready()) {
+        window.lastSkip = static_cast<int>(PresentSkip::NotReady);
+        return false;
+    }
+    window.acquiredWidth = acquired.texture.GetWidth();
+    window.acquiredHeight = acquired.texture.GetHeight();
 
     if (acquired.texture.GetWidth() != window.width ||
         acquired.texture.GetHeight() != window.height ||
@@ -858,12 +974,14 @@ bool Present(nui_window& window) {
         // Release the acquisition before a future reconfiguration.
         acquired.texture = nullptr;
         window.configured = false;
+        window.lastSkip = static_cast<int>(PresentSkip::StaleSize);
         return false;
     }
 
     auto encoder = g.backend.fDevice.CreateCommandEncoder();
     if (!encoder) {
         g.failed = true;
+        window.lastSkip = static_cast<int>(PresentSkip::Encoder);
         return false;
     }
 
@@ -876,6 +994,7 @@ bool Present(nui_window& window) {
     auto commands = encoder.Finish();
     if (!commands || !Ready()) {
         g.failed = true;
+        window.lastSkip = static_cast<int>(PresentSkip::Commands);
         return false;
     }
 
@@ -885,8 +1004,10 @@ bool Present(nui_window& window) {
     ++g.pendingPresentations;
 
     const auto status = window.surface.Present();
+    window.lastPresentStatus = static_cast<int>(status);
     if (status != wgpu::Status::Success || !Ready()) {
         window.configured = false;
+        window.lastSkip = static_cast<int>(PresentSkip::Present);
         return false;
     }
 
