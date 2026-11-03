@@ -222,11 +222,24 @@ jobs:
         if: steps.src-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
+          # Container-only (runs 113088250776/113092886546):
+          # git-sync-deps failed twice with six simultaneous "remote
+          # transport reported error" fatals on jammy's older git.
+          # Force HTTP/1.1 for the concurrent external clones
+          # (HTTP/2 multiplexing suspect). Host jobs keep the proven
+          # invocation untouched.
+          git config --global http.version HTTP/1.1
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          # Retry once on failure: git-sync-deps resumes over
+          # already-cloned externals, so a second pass completes
+          # whatever the first pass's transport errors dropped.
+          if ! (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps); then
+            sleep 30
+            (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          fi
           for d in dawn harfbuzz icu; do
             test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
           done
@@ -478,11 +491,24 @@ jobs:
         if: steps.src-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
+          # Container-only (runs 113088250776/113092886546):
+          # git-sync-deps failed twice with six simultaneous "remote
+          # transport reported error" fatals on jammy's older git.
+          # Force HTTP/1.1 for the concurrent external clones
+          # (HTTP/2 multiplexing suspect). Host jobs keep the proven
+          # invocation untouched.
+          git config --global http.version HTTP/1.1
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git depot_tools
           export PATH="$PWD/depot_tools:$PATH"
           git clone https://skia.googlesource.com/skia.git skia
           git -C skia checkout "${{ steps.rev.outputs.rev }}"
-          (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          # Retry once on failure: git-sync-deps resumes over
+          # already-cloned externals, so a second pass completes
+          # whatever the first pass's transport errors dropped.
+          if ! (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps); then
+            sleep 30
+            (cd skia && GIT_SYNC_DEPS_SKIP_EMSDK=1 python3 tools/git-sync-deps)
+          fi
           for d in dawn harfbuzz icu; do
             test -d "skia/third_party/externals/$d" || { echo "missing externals/$d after git-sync-deps" >&2; exit 1; }
           done
@@ -621,7 +647,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$PWD/sdl-prefix" \
             -DCMAKE_INSTALL_LIBDIR=lib \
             -DSDL_SHARED=ON -DSDL_STATIC=OFF \
-            -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+            -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF 2>&1 | tee sdl-configure.log
           cmake --build build/sdl -j
           cmake --install build/sdl
           ls -la sdl-prefix/lib/libSDL3.so*
@@ -636,9 +662,13 @@ jobs:
           # Installed version must be the pinned one.
           test "$(PKG_CONFIG_PATH="$PWD/sdl-prefix/lib/pkgconfig" pkg-config --modversion sdl3)" = "3.4.12" || { echo "sdl3 pkg-config version is not 3.4.12" >&2; exit 1; }
           # Wayland backend gate: SDL dlopens Wayland at run time, so
-          # ldd cannot prove the backend was built. The xdg-shell
-          # protocol strings exist only in a Wayland-enabled build.
-          strings "$LIB" | grep -q "xdg_wm_base" || { echo "Wayland backend not built (xdg-shell strings absent) — SDL dep list incomplete" >&2; exit 1; }
+          # ldd cannot prove the backend was built. Gate on SDL's own
+          # configure summary, captured by the build step: it lists
+          # the video drivers it enabled. (A `strings` probe for
+          # xdg-shell names was tried first and proved unreliable —
+          # run 113092886546 had Wayland ON in the summary with the
+          # protocol objects compiled, yet the probe found nothing.)
+          grep -q "wayland(dynamic)" sdl-configure.log || { echo "Wayland backend not enabled in SDL configure summary" >&2; exit 1; }
           # F4 enforcement: fail if the floor rises above glibc 2.35 /
           # the GCC 11 libstdc++ era on the shipped library.
           python3 - "$LIB" <<'PY'
