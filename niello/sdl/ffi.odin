@@ -48,9 +48,6 @@ when ODIN_OS == .Linux {
 		"system:vulkan",
 		"system:freetype",
 		"system:fontconfig",
-		// F3 prototype (TODO #19): X11 resize-sync via XSync — Linux X11 driver only.
-		"system:X11",
-		"system:Xext",
 		"system:stdc++",
 		"system:z",
 		"system:png",
