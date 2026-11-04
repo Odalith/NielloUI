@@ -302,10 +302,13 @@ Threads).
     <nui_native build dir>\nui_native.lib
   ```
 
-Windows CRT caveat: if the Odin app's link fails with `LNK2038`
-(CRT mismatch), the Skia build's runtime-library flag disagrees with the
-Odin toolchain's — align them in the GN args rather than working around it
-downstream. Verify with a real Odin link before publishing the Windows zip.
+Windows CRT (settled by the first real Odin link, 2026-11-03; audit
+F6 ruled (a)): the fat archive is static-CRT throughout — the GN build
+(Skia/Dawn) uses /MT by Chromium default, and native/CMakeLists.txt
+pins `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` so the CMake-built
+nui_native objects match. A `/FAILIFMISMATCH` / `LNK2038`
+RuntimeLibrary mismatch at the Odin link means one side drifted from
+that; align it at the build, never downstream.
 
 ## 7. Zip and release
 
@@ -318,6 +321,14 @@ niello-native-<platform>.zip
 matching the `third_party/native/<platform>/` layout. Attach the three zips
 to a GitHub Release (tag like `native-v0.1.0`); `tools/fetch-native.sh` /
 `fetch-native.ps1` download from the release by tag or `latest`.
+
+Since `native-v0.1.1` the release also carries
+`niello-sdl3-linux-x64.zip` (the CI-built Linux SDL3). On Windows the
+SDL3 runtime is not in these zips — `fetch-native.ps1` takes
+`SDL3.dll` from SDL's official release instead. The ship contract for
+apps is the same either way: everything else is statically linked, so
+a Windows app ships as `app.exe` + `SDL3.dll` in one folder, and a
+Linux app ships with `libSDL3.so.0` beside the binary.
 
 ## 8. CI (later, once the matrix is proven by hand)
 
