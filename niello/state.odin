@@ -21,12 +21,10 @@ Unit_Rec :: struct {
 	explicit: Fields, // fields set directly at mint (for propagate)
 	proto:    Unit,   // prototype unit, NO_UNIT if none
 	pinned:   Fields, // fields protected from group writes (pin)
-	dirty:    Fields, // fields written since last frame_end
 
 	// Warm: read when resolving interaction state (overlays not yet applied).
 	hover, press, focus, disabled: Unit,
 	focusable: bool,
-	groups:    []Group,
 
 	// Cold: debug/inspector only.
 	name: string,
@@ -59,20 +57,15 @@ Store :: struct {
 	units:  [dynamic]Unit_Rec,
 	groups: [dynamic]Group_Rec,
 
-	// Change tracking (§8): a global generation bumped by every
-	// set/set_many, per-unit dirty bitsets, and the write JOURNAL:
-	// every unit dirtied since the last journal GC, in order. Each
-	// Context consumes the journal from its own cursor at frame_end;
-	// a unit's dirty bitset clears only once EVERY live context has
-	// consumed its entry (journal_gc) — so a slow window never loses
-	// a change notice to a fast one. (Was `touched`, one global
-	// list cleared by the only frame_end there was.)
-	gen:     u64,
-	journal: [dynamic]Unit,
+	// Change tracking is the stamp system (§3.26): each unit's
+	// visual generation (Unit_Rec.gen) plus the declare-time
+	// digest decide all damage in pass F. There is no write
+	// journal — an earlier design kept one alongside the stamps;
+	// nothing read it outside tests, and a context that never
+	// framed pinned it forever (audit X-1).
 
-	// Live contexts, in creation order: the journal GC reads their
-	// cursors, and tween() cancels a unit's tweens across all of
-	// them (animate.odin).
+	// Live contexts, in creation order: tween() cancels a unit's
+	// tweens across all of them (animate.odin).
 	contexts: [dynamic]^Context,
 
 	// Debug tooling state (TODO #18, debug.odin): the highlight
@@ -103,10 +96,6 @@ Store :: struct {
 // package handle `g` (below) points at the currently bound
 // context; frame_begin binds, declare-time procs read the binding.
 Context :: struct {
-	// This context's position in the store's write journal: every
-	// entry below the cursor has been consumed by a frame_end here.
-	journal_cursor: int,
-
 	// Frame text arena: With.text copies land here at declare time.
 	// Chunked so a slice, once taken, never moves; rewound at
 	// frame_begin and reused across frames (freed only at teardown).
@@ -221,8 +210,8 @@ Context :: struct {
 	// frame_end. Chains are identity snapshots, root first: an instance is
 	// "in" a chain when it is the target or one of its ancestors, which is
 	// what gives clicked/hovered their bubble-up semantics.
-	hover_id:      Instance, // pick target under the cursor; 0 = none
-	hover_chain:   [dynamic]Instance,
+	hover_chain:   [dynamic]Instance, // root first; the tail is the
+	                                  // pick target under the cursor
 	hover_clock:   f32, // total dispatch time; durations read against it
 	hover_since:   map[Instance]f32, // per-member chain entry time: an
 	                                  // instance's hover duration is
@@ -231,8 +220,8 @@ Context :: struct {
 	                                  // chain (input.odin maintains both)
 	press_ids:     [Mouse_Button]Instance, // press capture per button; 0 = none
 	press_chains:  [Mouse_Button][dynamic]Instance,
-	clicked_id:    Instance, // set at a release dispatch, valid for one declare
-	clicked_chain: [dynamic]Instance,
+	clicked_chain: [dynamic]Instance, // set at a release dispatch,
+	                                  // valid for one declare
 	// Drag state (§3.28): a left press whose displacement from the
 	// grab point crosses DRAG_THRESHOLD becomes a drag on the same
 	// capture. The ended snapshot, like clicked's, is valid for
@@ -261,8 +250,8 @@ Context :: struct {
 	frame_key_count: int,
 	key_consumed:    [16]bool, // per slot: the core ate this event
 	                         // (traversal's Tab is never delivered)
-	keys_target:     Instance, // routing frozen at dispatch: the
-	text_target:     Instance, // queries answer for these only
+	input_target:    Instance, // key/text routing frozen at dispatch:
+	                           // the queries answer for it only
 	frame_text:      [dynamic]u8, // this frame's committed text (owned)
 	keys_scratch:    [dynamic]Key_Event, // input_keys result assembly
 	seen_ids:        map[Instance]bool, // recycle sweep's live set
@@ -285,7 +274,6 @@ Context :: struct {
 	                         // session opened; restored when it ends
 	prev_focused:  bool, // last frame's window_focused; the falling edge
 	                     // drops press capture (input.odin)
-	input_dirty:   bool,     // interaction state changed this frame
 	// Scheduling (§3.3): engine time accumulates frame_begin's dt;
 	// deadlines are engine-time stamps, the nearest one wins.
 	time_ms:           u64,
@@ -304,8 +292,6 @@ Context :: struct {
 	tweens:     [dynamic]Tween,
 	transients: map[Instance]Transient_Rec,
 	edits:      map[Unit]^Edit_State,
-	affected:      [dynamic]Instance, // instances whose resolved style may have
-	                                  // changed; frame_end damages their rects
 
 	// Per-node side arrays, parallel to nodes. pick_clip is the accumulated
 	// ancestor clip pass F computes; the NEXT frame's pick reads it (with
@@ -320,7 +306,6 @@ Context :: struct {
 	                              // which overlay layers are active,
 	                              // folded with those units' gens
 
-	layout_gen:  u32,
 	frame_index: u64,
 
 	// Test-only hook: force the next begin() to report open=false.
@@ -406,7 +391,6 @@ free_store :: proc() {
 		delete(gr.members)
 	}
 	delete(store.groups)
-	delete(store.journal)
 	delete(store.contexts)
 	delete(store.debug_ovf_scratch)
 }
@@ -470,47 +454,12 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.seen_ids)
 	delete(ctx.dead_ids)
 	delete(ctx.clicked_chain)
-	delete(ctx.affected)
 	delete(ctx.pick_clip)
 	delete(ctx.eff)
 	delete(ctx.disabled_flags)
 	delete(ctx.state_stamp)
 }
 
-// journal_gc retires the journal prefix every live context has
-// consumed, clearing those units' dirty bitsets. With no contexts
-// at all, nobody can ever consume the past, so everything retires.
-@(private)
-journal_gc :: proc() {
-	m := len(store.journal)
-	for c in store.contexts {
-		m = min(m, c.journal_cursor)
-	}
-	if m <= 0 {
-		return
-	}
-	for u in store.journal[:m] {
-		store.units[int(u)].dirty = {}
-	}
-	if m == len(store.journal) {
-		clear(&store.journal)
-	} else {
-		copy(store.journal[:], store.journal[m:])
-		resize(&store.journal, len(store.journal) - m)
-	}
-	for c in store.contexts {
-		c.journal_cursor -= m
-	}
-}
-
-// journal_consume marks the bound context current with the journal
-// (called from frame_end at the point the old touched list was
-// cleared) and retires whatever that unblocks.
-@(private)
-journal_consume :: proc() {
-	g.journal_cursor = len(store.journal)
-	journal_gc()
-}
 
 // ---------------------------------------------------------------------------
 // Mutation helpers (used by the public set/set_many in public.odin)
@@ -523,7 +472,7 @@ apply_opt :: proc(dst: ^$T, src: Maybe(T)) {
 }
 
 // explicit_fields reports which decl fields were set (non-nil Maybe). Recorded
-// at mint for propagate; also drives the dirty bitset in set_many.
+// at mint for propagate; also read by set_many's write tail.
 @(private)
 explicit_fields :: proc(d: Style_Decl) -> Fields {
 	f: Fields
@@ -564,20 +513,15 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	return f
 }
 
-// touch bumps the global generation and marks the unit's dirty fields,
-// journaling the unit for per-context consumption at frame_end. It also records
-// the fields as explicit: every write through set/set_many is a deliberate
-// choice, and overlay resolution (input.odin) merges exactly the fields an
-// overlay unit explicitly set.
+// touch records a write through set/set_many: the fields become
+// explicit (every such write is a deliberate choice, and overlay
+// resolution in input.odin merges exactly the fields an overlay
+// unit explicitly set), and a write touching a visual field bumps
+// the unit's visual generation — the stamp pass F compares.
 @(private)
 touch :: proc(u: Unit, f: Fields) {
 	rec := &store.units[int(u)]
-	if card(rec.dirty) == 0 {
-		append(&store.journal, u)
-	}
-	rec.dirty += f
 	rec.explicit += f
-	store.gen += 1
 	if f & VISUAL_FIELDS != {} {
 		rec.gen += 1
 	}
@@ -589,11 +533,6 @@ touch :: proc(u: Unit, f: Fields) {
 @(private)
 touch_unmarked :: proc(u: Unit, f: Fields) {
 	rec := &store.units[int(u)]
-	if card(rec.dirty) == 0 {
-		append(&store.journal, u)
-	}
-	rec.dirty += f
-	store.gen += 1
 	if f & VISUAL_FIELDS != {} {
 		rec.gen += 1
 	}

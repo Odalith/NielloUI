@@ -212,7 +212,7 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 // The tween registry
 
 // write_field copies one field from src into u's style through the
-// ordinary write tail (dirty + explicit + generation).
+// ordinary write tail (explicit + visual generation).
 @(private)
 write_field :: proc(u: Unit, f: Field, src: ^Style) {
 	rec := &store.units[int(u)]

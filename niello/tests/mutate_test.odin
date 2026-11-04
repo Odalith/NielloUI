@@ -126,22 +126,22 @@ test_set_equal_is_noop :: proc(t: ^testing.T) {
 	})
 
 	// Size: the Nachtul case — writing the same Size again bumps nothing.
-	gen0 := niello.test_generation()
+	gen0 := niello.test_visual_gen(a)
 	niello.set(a, .Size, niello.Size{niello.fixed(100), niello.fixed(50)})
-	testing.expect(t, niello.test_generation() == gen0,
+	testing.expect(t, niello.test_visual_gen(a) == gen0,
 		"an equal Size set bumps nothing")
 	niello.set(a, .Size, niello.Size{niello.fixed(120), niello.fixed(50)})
-	testing.expect(t, niello.test_generation() > gen0,
+	testing.expect(t, niello.test_visual_gen(a) > gen0,
 		"a changed Size set still bumps")
-	gen1 := niello.test_generation()
+	gen1 := niello.test_visual_gen(a)
 	niello.set(a, .Size, niello.Size{niello.fixed(120), niello.fixed(50)})
-	testing.expect(t, niello.test_generation() == gen1,
+	testing.expect(t, niello.test_visual_gen(a) == gen1,
 		"the new value, written again, bumps nothing")
 
 	// Text: equal content is a no-op even from a fresh string, and the
 	// stored text survives (compare-before-clone, no delete + re-clone).
 	niello.set(a, .Text, "hello")
-	testing.expect(t, niello.test_generation() == gen1,
+	testing.expect(t, niello.test_visual_gen(a) == gen1,
 		"an equal Text set bumps nothing")
 	testing.expect(t, niello.test_style(a).text == "hello",
 		"the equal Text set leaves the stored text alone")
@@ -152,9 +152,9 @@ test_set_equal_is_noop :: proc(t: ^testing.T) {
 	// Spans: equal elements are a no-op even from a fresh slice.
 	spans := []niello.Text_Span{{start = 0, end = 5}}
 	niello.set(a, .Text_Spans, spans)
-	gen2 := niello.test_generation()
+	gen2 := niello.test_visual_gen(a)
 	niello.set(a, .Text_Spans, []niello.Text_Span{{start = 0, end = 5}})
-	testing.expect(t, niello.test_generation() == gen2,
+	testing.expect(t, niello.test_visual_gen(a) == gen2,
 		"an equal Text_Spans set bumps nothing")
 
 	// Glide exception: an equal set while gliding still cancels the glide.

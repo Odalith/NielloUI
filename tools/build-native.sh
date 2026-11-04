@@ -69,17 +69,26 @@ ninja -C "$OUT" skia modules/skshaper
 
 # 2. SkShaper must be BUILT, not merely present in the graph —
 #    `ninja skia` never builds it: it lives under the `modules`
-#    aggregate, as its own libskshaper.a. nui_measure_word and
-#    nui_line_height shape with it, and a release whose text
-#    callbacks link-fail is worse than no release (§3). The check
-#    is the archive itself: if the modules/skshaper target is not
-#    in the graph at all, the ninja step above fails first with
-#    "unknown target", which means a GN condition (harfbuzz)
-#    excluded it — see §3.
+#    aggregate, as its own libskshaper.a. nui_measure_word
+#    measures through it and DrawText draws through it (audit
+#    X-3), and a release whose text path link-fails is worse
+#    than no release (§3). The check is the archive itself: if
+#    the modules/skshaper target is not in the graph at all,
+#    the ninja step above fails first with "unknown target",
+#    which means a GN condition (harfbuzz) excluded it — see
+#    §3. The shaper's HarfBuzz objects reference SkUnicode, so
+#    its two archives must exist too (they build as skshaper
+#    dependencies; the fat merge below carries them).
 if [ ! -f "$SKIA_DIR/$OUT/libskshaper.a" ]; then
 	echo "build-native: libskshaper.a not built — see build-native.md §3" >&2
 	exit 1
 fi
+for a in libskunicode_core.a libskunicode_icu.a; do
+	if [ ! -f "$SKIA_DIR/$OUT/$a" ]; then
+		echo "build-native: $a not built (SkShaper dependency) — see build-native.md §3" >&2
+		exit 1
+	fi
+done
 
 # 3. nui_native against this out dir.
 cmake -S "$ROOT/native" -B "$WORK/nui" \
@@ -92,7 +101,7 @@ cmake --build "$WORK/nui" -j
 MRI="$WORK/merge.mri"
 {
 	echo "CREATE $WORK/libniello_native.a"
-	for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a libharfbuzz.a; do
+	for a in libskia.a libdawn_combined.a libskcms.a libwuffs.a libskshaper.a libharfbuzz.a libskunicode_core.a libskunicode_icu.a; do
 		if [ ! -f "$SKIA_DIR/$OUT/$a" ]; then
 			echo "build-native: expected archive missing: $OUT/$a" >&2
 			exit 1

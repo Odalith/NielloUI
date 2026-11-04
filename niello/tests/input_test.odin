@@ -88,7 +88,12 @@ test_input_hover :: proc(t: ^testing.T) {
 	testing.expect(t, niello.hovered(input_root_i), "hover bubbles to the root")
 	testing.expect(t, !niello.hovered(input_lbl_i), "label not under the point")
 	res := finish(declare_input_tree)
-	testing.expect(t, res.changed, "hover change damages the frame")
+	// The button has no hover overlay, so the hover change is
+	// interaction state only — no pixels move, and the frame is
+	// unchanged. (The old affected-damage route damaged the rect
+	// anyway; with an overlay, the stamp path damages for real —
+	// test_stamp_overlay_gen_active_window.)
+	testing.expect(t, !res.changed, "overlay-less hover change damages nothing")
 
 	// Frame 3: same input, nothing changed — the clean fast path survives.
 	niello.frame_begin(niello.test_context(), idle_input(BTN_PT), 1.0 / 60.0)

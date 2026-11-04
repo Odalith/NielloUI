@@ -175,22 +175,32 @@ Skia's Windows build expects clang-cl from depot_tools' bundled LLVM with
 the MSVC-ABI setup; a bare `clang` override breaks that. After `gn gen`,
 confirm the toolchain resolves to clang-cl before the long build starts.
 
-## 3. SkShaper check (required for `nui_measure_word` / `nui_line_height`)
+## 3. SkShaper check (required for text measurement and drawing)
 
-The text-measuring callbacks shape with SkShaper. `ninja skia` never
-builds it: SkShaper lives under the `modules` aggregate as its own
-archive, so every platform build runs `ninja skia modules/skshaper`
-(§4) and the check is the built archive, not graph presence:
+Text is shaped with SkShaper: `nui_measure_word` measures through it
+and `DrawText` draws through it (audit X-3 — fragments are the
+shaping boundary, so measured == drawn). `ninja skia` never builds
+it: SkShaper lives under the `modules` aggregate as its own archive,
+so every platform build runs `ninja skia modules/skshaper` (§4) and
+the check is the built archive, not graph presence:
 
 ```
 ls out/niello-<platform>/libskshaper.a
+```
+
+The shaper's HarfBuzz objects reference SkUnicode, which builds as
+two more archives (as skshaper dependencies) and must join the fat
+merge in §6 — without them the app link fails on SkUnicode symbols:
+
+```
+ls out/niello-<platform>/libskunicode_core.a out/niello-<platform>/libskunicode_icu.a
 ```
 
 If the `modules/skshaper` target is unknown to ninja, a GN condition
 excluded it — check the effective `skia_use_harfbuzz` /
 `skia_use_system_harfbuzz` values (`bin/gn args out/niello-<platform> --list`) and the module's
 `BUILD.gn` / `skia_enable_skshaper` rather than guessing at flags. Do
-not ship a release whose `nui_measure_word` would link-fail.
+not ship a release whose text path would link-fail.
 
 ## 4. Build commands
 
@@ -230,7 +240,7 @@ testbed links `dawn_combined`, so after ninja finishes, enumerate the
 archives to merge:
 
 ```sh
-ls out/niello-<platform>/*.a   # expect libskia.a, libdawn_combined.a, libskshaper.a, libskcms.a, libwuffs.a
+ls out/niello-<platform>/*.a   # expect libskia.a, libdawn_combined.a, libskshaper.a, libskcms.a, libwuffs.a, libskunicode_core.a, libskunicode_icu.a
 ```
 
 Record the Skia revision next to each release for reproducibility:
@@ -260,7 +270,7 @@ this shape; the release variant passes `-DNIELLO_SKIA_OUT=niello-<platform>`
 
 ## 6. Merge into one fat archive
 
-Merge `libskia.a` + `libdawn_combined.a` + `libskshaper.a` + `libharfbuzz.a` (+ any sibling Dawn archives from
+Merge `libskia.a` + `libdawn_combined.a` + `libskshaper.a` + `libharfbuzz.a` + `libskunicode_core.a` + `libskunicode_icu.a` (+ any sibling Dawn archives from
 §4) + `libnui_native.a` into a single archive so downstream links exactly
 one native lib plus system libs (SDL3, Vulkan, Freetype, Fontconfig,
 Threads).
@@ -274,6 +284,8 @@ Threads).
   ADDLIB out/niello-linux-x64/libdawn_combined.a
   ADDLIB out/niello-linux-x64/libskshaper.a
   ADDLIB out/niello-linux-x64/libharfbuzz.a
+  ADDLIB out/niello-linux-x64/libskunicode_core.a
+  ADDLIB out/niello-linux-x64/libskunicode_icu.a
   ADDLIB <nui_native build dir>/libnui_native.a
   SAVE
   END
@@ -289,6 +301,8 @@ Threads).
     out/niello-macos-arm64/libdawn_combined.a \
     out/niello-macos-arm64/libskshaper.a \
     out/niello-macos-arm64/libharfbuzz.a \
+    out/niello-macos-arm64/libskunicode_core.a \
+    out/niello-macos-arm64/libskunicode_icu.a \
     <nui_native build dir>/libnui_native.a
   ```
 
@@ -299,6 +313,8 @@ Threads).
     out\niello-windows-x64\dawn_combined.lib ^
     out\niello-windows-x64\skshaper.lib ^
     out\niello-windows-x64\harfbuzz.lib ^
+    out\niello-windows-x64\skunicode_core.lib ^
+    out\niello-windows-x64\skunicode_icu.lib ^
     <nui_native build dir>\nui_native.lib
   ```
 

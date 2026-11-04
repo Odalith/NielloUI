@@ -18,8 +18,6 @@ Lay :: struct {
 	size:    Vec2, // resolved size
 	pos:     Vec2, // resolved top-left
 	overfl:  Vec2, // content extent beyond bounds, per axis
-	tight:   [2]bool,
-	gen:     u32, // layout-generation stamp (debug size-read discipline)
 }
 
 X_AXIS, Y_AXIS :: 0, 1
@@ -188,10 +186,8 @@ ceil_of :: proc(c: int, axis: int) -> f32 {
 	return node_style(c).size[axis].max
 }
 
-set_size :: proc(c: int, axis: int, v: f32, tight: bool) {
+set_size :: proc(c: int, axis: int, v: f32) {
 	g.lay[c].size[axis] = v
-	g.lay[c].tight[axis] = tight
-	g.lay[c].gen = g.layout_gen
 }
 
 // ---------------------------------------------------------------------------
@@ -372,9 +368,9 @@ resolve_cross :: proc(c: int, axis: int, inner: f32) {
 	sz := node_style(c).size[axis]
 	switch sz.kind {
 	case .Fixed:
-		set_size(c, axis, clamp(sz.value, sz.min, sz.max), true)
+		set_size(c, axis, clamp(sz.value, sz.min, sz.max))
 	case .Percent:
-		set_size(c, axis, clamp(sz.value * inner, sz.min, sz.max), true)
+		set_size(c, axis, clamp(sz.value * inner, sz.min, sz.max))
 	case .Fit:
 		// FIT grants content, bounded by the space the parent offers — the
 		// cross-axis mirror of the main axis's waterfill bound. Without the
@@ -390,9 +386,9 @@ resolve_cross :: proc(c: int, axis: int, inner: f32) {
 			v = min(v, inner)
 		}
 		v = max(v, floor_of(c, axis))
-		set_size(c, axis, clamp(v, sz.min, sz.max), false)
+		set_size(c, axis, clamp(v, sz.min, sz.max))
 	case .Grow:
-		set_size(c, axis, clamp(inner, sz.min, sz.max), true)
+		set_size(c, axis, clamp(inner, sz.min, sz.max))
 	}
 }
 
@@ -413,7 +409,6 @@ waterfill_give :: proc(cands: []int, axis: int, amount: f32) {
 			if g.lay[c].size[axis] + share >= ceil {
 				remaining -= ceil - g.lay[c].size[axis]
 				g.lay[c].size[axis] = ceil
-				g.lay[c].gen = g.layout_gen
 				// swap-remove (order is irrelevant to the waterfill)
 				active[j] = active[len(active) - 1]
 				active = active[:len(active) - 1]
@@ -423,7 +418,6 @@ waterfill_give :: proc(cands: []int, axis: int, amount: f32) {
 		if !clamped {
 			for c in active {
 				g.lay[c].size[axis] += share
-				g.lay[c].gen = g.layout_gen
 			}
 			break
 		}
@@ -445,7 +439,6 @@ waterfill_take :: proc(cands: []int, axis: int, deficit: f32) {
 			if g.lay[c].size[axis] - share <= floor {
 				remaining -= g.lay[c].size[axis] - floor
 				g.lay[c].size[axis] = floor
-				g.lay[c].gen = g.layout_gen
 				// swap-remove (order is irrelevant to the waterfill)
 				active[j] = active[len(active) - 1]
 				active = active[:len(active) - 1]
@@ -455,7 +448,6 @@ waterfill_take :: proc(cands: []int, axis: int, deficit: f32) {
 		if !clamped {
 			for c in active {
 				g.lay[c].size[axis] -= share
-				g.lay[c].gen = g.layout_gen
 			}
 			break
 		}
@@ -492,15 +484,15 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 		switch sz.kind {
 		case .Fixed:
 			v := clamp(sz.value, sz.min, sz.max)
-			set_size(c, axis, v, true)
+			set_size(c, axis, v)
 			committed += v
 		case .Percent:
 			v := clamp(sz.value * inner, sz.min, sz.max)
-			set_size(c, axis, v, true)
+			set_size(c, axis, v)
 			committed += v
 		case .Fit:
 			v := clamp(g.lay[c].content[axis], sz.min, sz.max)
-			set_size(c, axis, v, false)
+			set_size(c, axis, v)
 			committed += v
 			append(shrinkables, c)
 		case .Grow:
@@ -509,12 +501,12 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 				// (parent sizes to children, child wants parent's leftovers).
 				// Documented fallback: behave as FIT.
 				v := clamp(g.lay[c].content[axis], sz.min, sz.max)
-				set_size(c, axis, v, false)
+				set_size(c, axis, v)
 				committed += v
 				append(shrinkables, c)
 			} else {
 				v := clamp(g.lay[c].content[axis], sz.min, sz.max)
-				set_size(c, axis, v, false)
+				set_size(c, axis, v)
 				committed += v
 				append(growers, c)
 				append(shrinkables, c)
@@ -727,7 +719,6 @@ position_and_damage :: proc() {
 				}
 			}
 			g.lay[c].pos = p
-			g.lay[c].gen = g.layout_gen
 			if s.layout != .Stack && !anchored {
 				cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
 			}
@@ -926,5 +917,4 @@ layout_pass :: proc(viewport: Vec2) {
 	accumulate(Y_AXIS) // D
 	distribute(Y_AXIS, viewport.y) // E
 	position_and_damage() // F
-	g.layout_gen += 1
 }

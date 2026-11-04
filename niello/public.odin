@@ -791,7 +791,6 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	if decl.focus != NO_UNIT    { rec.focus = decl.focus }
 	if decl.disabled != NO_UNIT { rec.disabled = decl.disabled }
 	rec.focusable = decl.focusable
-	if decl.groups != nil       { rec.groups = decl.groups }
 
 	fields := explicit_fields(decl)
 	if fields != {} {
@@ -1001,12 +1000,9 @@ dismiss_requested :: proc(i: Instance) -> bool {
 // damage. Apps create one context per window and hand it to the
 // glue (sdl.run(ctx, …)); there is no default context.
 
-// context_create makes a context with no tree yet. It consumes
-// the store's write journal from the current end: a fresh context
-// has no instances, so it has nothing to catch up on.
+// context_create makes a context with no tree yet.
 context_create :: proc() -> ^Context {
 	ctx := new(Context)
-	ctx.journal_cursor = len(store.journal)
 	append(&store.contexts, ctx)
 	return ctx
 }
@@ -1029,7 +1025,6 @@ context_destroy :: proc(ctx: ^Context) {
 	}
 	free_context(ctx)
 	free(ctx)
-	journal_gc() // a departed consumer may unblock retirement
 }
 
 // set_current binds the context that declare-time procs operate
@@ -1176,27 +1171,18 @@ frame_end :: proc() -> Frame_Result {
 			g.modal_prev_id = top_modal
 		}
 	}
-	// Interaction-driven restyles don't pass through the declaration diff:
-	// the affected instances' committed rects are the damage. (A restyle
-	// that changed layout already damaged old ∪ new in pass F.)
-	if g.input_dirty {
-		for id in g.affected {
-			if rec, ok := g.instances[id]; ok {
-				append(&g.damage, rec.rect)
-			}
-		}
-		g.input_dirty = false
-	}
-	// Journal consumption is O(writes since this context's last
-	// frame), not O(units) — §8. Dirty bitsets clear inside
-	// journal_gc once every live context has consumed (§8, M1).
-	// Debug snapshot (TODO #18): after the commit, before the
-	// journal settles — a no-op unless built with NIELLO_DEBUG.
+	// Interaction-driven restyles need no damage route of their
+	// own: dispatch runs at frame_begin, so an overlay-driven
+	// restyle resolves in the same frame's declare and pass F's
+	// stamp comparison damages it (verified across the interaction
+	// suite, audit int-15 — the old affected/input_dirty route
+	// only ever duplicated that damage or added spurious rects).
+	// Debug snapshot (TODO #18): after the commit — a no-op
+	// unless built with NIELLO_DEBUG.
 	debug_snapshot_build()
 	// Accessibility mirror (§3.9, TODO #23): same position, but
 	// UNGATED — screen readers are prod behavior.
 	a11y_mirror_build()
-	journal_consume()
 	update_animation_wake()
 	// Debug channel transitions (TODO #18): a highlight or tint
 	// aimed at this context changes the presented pixels without
@@ -1437,7 +1423,7 @@ focus_prev :: proc() {
 // Text routes to the instance that held focus at dispatch, and only
 // to it. Declare-scoped: read it during declare, like clicked.
 input_text :: proc(i: Instance) -> string {
-	if i == 0 || i != g.text_target || len(g.frame_text) == 0 {
+	if i == 0 || i != g.input_target || len(g.frame_text) == 0 {
 		return ""
 	}
 	return string(g.frame_text[:])
@@ -1450,7 +1436,7 @@ input_text :: proc(i: Instance) -> string {
 // it before calling again.
 input_keys :: proc(i: Instance) -> []Key_Event {
 	clear(&g.keys_scratch)
-	if i == 0 || i != g.keys_target {
+	if i == 0 || i != g.input_target {
 		return g.keys_scratch[:]
 	}
 	for k in 0 ..< g.frame_key_count {

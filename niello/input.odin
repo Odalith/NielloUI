@@ -77,16 +77,6 @@ chain_contains :: proc(chain: []Instance, id: Instance) -> bool {
 	return false
 }
 
-// note_affected records an instance whose resolved style may change because
-// of a state transition; frame_end damages its rect and forces the frame.
-@(private)
-note_affected :: proc(id: Instance) {
-	if id != 0 {
-		append(&g.affected, id)
-		g.input_dirty = true
-	}
-}
-
 // DRAG_THRESHOLD is the displacement from the grab point, in DIP, at
 // which a left press becomes a drag (§3.28; an engine feel constant
 // like WHEEL_UNIT_PX, ruled 2026-10-23).
@@ -103,7 +93,6 @@ end_drag :: proc(completed: bool) {
 	g.drag_ended_completed = completed
 	g.drag_ended_total = g.drag_total_v
 	g.drag_active = false
-	note_affected(g.drag_ended_id)
 }
 
 // instance_in_tree reports whether id is a node of the tree dispatch
@@ -227,11 +216,8 @@ set_focus_id :: proc(i: Instance) {
 	if i == g.focus_id {
 		return
 	}
-	note_affected(g.focus_id)
 	g.focus_id = i
-	note_affected(i)
 	if g.key_press_id != 0 && g.key_press_id != i {
-		note_affected(g.key_press_id)
 		g.key_press_id = 0
 		clear(&g.key_press_chain)
 	}
@@ -335,7 +321,6 @@ key_press_begin :: proc(code: u32) {
 			g.key_press_chain[k] = g.nodes[c].identity
 			k -= 1
 		}
-		note_affected(g.key_press_id)
 		return
 	}
 }
@@ -349,12 +334,10 @@ key_press_end :: proc(code: u32) {
 		return
 	}
 	id := g.key_press_id
-	note_affected(id)
 	g.key_press_id = 0
 	if g.focus_id == id {
 		for idx in 0 ..< len(g.nodes) {
 			if g.nodes[idx].identity == id && key_press_target(idx) {
-				g.clicked_id = id
 				clear(&g.clicked_chain)
 				append(&g.clicked_chain, ..g.key_press_chain[:])
 				break
@@ -386,12 +369,10 @@ dispatch_keys :: proc(input: Input) {
 		// none anyway), and a held key-press cannot complete across
 		// the loss.
 		if g.key_press_id != 0 {
-			note_affected(g.key_press_id)
 			g.key_press_id = 0
 			clear(&g.key_press_chain)
 		}
-		g.keys_target = 0
-		g.text_target = 0
+		g.input_target = 0
 		return
 	}
 
@@ -430,8 +411,7 @@ dispatch_keys :: proc(input: Input) {
 			}
 		}
 	}
-	g.keys_target = g.focus_id
-	g.text_target = g.focus_id
+	g.input_target = g.focus_id
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +425,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	g.pointer_valid = input.mouse_valid
 	// clicked answers for exactly one declare: the one following the
 	// dispatch that produced it. Consumed or not, it ends here.
-	g.clicked_id = 0
 	clear(&g.clicked_chain)
 	// Drag edges live for one declare too (§3.28).
 	g.drag_started_flag = false
@@ -456,7 +435,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	if input.mouse_valid && g.prev_pointer_valid {
 		g.drag_delta_v = input.mouse - g.prev_pointer_pos
 	}
-	clear(&g.affected)
 	// Dismissal requests (§3.19) live for one declare, like clicks.
 	if g.dismiss_flags != nil {
 		clear(&g.dismiss_flags)
@@ -472,7 +450,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		}
 		for b in Mouse_Button {
 			if g.press_ids[b] != 0 {
-				note_affected(g.press_ids[b])
 				g.press_ids[b] = 0
 				clear(&g.press_chains[b])
 			}
@@ -490,12 +467,9 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			end_drag(false)
 		}
 		g.prev_pointer_valid = false
-		note_affected(g.hover_id)
-		g.hover_id = 0
 		clear(&g.hover_chain)
 		clear(&g.hover_since)
 		for b in Mouse_Button {
-			note_affected(g.press_ids[b])
 			g.press_ids[b] = 0
 			clear(&g.press_chains[b])
 		}
@@ -506,7 +480,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// dies with it — a vanished target completes no click either.
 	if g.drag_active && !instance_in_tree(g.press_ids[.Left]) {
 		end_drag(false)
-		note_affected(g.press_ids[.Left])
 		g.press_ids[.Left] = 0
 		clear(&g.press_chains[.Left])
 	}
@@ -605,10 +578,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	if g.hover_since == nil {
 		g.hover_since = make(map[Instance]f32)
 	}
-	new_hover := Instance(0)
-	if hover_len > 0 {
-		new_hover = g.nodes[chain_idx[hover_len - 1]].identity
-	}
 	for id in g.hover_chain {
 		stays := false
 		for k in 0 ..< hover_len {
@@ -628,11 +597,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		if _, ok := g.hover_since[id]; !ok {
 			g.hover_since[id] = g.hover_clock
 		}
-	}
-	if new_hover != g.hover_id {
-		note_affected(g.hover_id)
-		note_affected(new_hover)
-		g.hover_id = new_hover
 	}
 
 	// Click-to-focus: a left press focuses the deepest focusable
@@ -666,7 +630,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		   DRAG_THRESHOLD * DRAG_THRESHOLD {
 			g.drag_active = true
 			g.drag_started_flag = true
-			note_affected(g.press_ids[.Left])
 		}
 	}
 
@@ -683,12 +646,10 @@ dispatch_input :: proc(input: Input, dt: f32) {
 				g.drag_grab = input.mouse
 				g.drag_total_v = Vec2{}
 			}
-			note_affected(g.press_ids[b])
 		}
 		if b in input.buttons_released {
 			target := g.press_ids[b]
 			if target != 0 {
-				note_affected(target)
 				if b == .Left && g.drag_active {
 					// Orthogonal (2026-10-24, supersedes F1): a
 					// drag's release completes the drag, and the
@@ -718,7 +679,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 						}
 					}
 					if len(g.clicked_chain) > 0 {
-						g.clicked_id = g.clicked_chain[len(g.clicked_chain)-1]
 					}
 				}
 				g.press_ids[b] = 0
@@ -1022,11 +982,12 @@ copy_field :: proc(dst, src: ^Style, f: Field) {
 // control becomes disabled.
 @(private)
 current_cursor :: proc() -> Cursor_Kind {
-	if g.hover_id == 0 {
+	hover_id := len(g.hover_chain) > 0 ? g.hover_chain[len(g.hover_chain) - 1] : Instance(0)
+	if hover_id == 0 {
 		return .Arrow
 	}
 	for i in 0 ..< len(g.nodes) {
-		if g.nodes[i].identity == g.hover_id {
+		if g.nodes[i].identity == hover_id {
 			if i < len(g.disabled_flags) && g.disabled_flags[i] {
 				rec := &store.units[int(g.nodes[i].unit)]
 				if rec.disabled != NO_UNIT {

@@ -43,6 +43,8 @@
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTextBlob.h"
+
+#include "modules/skshaper/include/SkShaper.h"
 #include "include/core/SkTypeface.h"
 
 #include "gpu/graphite/BackendTexture.h"
@@ -163,6 +165,7 @@ struct Shared {
     std::unique_ptr<skgpu::graphite::Recorder> recorder;
 
     sk_sp<SkFontMgr> fontMgr;
+    std::unique_ptr<SkShaper> shaper;
     std::unordered_map<uint32_t, FontFamily> families;
     std::unordered_map<FontKey, SkFont, FontKeyHash> fonts;
     std::unordered_map<uint32_t, ImageEntry> images;
@@ -333,6 +336,79 @@ SkFontMgr* GetFontMgr() {
         if (!g.fontMgr) Log("could not create platform font manager");
     }
     return g.fontMgr.get();
+}
+
+// GetShaper lazily builds the process-wide text shaper
+// (SkShaper::Make over the platform font manager: the
+// HarfBuzz-backed shaper in this build configuration — see
+// tools/build-native.md §3). The manager is the fallback for
+// runs the resolved font cannot cover.
+SkShaper* GetShaper() {
+    if (!g.shaper) {
+        auto* manager = GetFontMgr();
+        if (!manager) return nullptr;
+        g.shaper = SkShaper::Make(sk_ref_sp(manager));
+        if (!g.shaper) Log("could not create text shaper");
+    }
+    return g.shaper.get();
+}
+
+// AdvanceHandler sums the shaped advance of a fragment without
+// building a blob: RunInfo.fAdvance is the only trustworthy
+// width a RunHandler ever sees. (SkTextBlobBuilderRunHandler's
+// endPoint() is NOT one: its fOffset advances only vertically,
+// line to line — endPoint().x() is the caller's own offset back.)
+class AdvanceHandler final : public SkShaper::RunHandler {
+public:
+    float advance = 0;
+
+    void beginLine() override {}
+    void runInfo(const RunInfo& info) override { advance += info.fAdvance.x(); }
+    void commitRunInfo() override {}
+    Buffer runBuffer(const RunInfo& info) override {
+        glyphs.assign(info.glyphCount, 0);
+        positions.assign(info.glyphCount, SkPoint::Make(0, 0));
+        clusters.assign(info.glyphCount, 0);
+        return {glyphs.data(), positions.data(), nullptr, clusters.data(),
+                SkPoint::Make(0, 0)};
+    }
+    void commitRunBuffer(const RunInfo&) override {}
+    void commitLine() override {}
+
+private:
+    std::vector<SkGlyphID> glyphs;
+    std::vector<SkPoint> positions;
+    std::vector<uint32_t> clusters;
+};
+
+// Fragments are the engine's shaping boundary: the Odin word
+// cache measures fragments and the draw stream emits them, so
+// measured == drawn holds per fragment, kerning and ligatures
+// included (audit X-3). The shaper sees the fragment as one
+// LTR paragraph; embedded bidirectional runs are reordered by
+// the shaper's bidi pass.
+bool MeasureAdvance(const SkFont& font, const char* text, size_t length,
+                    float* out) {
+    auto* shaper = GetShaper();
+    if (!shaper || length == 0) return false;
+    AdvanceHandler handler;
+    shaper->shape(text, length, font, true, SK_ScalarInfinity, &handler);
+    *out = handler.advance;
+    return std::isfinite(*out);
+}
+
+// ShapeText shapes one fragment into a blob. The blob's glyph
+// positions are relative to the LINE TOP (the blob handler
+// bakes the line's ascent into its run positions), so callers
+// draw it at the text rect's top, not at a baseline.
+bool ShapeText(const SkFont& font, const char* text, size_t length,
+               sk_sp<SkTextBlob>* out) {
+    auto* shaper = GetShaper();
+    if (!shaper || length == 0) return false;
+    SkTextBlobBuilderRunHandler handler(text, SkPoint::Make(0, 0));
+    shaper->shape(text, length, font, true, SK_ScalarInfinity, &handler);
+    *out = handler.makeBlob();
+    return *out != nullptr;
 }
 
 bool FontSizeValid(float size) {
@@ -622,29 +698,34 @@ void DrawText(SkCanvas* canvas, const UiDrawCmd& command) {
     std::string owned;
 
     if (command.truncated) {
-        const float fullWidth =
-            font->measureText(text, length, SkTextEncoding::kUTF8);
-        if (!std::isfinite(fullWidth)) return;
+        float fullAdvance = 0;
+        if (!MeasureAdvance(*font, text, length, &fullAdvance)) return;
 
-        if (fullWidth > command.max_width) {
+        if (fullAdvance > command.max_width) {
+            // Cut at a UTF-8 boundary: binary search for the widest
+            // prefix whose SHAPED form (prefix + ellipsis, shaped as
+            // one run, so the cut point takes its final forms) fits.
             constexpr char ellipsis[] = "\xE2\x80\xA6";
-            const float ellipsisWidth =
-                font->measureText(ellipsis, 3, SkTextEncoding::kUTF8);
-            if (!std::isfinite(ellipsisWidth) ||
-                ellipsisWidth > command.max_width) return;
 
             std::vector<size_t> boundaries;
             if (!Utf8(command.text_ptr, command.text_len, &boundaries)) return;
 
-            const float available = command.max_width - ellipsisWidth;
+            auto fits = [&](size_t boundary) {
+                std::string candidate(text, boundary);
+                candidate.append(ellipsis, 3);
+                float advance = 0;
+                return MeasureAdvance(*font, candidate.data(), candidate.size(),
+                                      &advance) &&
+                       advance <= command.max_width;
+            };
+
+            if (!fits(0)) return; // the ellipsis alone is too wide
+
             size_t low = 0;
             size_t high = boundaries.size() - 1;
-
             while (low < high) {
                 const size_t middle = low + (high - low + 1) / 2;
-                const float measured = font->measureText(
-                    text, boundaries[middle], SkTextEncoding::kUTF8);
-                if (std::isfinite(measured) && measured <= available) {
+                if (fits(boundaries[middle])) {
                     low = middle;
                 } else {
                     high = middle - 1;
@@ -658,20 +739,16 @@ void DrawText(SkCanvas* canvas, const UiDrawCmd& command) {
         }
     }
 
-    SkFontMetrics metrics;
-    font->getMetrics(&metrics);
-    const float baseline = command.bounds_y - metrics.fAscent;
-    if (!std::isfinite(baseline)) return;
+    sk_sp<SkTextBlob> blob;
+    if (!ShapeText(*font, text, length, &blob)) return;
 
     SkPaint paint;
     paint.setAntiAlias(true);
     paint.setColor(Color(command.color));
 
-    auto blob = SkTextBlob::MakeFromText(
-        text, length, *font, SkTextEncoding::kUTF8);
-    if (blob) {
-        canvas->drawTextBlob(blob.get(), command.bounds_x, baseline, paint);
-    }
+    // The shaped blob's positions are line-top relative (see
+    // ShapeText): bounds_y is the text rect's top.
+    canvas->drawTextBlob(blob.get(), command.bounds_x, command.bounds_y, paint);
 }
 
 void Replay(SkCanvas* canvas, const UiDrawCmd* commands,
@@ -934,6 +1011,7 @@ void ResetShared() {
     g.rasterBytes = 0;
     g.fonts.clear();
     g.families.clear();
+    g.shaper.reset();
     g.fontMgr.reset();
     g.recorder.reset();
     g.context.reset();
@@ -1319,9 +1397,14 @@ float nui_measure_word(uint32_t family, int32_t weight, int32_t slant,
         auto* font = ResolveFont(family, weight, slant, size);
         if (!font) return 0.0f;
 
-        const float width = font->measureText(
-            text, static_cast<size_t>(length), SkTextEncoding::kUTF8);
-        return std::isfinite(width) ? width : 0.0f;
+        // Measured through the shaper, exactly as DrawText draws:
+        // the Odin word cache's fragment width is the drawn width.
+        float advance = 0;
+        if (!MeasureAdvance(*font, reinterpret_cast<const char*>(text),
+                            static_cast<size_t>(length), &advance)) {
+            return 0.0f;
+        }
+        return advance;
     });
 }
 
