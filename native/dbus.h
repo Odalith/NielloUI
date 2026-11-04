@@ -22,6 +22,7 @@
 // variable until the dispatch thread routes the reply.
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -206,7 +207,14 @@ public:
 private:
 	int fd_ = -1;
 	std::string unique_name_;
-	uint32_t next_serial_ = 1;
+	// Atomic (audit a11y-H6): serials are minted from call()
+	// under pending_mu_ and from the send paths under write_mu_
+	// — one plain counter under two locks handed out duplicate
+	// serials, and replies key purely on the serial.
+	std::atomic<uint32_t> next_serial_{1};
+	// Mints the next message serial; never returns 0 (invalid
+	// on the wire, reachable after a 2^32 wrap).
+	uint32_t next_serial();
 	std::vector<uint8_t> inbuf_;
 	size_t inbuf_off_ = 0;
 

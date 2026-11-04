@@ -600,6 +600,16 @@ bool parse_address(const char *address, bool &abstract, std::string &name) {
 }
 }
 
+uint32_t Conn::next_serial() {
+	uint32_t s = next_serial_.fetch_add(1, std::memory_order_relaxed);
+	if (s == 0) {
+		// The counter wrapped: 0 appeared exactly once, so one
+		// more fetch cannot return it again.
+		s = next_serial_.fetch_add(1, std::memory_order_relaxed);
+	}
+	return s;
+}
+
 bool Conn::send_locked(const std::vector<uint8_t> &bytes) {
 	if (fd_ < 0) {
 		return false;
@@ -767,7 +777,7 @@ bool Conn::connect(const char *address) {
 	// Hello, exchanged synchronously: no dispatch thread yet.
 	{
 		Writer body;
-		uint32_t serial = next_serial_++;
+		uint32_t serial = next_serial();
 		auto bytes = encode_message(MSG_CALL, "/org/freedesktop/DBus",
 		                            "org.freedesktop.DBus", "Hello",
 		                            "org.freedesktop.DBus", serial, 0, "", "",
@@ -918,7 +928,7 @@ uint32_t Conn::send_call(const std::string &path, const std::string &interface,
                          const std::string &body_sig,
                          const std::vector<uint8_t> &body) {
 	std::lock_guard<std::mutex> lock(write_mu_);
-	uint32_t serial = next_serial_++;
+	uint32_t serial = next_serial();
 	auto bytes = encode_message(MSG_CALL, path, interface, member, destination,
 	                            serial, 0, "", body_sig, body);
 	if (!send_locked(bytes)) {
@@ -940,7 +950,7 @@ bool Conn::call(const std::string &path, const std::string &interface,
 	uint32_t serial;
 	{
 		std::lock_guard<std::mutex> lock(pending_mu_);
-		serial = next_serial_++;
+		serial = next_serial();
 		pending_.emplace(serial, Pending{});
 	}
 	bool sent;
@@ -989,7 +999,7 @@ bool Conn::send_signal(const std::string &path, const std::string &interface,
                        const std::string &member, const std::string &body_sig,
                        const std::vector<uint8_t> &body) {
 	std::lock_guard<std::mutex> lock(write_mu_);
-	uint32_t serial = next_serial_++;
+	uint32_t serial = next_serial();
 	auto bytes = encode_message(MSG_SIGNAL, path, interface, member, "", serial,
 	                            0, "", body_sig, body);
 	return send_locked(bytes);
@@ -998,7 +1008,7 @@ bool Conn::send_signal(const std::string &path, const std::string &interface,
 bool Conn::send_return(const Message &call, const std::string &body_sig,
                        const std::vector<uint8_t> &body) {
 	std::lock_guard<std::mutex> lock(write_mu_);
-	uint32_t serial = next_serial_++;
+	uint32_t serial = next_serial();
 	auto bytes = encode_message(MSG_RETURN, "", "", "", call.sender, serial,
 	                            call.serial, "", body_sig, body);
 	return send_locked(bytes);
@@ -1009,7 +1019,7 @@ bool Conn::send_error(const Message &call, const std::string &error_name,
 	Writer body;
 	body.str(message);
 	std::lock_guard<std::mutex> lock(write_mu_);
-	uint32_t serial = next_serial_++;
+	uint32_t serial = next_serial();
 	auto bytes = encode_message(MSG_ERROR, "", "", "", call.sender, serial,
 	                            call.serial, error_name, "s", body.buf);
 	return send_locked(bytes);
