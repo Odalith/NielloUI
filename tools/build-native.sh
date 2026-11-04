@@ -22,7 +22,17 @@ DIST="$ROOT/dist"
 mkdir -p "$WORK" "$DIST"
 
 REV="$(git -C "$SKIA_DIR" rev-parse HEAD)"
-echo "build-native: skia rev $REV"
+# The pin is the provenance contract (audit ci-B7): a build at any
+# other rev produces a valid-looking zip from the wrong sources,
+# and CI already enforces this — fail here too, before the
+# 30-90 minute build, not after it.
+PINNED="$(tr -d '[:space:]' < "$ROOT/tools/skia-rev.txt")"
+if [ "$REV" != "$PINNED" ]; then
+  echo "build-native: error: Skia checkout is at $REV, but tools/skia-rev.txt pins $PINNED" >&2
+  echo "build-native: fix with: git -C \"$SKIA_DIR\" checkout $PINNED && (cd \"$SKIA_DIR\" && python3 tools/git-sync-deps)" >&2
+  exit 1
+fi
+echo "build-native: skia rev $REV (matches tools/skia-rev.txt)"
 
 # 1. Configure + build Skia with Dawn/Graphite — the ruled
 #    linux-x64 args (F1b/F4; build-native.md §2). Deliberately
