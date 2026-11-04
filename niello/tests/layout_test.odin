@@ -475,12 +475,11 @@ test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	testing.expect(t, niello.style_of(child).gap == 8, "prototype write does not propagate")
 	testing.expect(t, niello.style_of(proto).gap == 99, "prototype write lands")
 
-	// niello.set writes one field and bumps the generation.
-	gen_before := niello.test_generation()
+	// niello.set writes one field and bumps the visual generation.
+	gen_before := niello.test_visual_gen(child)
 	niello.set(child, .Gap, u16(4))
 	testing.expect(t, niello.style_of(child).gap == 4, "niello.set writes the field")
-	testing.expect(t, niello.test_generation() == gen_before+1, "niello.set bumps the generation")
-	testing.expect(t, .Gap in niello.test_dirty(child), "niello.set marks the field dirty")
+	testing.expect(t, niello.test_visual_gen(child) == gen_before+1, "niello.set bumps the visual generation")
 
 	// niello.key() gives stable, distinct identities.
 	testing.expect(t, niello.key(7) == niello.key(7), "int keys stable")
@@ -488,11 +487,16 @@ test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	testing.expect(t, niello.key(7) != niello.key(8), "distinct keys distinct")
 	testing.expect(t, niello.key(0) == 0, "zero niello.key means sibling ordinal")
 
-	// niello.frame_end clears dirty sets O(touched).
+	// The write damages exactly the frame that commits it; the
+	// next frame, with no writes, settles.
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if _, ok := niello.begin(child); ok {}
-	_ = niello.frame_end()
-	testing.expect(t, card(niello.test_dirty(child)) == 0, "dirty cleared at niello.frame_end")
+	res := niello.frame_end()
+	testing.expect(t, res.changed, "the write damages the frame that commits it")
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
+	if _, ok := niello.begin(child); ok {}
+	res = niello.frame_end()
+	testing.expect(t, !res.changed, "a frame with no writes is unchanged")
 }
 
 // ---------------------------------------------------------------------------
@@ -713,8 +717,8 @@ test_borders_and_overlays :: proc(t: ^testing.T) {
 	testing.expect(t, sv.overlay_border_color == {0, 255, 0, 255}, "minted overlay_border_color")
 	testing.expect(t, sv.overlay_border_width == 1, "minted overlay_border_width")
 
-	// set() path, including generation bump and dirty tracking.
-	gen0 := niello.test_generation()
+	// set() path, including the visual-generation bump.
+	gen0 := niello.test_visual_gen(v)
 	niello.set(v, .Border_Width, u16(3))
 	niello.set(v, .Overlay_Color, [4]u8{0, 0, 255, 200})
 	niello.set(v, .Overlay_Border_Color, [4]u8{255, 255, 0, 255})
@@ -726,21 +730,8 @@ test_borders_and_overlays :: proc(t: ^testing.T) {
 	testing.expect(t, sv.overlay_border_width == 4, "set overlay_border_width")
 	testing.expect(
 		t,
-		niello.test_generation() == gen0 + 4,
-		"each set bumps the generation",
-	)
-	dirty := niello.test_dirty(v)
-	testing.expect(t, .Border_Width in dirty, "dirty tracks Border_Width")
-	testing.expect(t, .Overlay_Color in dirty, "dirty tracks Overlay_Color")
-	testing.expect(
-		t,
-		.Overlay_Border_Color in dirty,
-		"dirty tracks Overlay_Border_Color",
-	)
-	testing.expect(
-		t,
-		.Overlay_Border_Width in dirty,
-		"dirty tracks Overlay_Border_Width",
+		niello.test_visual_gen(v) == gen0 + 4,
+		"each set bumps the visual generation",
 	)
 }
 

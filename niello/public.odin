@@ -1001,12 +1001,9 @@ dismiss_requested :: proc(i: Instance) -> bool {
 // damage. Apps create one context per window and hand it to the
 // glue (sdl.run(ctx, …)); there is no default context.
 
-// context_create makes a context with no tree yet. It consumes
-// the store's write journal from the current end: a fresh context
-// has no instances, so it has nothing to catch up on.
+// context_create makes a context with no tree yet.
 context_create :: proc() -> ^Context {
 	ctx := new(Context)
-	ctx.journal_cursor = len(store.journal)
 	append(&store.contexts, ctx)
 	return ctx
 }
@@ -1029,7 +1026,6 @@ context_destroy :: proc(ctx: ^Context) {
 	}
 	free_context(ctx)
 	free(ctx)
-	journal_gc() // a departed consumer may unblock retirement
 }
 
 // set_current binds the context that declare-time procs operate
@@ -1187,16 +1183,12 @@ frame_end :: proc() -> Frame_Result {
 		}
 		g.input_dirty = false
 	}
-	// Journal consumption is O(writes since this context's last
-	// frame), not O(units) — §8. Dirty bitsets clear inside
-	// journal_gc once every live context has consumed (§8, M1).
-	// Debug snapshot (TODO #18): after the commit, before the
-	// journal settles — a no-op unless built with NIELLO_DEBUG.
+	// Debug snapshot (TODO #18): after the commit — a no-op
+	// unless built with NIELLO_DEBUG.
 	debug_snapshot_build()
 	// Accessibility mirror (§3.9, TODO #23): same position, but
 	// UNGATED — screen readers are prod behavior.
 	a11y_mirror_build()
-	journal_consume()
 	update_animation_wake()
 	// Debug channel transitions (TODO #18): a highlight or tint
 	// aimed at this context changes the presented pixels without

@@ -21,7 +21,6 @@ Unit_Rec :: struct {
 	explicit: Fields, // fields set directly at mint (for propagate)
 	proto:    Unit,   // prototype unit, NO_UNIT if none
 	pinned:   Fields, // fields protected from group writes (pin)
-	dirty:    Fields, // fields written since last frame_end
 
 	// Warm: read when resolving interaction state (overlays not yet applied).
 	hover, press, focus, disabled: Unit,
@@ -59,20 +58,15 @@ Store :: struct {
 	units:  [dynamic]Unit_Rec,
 	groups: [dynamic]Group_Rec,
 
-	// Change tracking (§8): a global generation bumped by every
-	// set/set_many, per-unit dirty bitsets, and the write JOURNAL:
-	// every unit dirtied since the last journal GC, in order. Each
-	// Context consumes the journal from its own cursor at frame_end;
-	// a unit's dirty bitset clears only once EVERY live context has
-	// consumed its entry (journal_gc) — so a slow window never loses
-	// a change notice to a fast one. (Was `touched`, one global
-	// list cleared by the only frame_end there was.)
-	gen:     u64,
-	journal: [dynamic]Unit,
+	// Change tracking is the stamp system (§3.26): each unit's
+	// visual generation (Unit_Rec.gen) plus the declare-time
+	// digest decide all damage in pass F. There is no write
+	// journal — an earlier design kept one alongside the stamps;
+	// nothing read it outside tests, and a context that never
+	// framed pinned it forever (audit X-1).
 
-	// Live contexts, in creation order: the journal GC reads their
-	// cursors, and tween() cancels a unit's tweens across all of
-	// them (animate.odin).
+	// Live contexts, in creation order: tween() cancels a unit's
+	// tweens across all of them (animate.odin).
 	contexts: [dynamic]^Context,
 
 	// Debug tooling state (TODO #18, debug.odin): the highlight
@@ -103,10 +97,6 @@ Store :: struct {
 // package handle `g` (below) points at the currently bound
 // context; frame_begin binds, declare-time procs read the binding.
 Context :: struct {
-	// This context's position in the store's write journal: every
-	// entry below the cursor has been consumed by a frame_end here.
-	journal_cursor: int,
-
 	// Frame text arena: With.text copies land here at declare time.
 	// Chunked so a slice, once taken, never moves; rewound at
 	// frame_begin and reused across frames (freed only at teardown).
@@ -406,7 +396,6 @@ free_store :: proc() {
 		delete(gr.members)
 	}
 	delete(store.groups)
-	delete(store.journal)
 	delete(store.contexts)
 	delete(store.debug_ovf_scratch)
 }
@@ -477,40 +466,6 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.state_stamp)
 }
 
-// journal_gc retires the journal prefix every live context has
-// consumed, clearing those units' dirty bitsets. With no contexts
-// at all, nobody can ever consume the past, so everything retires.
-@(private)
-journal_gc :: proc() {
-	m := len(store.journal)
-	for c in store.contexts {
-		m = min(m, c.journal_cursor)
-	}
-	if m <= 0 {
-		return
-	}
-	for u in store.journal[:m] {
-		store.units[int(u)].dirty = {}
-	}
-	if m == len(store.journal) {
-		clear(&store.journal)
-	} else {
-		copy(store.journal[:], store.journal[m:])
-		resize(&store.journal, len(store.journal) - m)
-	}
-	for c in store.contexts {
-		c.journal_cursor -= m
-	}
-}
-
-// journal_consume marks the bound context current with the journal
-// (called from frame_end at the point the old touched list was
-// cleared) and retires whatever that unblocks.
-@(private)
-journal_consume :: proc() {
-	g.journal_cursor = len(store.journal)
-	journal_gc()
-}
 
 // ---------------------------------------------------------------------------
 // Mutation helpers (used by the public set/set_many in public.odin)
@@ -523,7 +478,7 @@ apply_opt :: proc(dst: ^$T, src: Maybe(T)) {
 }
 
 // explicit_fields reports which decl fields were set (non-nil Maybe). Recorded
-// at mint for propagate; also drives the dirty bitset in set_many.
+// at mint for propagate; also read by set_many's write tail.
 @(private)
 explicit_fields :: proc(d: Style_Decl) -> Fields {
 	f: Fields
@@ -564,20 +519,15 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	return f
 }
 
-// touch bumps the global generation and marks the unit's dirty fields,
-// journaling the unit for per-context consumption at frame_end. It also records
-// the fields as explicit: every write through set/set_many is a deliberate
-// choice, and overlay resolution (input.odin) merges exactly the fields an
-// overlay unit explicitly set.
+// touch records a write through set/set_many: the fields become
+// explicit (every such write is a deliberate choice, and overlay
+// resolution in input.odin merges exactly the fields an overlay
+// unit explicitly set), and a write touching a visual field bumps
+// the unit's visual generation — the stamp pass F compares.
 @(private)
 touch :: proc(u: Unit, f: Fields) {
 	rec := &store.units[int(u)]
-	if card(rec.dirty) == 0 {
-		append(&store.journal, u)
-	}
-	rec.dirty += f
 	rec.explicit += f
-	store.gen += 1
 	if f & VISUAL_FIELDS != {} {
 		rec.gen += 1
 	}
@@ -589,11 +539,6 @@ touch :: proc(u: Unit, f: Fields) {
 @(private)
 touch_unmarked :: proc(u: Unit, f: Fields) {
 	rec := &store.units[int(u)]
-	if card(rec.dirty) == 0 {
-		append(&store.journal, u)
-	}
-	rec.dirty += f
-	store.gen += 1
 	if f & VISUAL_FIELDS != {} {
 		rec.gen += 1
 	}

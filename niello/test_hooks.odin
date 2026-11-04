@@ -1,18 +1,15 @@
 // test_hooks.odin — test-only introspection for the test suite in tests/.
 //
 // These are NOT part of the stable public API (see public.odin). They exist
-// so black-box tests can assert on white-box state: generations, dirty sets,
+// so black-box tests can assert on white-box state: generations,
 // prototypes, culling. Do not call them from application code.
 package niello
 
-// test_generation returns the global mutation generation (§8).
-test_generation :: proc() -> u64 {
-	return store.gen
-}
-
-// test_dirty returns the unit's dirty field set (§8).
-test_dirty :: proc(u: Unit) -> Fields {
-	return store.units[int(u)].dirty
+// test_visual_gen returns the unit's visual generation — the
+// stamp pass F compares (§3.26). It advances on writes touching
+// a VISUAL_FIELDS field, and only then.
+test_visual_gen :: proc(u: Unit) -> u64 {
+	return store.units[int(u)].gen
 }
 
 // test_proto returns the unit's prototype (NO_UNIT if none).

@@ -37,6 +37,12 @@ cx_frame :: proc(ctx: ^niello.Context, input: niello.Input) {
 	niello.frame_end()
 }
 
+cx_frame_res :: proc(ctx: ^niello.Context, input: niello.Input) -> niello.Frame_Result {
+	niello.frame_begin(ctx, input, 0.016)
+	cx_declare()
+	return niello.frame_end()
+}
+
 @(private)
 cx_mint :: proc() {
 	niello.mint(&cx_root, niello.NO_UNIT, {size = {niello.fixed(200), niello.fixed(100)}, layout = niello.Layout.Left_To_Right})
@@ -44,7 +50,7 @@ cx_mint :: proc() {
 }
 
 @(test)
-test_two_contexts_journal :: proc(t: ^testing.T) {
+test_two_contexts_see_writes :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	ctx1 := niello.test_context()
@@ -57,13 +63,13 @@ test_two_contexts_journal :: proc(t: ^testing.T) {
 	cx_frame(ctx2, plain)
 
 	// A global write: both windows must see it, each on its own
-	// next frame. After ctx1 frames, the dirty bitset must SURVIVE
-	// — ctx2 has not consumed the journal entry yet.
+	// next frame — and the change is not "used up" by whichever
+	// context frames first (the stamps are per-instance; there
+	// is no shared consumption cursor).
 	niello.set(cx_box, .Color, niello.Color{200, 0, 0, 255})
-	cx_frame(ctx1, plain)
-	testing.expect(t, niello.test_dirty(cx_box) != {}, "dirty survives until every context consumed")
-	cx_frame(ctx2, plain)
-	testing.expect(t, niello.test_dirty(cx_box) == {}, "dirty clears once all contexts consumed")
+	testing.expect(t, cx_frame_res(ctx1, plain).changed, "ctx1 damages the write on its next frame")
+	testing.expect(t, cx_frame_res(ctx2, plain).changed, "ctx2 still owes the same damage on its own next frame")
+	testing.expect(t, !cx_frame_res(ctx1, plain).changed, "ctx1 settles")
 }
 
 @(test)
