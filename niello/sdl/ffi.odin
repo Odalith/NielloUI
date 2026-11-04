@@ -316,6 +316,7 @@ hook_release_image :: proc(backend: u32) {
 // the default face.
 register_font :: proc(family: niello.Font_Handle, path: string) {
 	ffi_register_font(u32(family), strings.clone_to_cstring(path, context.temp_allocator))
+	niello.fonts_changed() // the core's word cache must re-measure under the new binding
 }
 
 // register_font_family binds a font family id to a SYSTEM font family by
@@ -323,4 +324,5 @@ register_font :: proc(family: niello.Font_Handle, path: string) {
 // manager. Same timing and fallback rules as register_font.
 register_font_family :: proc(family: niello.Font_Handle, name: string) {
 	ffi_register_font_family(u32(family), strings.clone_to_cstring(name, context.temp_allocator))
+	niello.fonts_changed() // the core's word cache must re-measure under the new binding
 }

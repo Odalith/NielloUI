@@ -1531,6 +1531,17 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 measure_word_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> f32
 line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> f32
 
+// fonts_changed invalidates every cached text measurement. The
+// backend clears its own font cache when a family is (re)registered;
+// the core's word cache keys on the family handle, which does not
+// change — so without this bump, measurements taken under the old
+// binding (or before the font existed) would be served forever.
+// The glue calls it from its register_font / register_font_family;
+// apps wiring custom hooks call it after (re)binding a family.
+fonts_changed :: proc() {
+	store.font_epoch += 1
+}
+
 // ============ scheduling ============
 // The idle-CPU contract (§3.3): changes are found by the next SCHEDULED
 // frame. frame_end reports the nearest engine deadline as next_wake_ms

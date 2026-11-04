@@ -71,20 +71,48 @@ mock_frag_width :: proc(size: f32, weight: Font_Weight, n_bytes: int) -> f32 {
 	return w
 }
 
+// measure_ok is the boundary check for hook returns (audit
+// txt-5): a backend measuring with an unresolved font returns
+// 0.0 — or worse, NaN, whose comparisons are all false and which
+// propagates into layout until native validation rejects the
+// whole frame. A return is usable only if finite and
+// non-negative (the ceiling rejects +Inf and absurd finite
+// garbage alike).
 @(private)
-measure_frag :: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> f32 {
+measure_ok :: proc(v: f32) -> bool {
+	return v == v && v >= 0 && v < 1e30
+}
+
+// measure_frag / frag_line_height report whether the value came
+// from a usable measurement. An unusable hook return falls back
+// to the mock metrics for this call and reports false — the
+// caller (fill_entry) must not let an entry built on failures
+// into the cache, or the failure becomes permanent: the font
+// registering later could never heal a cached 0 (audit txt-5).
+// A nil hook is the sanctioned headless path: mock metrics,
+// reported good, cached normally.
+@(private)
+measure_frag :: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> (f32, bool) {
 	if measure_word_hook != nil {
-		return measure_word_hook(font, weight, slant, size, text)
+		w := measure_word_hook(font, weight, slant, size, text)
+		if measure_ok(w) {
+			return w, true
+		}
+		return mock_frag_width(size, weight, len(text)), false
 	}
-	return mock_frag_width(size, weight, len(text))
+	return mock_frag_width(size, weight, len(text)), true
 }
 
 @(private)
-frag_line_height :: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> f32 {
+frag_line_height :: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> (f32, bool) {
 	if line_height_hook != nil {
-		return line_height_hook(font, weight, slant, size)
+		h := line_height_hook(font, weight, slant, size)
+		if measure_ok(h) {
+			return h, true
+		}
+		return size, false
 	}
-	return size
+	return size, true
 }
 
 // ellipsis_width is the waterfill shrink floor for ellipsis text (§3.12):
@@ -95,13 +123,16 @@ ellipsis_width :: proc(s: ^Style) -> f32 {
 	key := hash_mix(u64(s.font), u64(transmute(u32)s.font_size))
 	key = hash_mix(key, u64(s.font_weight))
 	key = hash_mix(key, u64(s.font_slant))
+	key = hash_mix(key, store.font_epoch)
 	if store.ellipsis_widths == nil {
 		store.ellipsis_widths = make(map[u64]f32)
 	} else if w, ok := store.ellipsis_widths[key]; ok {
 		return w
 	}
-	w := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, "…")
-	store.ellipsis_widths[key] = w
+	w, mok := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, "…")
+	if mok {
+		store.ellipsis_widths[key] = w
+	}
 	return w
 }
 
@@ -146,12 +177,39 @@ get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64,
 	key = hash_mix(key, u64(s.font_weight))
 	key = hash_mix(key, u64(s.font_slant))
 	key = hash_mix(key, spans_hash)
+	key = hash_mix(key, store.font_epoch)
 	if e, ok := store.text_cache[key]; ok {
 		return e
 	}
-	e := fill_entry(s, spans, text)
+	e, mok := fill_entry(s, spans, text)
+	if !mok {
+		// Built on at least one failed hook measurement: serve
+		// a scalar-only entry for this frame and cache NOTHING,
+		// so the next frame measures again — the font registering
+		// (and bumping the epoch) heals the text instead of the
+		// failure being served forever (audit txt-5).
+		free_entry(&e)
+		return Text_Entry{
+			space_w = mock_frag_width(s.font_size, s.font_weight, 1),
+			line_h = s.font_size,
+		}
+	}
 	store.text_cache[key] = e
 	return e
+}
+
+// free_entry releases a Text_Entry's owned slices (the same
+// segs -> words -> frags walk free_store does for the cache).
+@(private)
+free_entry :: proc(e: ^Text_Entry) {
+	for seg in e.segs {
+		for word in seg.words {
+			delete(word.frags)
+		}
+		delete(seg.words)
+	}
+	delete(e.segs)
+	e.segs = nil
 }
 
 // gap_width measures a whitespace run text[a:b] the way a word is
@@ -160,11 +218,12 @@ get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64,
 // constant within a style, so runs price linearly). §3.18: spaces
 // are data, not separators — collapsing is an assembly-time policy.
 @(private)
-gap_width :: proc(s: ^Style, spans: []Text_Span, text: string, a, b: int) -> f32 {
+gap_width :: proc(s: ^Style, spans: []Text_Span, text: string, a, b: int) -> (f32, bool) {
 	if b <= a {
-		return 0
+		return 0, true
 	}
 	w := f32(0)
+	ok := true
 	cur := a
 	for cur < b {
 		next := b
@@ -177,10 +236,14 @@ gap_width :: proc(s: ^Style, spans: []Text_Span, text: string, a, b: int) -> f32
 			}
 		}
 		font, size, weight, slant, _, _ := style_at(s, spans, cur)
-		w += measure_frag(font, weight, slant, size, " ") * f32(next - cur)
+		sw, mok := measure_frag(font, weight, slant, size, " ")
+		if !mok {
+			ok = false
+		}
+		w += sw * f32(next - cur)
 		cur = next
 	}
-	return w
+	return w, ok
 }
 
 // fill_entry splits text into \n-segments, then words, then each word
@@ -188,10 +251,17 @@ gap_width :: proc(s: ^Style, spans: []Text_Span, text: string, a, b: int) -> f32
 // (gap_width) and recorded on the following word / the segment, in
 // full — the Collapse/Preserve policy applies later, at assembly.
 @(private)
-fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
+fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> (Text_Entry, bool) {
 	e := Text_Entry{}
-	e.space_w = measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, " ")
-	e.line_h = frag_line_height(s.font, s.font_weight, s.font_slant, s.font_size)
+	ok := true
+	{
+		sw, mok := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, " ")
+		e.space_w = sw
+		if !mok { ok = false }
+		lh, lok := frag_line_height(s.font, s.font_weight, s.font_slant, s.font_size)
+		e.line_h = lh
+		if !lok { ok = false }
+	}
 
 	frags: [dynamic]Text_Frag
 	defer delete(frags)
@@ -247,7 +317,8 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 						continue
 					}
 					font, size, weight, slant, color, from_span := style_at(s, spans, cs)
-					fw := measure_frag(font, weight, slant, size, text[cs:ce])
+					fw, mok := measure_frag(font, weight, slant, size, text[cs:ce])
+					if !mok { ok = false }
 					frag := Text_Frag{
 						start = cs, end = ce, width = fw,
 						font = font, font_size = size, font_weight = weight,
@@ -258,13 +329,19 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 					}
 					append(&frags, frag)
 					word_w += fw
-					e.line_h = max(e.line_h, frag_line_height(font, weight, slant, size))
+					{
+						lh, lok := frag_line_height(font, weight, slant, size)
+						if !lok { ok = false }
+						e.line_h = max(e.line_h, lh)
+					}
 				}
 				wfrags := make([]Text_Frag, len(frags))
 				copy(wfrags, frags[:])
+				gw, mok := gap_width(s, spans, text, prev_end, ws)
+				if !mok { ok = false }
 				append(&words, Text_Word{
 					start = ws, end = we, width = word_w, frags = wfrags,
-					space_before = gap_width(s, spans, text, prev_end, ws),
+					space_before = gw,
 					gap_start = prev_end,
 				})
 				prev_end = we
@@ -273,9 +350,11 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 			if at_end || c == '\n' {
 				seg_words := make([]Text_Word, len(words))
 				copy(seg_words, words[:])
+				tw, mok := gap_width(s, spans, text, prev_end, j)
+				if !mok { ok = false }
 				append(&e.segs, Text_Seg{
 					words = seg_words,
-					trailing = gap_width(s, spans, text, prev_end, j),
+					trailing = tw,
 				})
 				clear(&words)
 				seg_start = j + 1
@@ -285,7 +364,7 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> Text_Entry {
 			word_start = j
 		}
 	}
-	return e
+	return e, ok
 }
 
 // measure_text returns the unwrapped size and the shrink floor (min_w).
