@@ -230,6 +230,13 @@ start_glide :: proc(u: Unit, fields: Fields, to: ^Style, ms: u32) {
 	if fields == {} {
 		return
 	}
+	// A snap (ms == 0, or a non-animatable field below) is an
+	// explicit write: it must steal these fields from any in-flight
+	// glide first, or the old tween steps next frame_end and
+	// overwrites the snapped values with its own target (audit
+	// ani-1). set/apply_edits already cancel first; the tween
+	// engine's own writes were the exception.
+	cancel_glide_fields(u, fields)
 	rec := &store.units[int(u)]
 	if ms == 0 {
 		for f in fields {
