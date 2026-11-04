@@ -307,7 +307,6 @@ Context :: struct {
 	                              // which overlay layers are active,
 	                              // folded with those units' gens
 
-	layout_gen:  u32,
 	frame_index: u64,
 
 	// Test-only hook: force the next begin() to report open=false.
