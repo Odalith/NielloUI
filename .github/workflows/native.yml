@@ -34,10 +34,13 @@
 # bundled SDL3 the same way, as a separate artifact with no
 # `needs`. Base cache key is -v2: -v1
 # holds 24.04-built objects and must never restore here. Publish
-# needs [pack, pack-linux] (jammy build proven green + run-verified
-# on Ubuntu 22.04 and Mint 22.3, 2026-11-03): without pack-linux in
-# `needs`, a native-v* tag would publish a release MISSING the
-# Linux zip (audit BL-5).
+# needs [pack, pack-linux, sdl3-linux] (jammy build proven green +
+# run-verified on Ubuntu 22.04 and Mint 22.3, 2026-11-03): without
+# pack-linux in `needs`, a native-v* tag would publish a release
+# MISSING the Linux zip (audit BL-5); sdl3-linux rides releases
+# too (his ruling 2026-11-03, after v0.1.1 shipped without it) so
+# the F3 fetch script has an SDL zip to fetch. The create-release
+# step guards that all four zips are present before gh runs.
 
 name: native-release
 
@@ -811,11 +814,11 @@ jobs:
           name: niello-sdl3-linux-x64
           path: niello-sdl3-linux-x64.zip
 
-  # ---- tag push: attach all three zips to the GitHub Release ----
+  # ---- tag push: attach all four zips to the GitHub Release ----
   publish:
     name: publish release
     if: startsWith(github.ref, 'refs/tags/native-v')
-    needs: [pack, pack-linux]
+    needs: [pack, pack-linux, sdl3-linux]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -826,12 +829,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: niello-native-*
+          pattern: |
+            niello-native-*
+            niello-sdl3-*
           merge-multiple: true
       - name: create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" niello-native-*.zip \
+          # Fail loudly rather than publish a partial release:
+          # all four zips must have arrived before gh runs.
+          for z in niello-native-linux-x64.zip niello-native-macos-arm64.zip niello-native-windows-x64.zip niello-sdl3-linux-x64.zip; do
+            test -f "$z" || { echo "missing $z in publish workspace" >&2; exit 1; }
+          done
+          gh release create "${{ github.ref_name }}" niello-native-*.zip niello-sdl3-*.zip \
             --title "${{ github.ref_name }}" \
-            --notes "Prebuilt native backends (nui_native + Skia + Dawn + SkShaper + HarfBuzz). See tools/build-native.md for the recipe and provenance."
+            --notes "Prebuilt native backends (nui_native + Skia + Dawn + SkShaper + HarfBuzz) plus the bundled Linux SDL3 (libSDL3.so.0, 3.4.12, built on Ubuntu 22.04). See tools/build-native.md for the recipe and provenance."
