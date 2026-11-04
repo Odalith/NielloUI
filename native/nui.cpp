@@ -368,7 +368,13 @@ SkFont* ResolveFont(uint32_t family, int32_t weight,
     }
 
     if (!typeface) {
-        typeface = manager->matchFamilyStyle(nullptr, requested);
+        // The default font must come from legacyMakeTypeface(nullptr):
+        // matchFamilyStyle(nullptr, ...) is not a portable way to ask
+        // for it — the DirectWrite manager's onMatchFamily
+        // null-guards to an empty style set, so on Windows it silently
+        // yields no typeface at all (zero measurements, no text), where
+        // FontConfig happens to tolerate the null family name.
+        typeface = manager->legacyMakeTypeface(nullptr, requested);
     }
     if (!typeface) return nullptr;
 
