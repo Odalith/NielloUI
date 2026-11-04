@@ -353,26 +353,62 @@ SkShaper* GetShaper() {
     return g.shaper.get();
 }
 
-struct ShapedText {
-    sk_sp<SkTextBlob> blob;
+// AdvanceHandler sums the shaped advance of a fragment without
+// building a blob: RunInfo.fAdvance is the only trustworthy
+// width a RunHandler ever sees. (SkTextBlobBuilderRunHandler's
+// endPoint() is NOT one: its fOffset advances only vertically,
+// line to line — endPoint().x() is the caller's own offset back.)
+class AdvanceHandler final : public SkShaper::RunHandler {
+public:
     float advance = 0;
+
+    void beginLine() override {}
+    void runInfo(const RunInfo& info) override { advance += info.fAdvance.x(); }
+    void commitRunInfo() override {}
+    Buffer runBuffer(const RunInfo& info) override {
+        glyphs.assign(info.glyphCount, 0);
+        positions.assign(info.glyphCount, SkPoint::Make(0, 0));
+        clusters.assign(info.glyphCount, 0);
+        return {glyphs.data(), positions.data(), nullptr, clusters.data(),
+                SkPoint::Make(0, 0)};
+    }
+    void commitRunBuffer(const RunInfo&) override {}
+    void commitLine() override {}
+
+private:
+    std::vector<SkGlyphID> glyphs;
+    std::vector<SkPoint> positions;
+    std::vector<uint32_t> clusters;
 };
 
-// ShapeText shapes one fragment — the engine's shaping
-// boundary: the Odin word cache measures fragments and the
-// draw stream emits them, so measured == drawn holds per
-// fragment, kerning and ligatures included (audit X-3). The
-// shaper sees the fragment as one LTR paragraph; embedded
-// bidirectional runs are reordered by the shaper's bidi pass.
+// Fragments are the engine's shaping boundary: the Odin word
+// cache measures fragments and the draw stream emits them, so
+// measured == drawn holds per fragment, kerning and ligatures
+// included (audit X-3). The shaper sees the fragment as one
+// LTR paragraph; embedded bidirectional runs are reordered by
+// the shaper's bidi pass.
+bool MeasureAdvance(const SkFont& font, const char* text, size_t length,
+                    float* out) {
+    auto* shaper = GetShaper();
+    if (!shaper || length == 0) return false;
+    AdvanceHandler handler;
+    shaper->shape(text, length, font, true, SK_ScalarInfinity, &handler);
+    *out = handler.advance;
+    return std::isfinite(*out);
+}
+
+// ShapeText shapes one fragment into a blob. The blob's glyph
+// positions are relative to the LINE TOP (the blob handler
+// bakes the line's ascent into its run positions), so callers
+// draw it at the text rect's top, not at a baseline.
 bool ShapeText(const SkFont& font, const char* text, size_t length,
-               ShapedText* out) {
+               sk_sp<SkTextBlob>* out) {
     auto* shaper = GetShaper();
     if (!shaper || length == 0) return false;
     SkTextBlobBuilderRunHandler handler(text, SkPoint::Make(0, 0));
     shaper->shape(text, length, font, true, SK_ScalarInfinity, &handler);
-    out->blob = handler.makeBlob();
-    out->advance = handler.endPoint().x();
-    return out->blob && std::isfinite(out->advance);
+    *out = handler.makeBlob();
+    return *out != nullptr;
 }
 
 bool FontSizeValid(float size) {
@@ -661,58 +697,58 @@ void DrawText(SkCanvas* canvas, const UiDrawCmd& command) {
     size_t length = static_cast<size_t>(command.text_len);
     std::string owned;
 
-    ShapedText shaped;
-    if (!ShapeText(*font, text, length, &shaped)) return;
+    if (command.truncated) {
+        float fullAdvance = 0;
+        if (!MeasureAdvance(*font, text, length, &fullAdvance)) return;
 
-    if (command.truncated && shaped.advance > command.max_width) {
-        // Cut at a UTF-8 boundary: binary search for the widest
-        // prefix whose SHAPED form (prefix + ellipsis, shaped as
-        // one run, so the cut point takes its final forms) fits.
-        constexpr char ellipsis[] = "\xE2\x80\xA6";
+        if (fullAdvance > command.max_width) {
+            // Cut at a UTF-8 boundary: binary search for the widest
+            // prefix whose SHAPED form (prefix + ellipsis, shaped as
+            // one run, so the cut point takes its final forms) fits.
+            constexpr char ellipsis[] = "\xE2\x80\xA6";
 
-        std::vector<size_t> boundaries;
-        if (!Utf8(command.text_ptr, command.text_len, &boundaries)) return;
+            std::vector<size_t> boundaries;
+            if (!Utf8(command.text_ptr, command.text_len, &boundaries)) return;
 
-        auto fits = [&](size_t boundary, ShapedText* probe) {
-            std::string candidate(text, boundary);
-            candidate.append(ellipsis, 3);
-            if (!ShapeText(*font, candidate.data(), candidate.size(), probe)) {
-                return false;
+            auto fits = [&](size_t boundary) {
+                std::string candidate(text, boundary);
+                candidate.append(ellipsis, 3);
+                float advance = 0;
+                return MeasureAdvance(*font, candidate.data(), candidate.size(),
+                                      &advance) &&
+                       advance <= command.max_width;
+            };
+
+            if (!fits(0)) return; // the ellipsis alone is too wide
+
+            size_t low = 0;
+            size_t high = boundaries.size() - 1;
+            while (low < high) {
+                const size_t middle = low + (high - low + 1) / 2;
+                if (fits(boundaries[middle])) {
+                    low = middle;
+                } else {
+                    high = middle - 1;
+                }
             }
-            return probe->advance <= command.max_width;
-        };
 
-        ShapedText probe;
-        if (!fits(0, &probe)) return; // the ellipsis alone is too wide
-
-        size_t low = 0;
-        size_t high = boundaries.size() - 1;
-        while (low < high) {
-            const size_t middle = low + (high - low + 1) / 2;
-            if (fits(boundaries[middle], &probe)) {
-                low = middle;
-            } else {
-                high = middle - 1;
-            }
+            owned.assign(text, boundaries[low]);
+            owned.append(ellipsis, 3);
+            text = owned.data();
+            length = owned.size();
         }
-
-        owned.assign(text, boundaries[low]);
-        owned.append(ellipsis, 3);
-        text = owned.data();
-        length = owned.size();
-        if (!ShapeText(*font, text, length, &shaped)) return;
     }
 
-    SkFontMetrics metrics;
-    font->getMetrics(&metrics);
-    const float baseline = command.bounds_y - metrics.fAscent;
-    if (!std::isfinite(baseline)) return;
+    sk_sp<SkTextBlob> blob;
+    if (!ShapeText(*font, text, length, &blob)) return;
 
     SkPaint paint;
     paint.setAntiAlias(true);
     paint.setColor(Color(command.color));
 
-    canvas->drawTextBlob(shaped.blob.get(), command.bounds_x, baseline, paint);
+    // The shaped blob's positions are line-top relative (see
+    // ShapeText): bounds_y is the text rect's top.
+    canvas->drawTextBlob(blob.get(), command.bounds_x, command.bounds_y, paint);
 }
 
 void Replay(SkCanvas* canvas, const UiDrawCmd* commands,
@@ -1363,12 +1399,12 @@ float nui_measure_word(uint32_t family, int32_t weight, int32_t slant,
 
         // Measured through the shaper, exactly as DrawText draws:
         // the Odin word cache's fragment width is the drawn width.
-        ShapedText shaped;
-        if (!ShapeText(*font, reinterpret_cast<const char*>(text),
-                       static_cast<size_t>(length), &shaped)) {
+        float advance = 0;
+        if (!MeasureAdvance(*font, reinterpret_cast<const char*>(text),
+                            static_cast<size_t>(length), &advance)) {
             return 0.0f;
         }
-        return shaped.advance;
+        return advance;
     });
 }
 
