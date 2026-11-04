@@ -791,7 +791,6 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	if decl.focus != NO_UNIT    { rec.focus = decl.focus }
 	if decl.disabled != NO_UNIT { rec.disabled = decl.disabled }
 	rec.focusable = decl.focusable
-	if decl.groups != nil       { rec.groups = decl.groups }
 
 	fields := explicit_fields(decl)
 	if fields != {} {

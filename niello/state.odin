@@ -25,7 +25,6 @@ Unit_Rec :: struct {
 	// Warm: read when resolving interaction state (overlays not yet applied).
 	hover, press, focus, disabled: Unit,
 	focusable: bool,
-	groups:    []Group,
 
 	// Cold: debug/inspector only.
 	name: string,
