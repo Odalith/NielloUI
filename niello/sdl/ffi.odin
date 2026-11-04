@@ -39,8 +39,13 @@ import niello "../"
 // codec objects into a link. macOS links the C++ runtime as libc++
 // plus the Metal frameworks the archive references (mirroring
 // native/CMakeLists.txt); Windows links the D3D12/DirectWrite system
-// libs the same way. The macOS/Windows sets are unproven until the
-// first link on those platforms.
+// libs the same way. One exception: on Windows, SDL3 is named by
+// relative path like the archive — Odin's system: search there
+// matches the sdl3 DIRECTORY in its search path and aborts with
+// Error (002): unknown file format "sdl3" (seen on dev-2026-11a), so
+// fetch-native.ps1 stages the import library from SDL's official
+// devel zip into third_party/sdl3/windows-x64/lib/. The macOS/Windows
+// sets are unproven until the first link on those platforms.
 when ODIN_OS == .Linux {
 	foreign import native {
 		"../../third_party/native/linux-x64/lib/libniello_native.a",
@@ -69,7 +74,7 @@ when ODIN_OS == .Linux {
 } else when ODIN_OS == .Windows {
 	foreign import native {
 		"../../third_party/native/windows-x64/lib/niello_native.lib",
-		"system:SDL3",
+		"../../third_party/sdl3/windows-x64/lib/SDL3.lib",
 		"system:d3d12",
 		"system:dxgi",
 		"system:dxguid",
