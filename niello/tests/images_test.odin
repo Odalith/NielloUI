@@ -51,6 +51,54 @@ fake_install :: proc(sizes: [][2]f32) {
 	niello.release_image_hook = fake_release
 }
 
+// Runtime-constructed: this Odin vintage's core:math has no
+// NaN/Inf constructors for tests to borrow.
+nan32 :: proc() -> f32 { z: f32 = 0; return z / z }
+inf32 :: proc() -> f32 { z: f32 = 0; o: f32 = 1; return o / z }
+
+nan_decode :: proc(data: []byte, max_w, max_h: int) -> (u32, f32, f32, bool) {
+	return 777, nan32(), 200, true
+}
+
+inf_decode :: proc(data: []byte, max_w, max_h: int) -> (u32, f32, f32, bool) {
+	return 777, 400, inf32(), true
+}
+
+huge_decode :: proc(data: []byte, max_w, max_h: int) -> (u32, f32, f32, bool) {
+	return 777, 1e9, 200, true
+}
+
+@(test)
+test_image_nan_guards :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	// A NaN / Inf / absurd hook result must not register (audit
+	// img-4): comparisons alone wave NaN through, and a NaN-sized
+	// entry poisons every frame the image appears in.
+	niello.decode_image_hook = nan_decode
+	niello.release_image_hook = fake_release
+	_, ok_nan := niello.image_load_memory([]byte{1})
+	testing.expect(t, !ok_nan, "NaN decode width is rejected")
+
+	niello.decode_image_hook = inf_decode
+	_, ok_inf := niello.image_load_memory([]byte{1})
+	testing.expect(t, !ok_inf, "Inf decode height is rejected")
+
+	niello.decode_image_hook = huge_decode
+	_, ok_huge := niello.image_load_memory([]byte{1})
+	testing.expect(t, !ok_huge, "absurd decode width is rejected")
+
+	// A NaN crop rect fails instead of silently cropping wrong.
+	fake_install([][2]f32{{400, 200}})
+	img, ok := niello.image_load_memory([]byte{9})
+	testing.expect(t, ok, "control load succeeds")
+	_, ok_crop := niello.image_cropped(img, niello.Rect{{nan32(), 0}, {50, 50}})
+	testing.expect(t, !ok_crop, "NaN crop origin is rejected")
+	_, ok_crop2 := niello.image_cropped(img, niello.Rect{{0, 0}, {50, 50}})
+	testing.expect(t, ok_crop2, "control crop succeeds")
+}
+
 @(test)
 test_image_registry :: proc(t: ^testing.T) {
 	niello.test_reset()

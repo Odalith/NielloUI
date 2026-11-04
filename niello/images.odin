@@ -57,6 +57,18 @@ Image_Interp :: enum u8 {
 decode_image_hook: proc(data: []byte, max_w, max_h: int) -> (backend: u32, w, h: f32, ok: bool)
 release_image_hook: proc(backend: u32)
 
+// dim_ok is the boundary check for backend-reported dimensions
+// (audit img-4): every comparison against NaN is false, so the
+// naive w <= 0 guard waves a NaN hook result straight into the
+// registry — and from there into layout, where it manufactures
+// NaN src-rects that make native validation reject the whole
+// frame. Finite, positive, and under a generous ceiling (the
+// check exists to reject garbage, not to police real images).
+@(private)
+dim_ok :: proc(v: f32) -> bool {
+	return v > 0 && v <= 65536
+}
+
 @(private)
 Image_Rec :: struct {
 	backend: u32,     // backend id; shared by a crop family
@@ -85,7 +97,7 @@ image_load_memory :: proc(data: []byte, decode_w: int = 0, decode_h: int = 0) ->
 		return NO_IMAGE, false
 	}
 	backend, w, h, ok := decode_image_hook(data, decode_w, decode_h)
-	if !ok || backend == 0 || w <= 0 || h <= 0 {
+	if !ok || backend == 0 || !dim_ok(w) || !dim_ok(h) {
 		return NO_IMAGE, false
 	}
 	if len(store.images) == 0 {
@@ -118,6 +130,13 @@ image_size :: proc(img: Image) -> Vec2 {
 image_cropped :: proc(img: Image, r: Rect) -> (Image, bool) {
 	rec, ok := image_rec(img)
 	if !ok {
+		return NO_IMAGE, false
+	}
+	// A NaN rect component would otherwise be silently discarded
+	// by the min/max clamps below into a wrong-but-plausible crop
+	// (audit img-4): reject non-finite input at the boundary.
+	if !(r.pos.x == r.pos.x && r.pos.y == r.pos.y &&
+	   r.size.x == r.size.x && r.size.y == r.size.y) {
 		return NO_IMAGE, false
 	}
 	x0 := max(r.pos.x, 0)
