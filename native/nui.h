@@ -92,6 +92,15 @@ typedef struct nui_window nui_window;
 
 // Shared bring-up: Dawn instance/device + Graphite context + recorder.
 // Call once, before any window exists. Returns 0 on success.
+//
+// Failure model (audit BL-4): failures are tiered. A surface
+// failure is per-window and recovers by reconfiguration. A
+// recording failure (exception, failed Graphite submit) fails
+// calls until the recorder is recreated, which nui_resize and
+// nui_init attempt. A device failure (Dawn backend/device/queue)
+// latches: nothing renders until recovery — destroy every
+// window, then call nui_init again (or nui_shutdown first);
+// nui_init refuses while windows are alive.
 int32_t nui_init(void);
 
 // Create one window's surface + owned pixel cache on the shared device.
