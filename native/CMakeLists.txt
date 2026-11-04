@@ -4,6 +4,16 @@ project(nui_native CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Windows: the GN-built Skia/Dawn objects use the static CRT (/MT —
+# Chromium's GN default), while CMake's default for this target is the
+# dynamic CRT (/MD); merged into one fat archive, the disagreement
+# fails every consumer's link with /FAILIFMISMATCH (the LNK2038
+# family). Pin the static runtime so nui_native matches the GN side.
+# (Dependency audit F6, ruled (a): align the CMake side, not GN.)
+if(WIN32)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
+
 # Location of your Skia checkout (source + GN-built out/Release).
 # Configure with:  cmake -B build -DSKIA_DIR=$HOME/third_party/skia
 # or export SKIA_DIR in your shell.

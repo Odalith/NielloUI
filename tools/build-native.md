@@ -302,10 +302,13 @@ Threads).
     <nui_native build dir>\nui_native.lib
   ```
 
-Windows CRT caveat: if the Odin app's link fails with `LNK2038`
-(CRT mismatch), the Skia build's runtime-library flag disagrees with the
-Odin toolchain's — align them in the GN args rather than working around it
-downstream. Verify with a real Odin link before publishing the Windows zip.
+Windows CRT (settled by the first real Odin link, 2026-11-03; audit
+F6 ruled (a)): the fat archive is static-CRT throughout — the GN build
+(Skia/Dawn) uses /MT by Chromium default, and native/CMakeLists.txt
+pins `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` so the CMake-built
+nui_native objects match. A `/FAILIFMISMATCH` / `LNK2038`
+RuntimeLibrary mismatch at the Odin link means one side drifted from
+that; align it at the build, never downstream.
 
 ## 7. Zip and release
 
