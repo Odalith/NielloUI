@@ -121,12 +121,15 @@ if(APPLE)
     )
 endif()
 # Windows: Dawn's D3D12 backend (d3d12/dxgi/dxguid) + Skia's
-# DirectWrite font manager (dwrite). Same caveat as macOS.
+# DirectWrite font manager (dwrite) + onecore for Dawn's
+# OneCore-family Win32 calls (CompareObjectHandles). Same caveat as
+# macOS.
 if(WIN32)
     target_link_libraries(nui_native PRIVATE
             d3d12
             dxgi
             dxguid
             dwrite
+            onecore
     )
 endif()

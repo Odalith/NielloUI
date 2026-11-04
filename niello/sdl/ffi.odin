@@ -48,7 +48,10 @@ import niello "../"
 // keep system: but WITH the .lib extension — the form Odin's own
 // vendor/directx bindings use — because a bare stem (system:d3d12)
 // hits the same directory-matching failure on vendor directx/d3d12.
-// The macOS/Windows sets are unproven until the first link on those
+// onecore.lib rides along for Dawn's OneCore-family Win32 calls
+// (CompareObjectHandles, from its D3D12 shared-fence code) — SDK
+// 10.0.26100 does not carry that symbol in kernel32.lib. The
+// macOS/Windows sets are unproven until the first link on those
 // platforms.
 when ODIN_OS == .Linux {
 	foreign import native {
@@ -83,6 +86,7 @@ when ODIN_OS == .Linux {
 		"system:dxgi.lib",
 		"system:dxguid.lib",
 		"system:dwrite.lib",
+		"system:onecore.lib",
 	}
 }
 
