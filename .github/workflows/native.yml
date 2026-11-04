@@ -34,8 +34,10 @@
 # bundled SDL3 the same way, as a separate artifact with no
 # `needs`. Base cache key is -v2: -v1
 # holds 24.04-built objects and must never restore here. Publish
-# still needs only `pack` in this phase (dispatch iteration, no
-# releases); add pack-linux to `needs` when a tag is cut.
+# needs [pack, pack-linux] (jammy build proven green + run-verified
+# on Ubuntu 22.04 and Mint 22.3, 2026-11-03): without pack-linux in
+# `needs`, a native-v* tag would publish a release MISSING the
+# Linux zip (audit BL-5).
 
 name: native-release
 
@@ -813,7 +815,7 @@ jobs:
   publish:
     name: publish release
     if: startsWith(github.ref, 'refs/tags/native-v')
-    needs: pack
+    needs: [pack, pack-linux]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
