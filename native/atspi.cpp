@@ -460,6 +460,7 @@ const char *kIfPeer = "org.freedesktop.DBus.Peer";
 const char *kErrUnknownMethod = "org.freedesktop.DBus.Error.UnknownMethod";
 const char *kErrInvalidArgs = "org.freedesktop.DBus.Error.InvalidArgs";
 const char *kErrPropertyReadOnly = "org.freedesktop.DBus.Error.PropertyReadOnly";
+const char *kErrInternal = "org.freedesktop.DBus.Error.Failed";
 
 struct Exporter {
 	std::mutex mu;
@@ -1002,7 +1003,17 @@ std::string accessible_id(const Snapshot &snap, const Target &t) {
 // (interface, name) pair is not a property of this target.
 bool append_property(dbus::Writer &w, const Snapshot &snap, const Target &t,
                      const std::string &iface, const std::string &name) {
-	if (iface == kIfAccessible) {
+	// The Accessible branch must be kind-gated like every other
+	// branch here (and like property_names below): the Cache
+	// object is not an accessible, and falling through to
+	// accessible_name / write_parent_ref with a Cache target
+	// (ctx 0, index -1) indexes windows.at(0).nodes[-1] — an
+	// out-of-range access that aborted the whole process on a
+	// plain Properties.Get (audit BL-2). Not an accessible →
+	// unknown property, which is the correct answer anyway.
+	if (iface == kIfAccessible && (t.kind == Target_Kind::Root ||
+	                               t.kind == Target_Kind::Window ||
+	                               t.kind == Target_Kind::Node)) {
 		if (name == "version") {
 			w.begin_variant("u");
 			w.u32(2);
@@ -1767,7 +1778,7 @@ void handle_peer(const dbus::Message &msg, const Snapshot &snap, const Target &t
 	send_unknown_method(msg);
 }
 
-void handle_message(const dbus::Message &msg) {
+void handle_message_inner(const dbus::Message &msg) {
 	if (msg.type != dbus::MSG_CALL) {
 		return; // inbound signals: none needed in v1
 	}
@@ -1858,6 +1869,23 @@ void handle_message(const dbus::Message &msg) {
 	send_unknown_method(msg);
 }
 
+// Dispatch firewall (audit BL-2): the handlers index the snapshot
+// through target-derived indices; a malformed or hostile call must
+// never take the process down with an uncaught exception on the
+// dispatch thread (std::terminate). Any escape becomes a plain
+// D-Bus error reply instead. The flagged Properties.Get crash is
+// gated at its source in append_property above; this is the
+// belt-and-braces for every other path.
+void handle_message(const dbus::Message &msg) {
+	try {
+		handle_message_inner(msg);
+	} catch (...) {
+		if (msg.type == dbus::MSG_CALL) {
+			send_fail(msg, kErrInternal, "Internal error");
+		}
+	}
+}
+
 } // namespace
 
 namespace {
@@ -1942,6 +1970,16 @@ Pending_Signal ready_signal() {
 
 std::string borrowed_or_empty(const char *s) { return s ? s : ""; }
 
+// Node strings cross the ABI as pointer + length (audit BL-1):
+// the Odin side's strings are not NUL-terminated, so building a
+// std::string from the pointer alone reads past the end of the
+// mirror's allocation. NULL means empty. (The window title is a
+// genuine C string from clone_to_cstring and keeps using
+// borrowed_or_empty above.)
+std::string len_or_empty(const char *s, uint32_t len) {
+	return s ? std::string(s, static_cast<size_t>(len)) : "";
+}
+
 // Path of a node's parent: the window path for roots, else the
 // parent node's path.
 std::string parent_path_for(const Shadow_Window &win, int ctx, int node_index) {
@@ -1983,8 +2021,8 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 		n.parent = src.parent;
 		n.odin_role = src.role;
 		n.role = src.role < 43 ? kRoleMap[src.role] : ATSPI_ROLE_INVALID;
-		n.name = borrowed_or_empty(src.name);
-		n.description = borrowed_or_empty(src.description);
+		n.name = len_or_empty(src.name, src.name_len);
+		n.description = len_or_empty(src.description, src.description_len);
 		n.flags = src.flags;
 		n.state = src.state;
 		n.x = src.x;
@@ -1995,7 +2033,7 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 		n.value_num = src.value_num;
 		n.value_min = src.value_min;
 		n.value_max = src.value_max;
-		n.value_text = borrowed_or_empty(src.value_text);
+		n.value_text = len_or_empty(src.value_text, src.value_text_len);
 		nw.nodes.push_back(std::move(n));
 	}
 

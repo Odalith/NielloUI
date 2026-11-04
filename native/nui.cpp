@@ -171,7 +171,20 @@ struct Shared {
     uint64_t rasterBytes = 0;
     uint32_t maxTextureDimension = 0;
     unsigned pendingPresentations = 0;
+    // Failure tiers (audit BL-4; the latch used to be one bool, so
+    // any local failure bricked the process):
+    //  - Device (failed): Dawn backend / device / queue is gone.
+    //    Nothing renders; recovery is destroy windows, then
+    //    nui_shutdown or nui_init (see nui_init's contract).
+    //  - Recording (recorderPoisoned): an exception or a failed
+    //    Graphite submit left the recorder's pending state
+    //    suspect. Calls fail until the recorder is recreated,
+    //    which nui_resize and nui_init attempt.
+    //  - Surface failures are NOT latched here at all: they live
+    //    on the window (configured / recreateSurface) and recover
+    //    by reconfiguration, without touching other windows.
     bool failed = false;
+    bool recorderPoisoned = false;
     bool trace = std::getenv("NUI_TRACE") != nullptr;
 };
 
@@ -202,10 +215,10 @@ R Api(const char* name, R failure, F&& function) noexcept {
         try {
             return function();
         } catch (const std::exception& error) {
-            g.failed = true;
+            g.recorderPoisoned = true;
             std::fprintf(stderr, "nui: %s: %s\n", name, error.what());
         } catch (...) {
-            g.failed = true;
+            g.recorderPoisoned = true;
             std::fprintf(stderr, "nui: %s: unknown C++ exception\n", name);
         }
     } catch (...) {
@@ -223,7 +236,7 @@ void ApiVoid(const char* name, F&& function) noexcept {
 }
 
 bool Ready() {
-    if (!g.context || !g.recorder || g.failed) return false;
+    if (!g.context || !g.recorder || g.failed || g.recorderPoisoned) return false;
     if (NuiDawnBackendFailed()) {
         g.failed = true;
         return false;
@@ -294,10 +307,11 @@ bool DrainQueue() {
 bool Synchronize() {
     if (g.context &&
         !g.context->submit(skgpu::graphite::SyncToCpu::kYes)) {
-        g.failed = true;
+        g.recorderPoisoned = true;
+        Log("Graphite submit failed during synchronization");
     }
     const bool drained = DrainQueue();
-    return drained && !g.failed;
+    return drained && !g.failed && !g.recorderPoisoned;
 }
 
 void DropCache(nui_window& window) {
@@ -850,9 +864,14 @@ bool Present(nui_window& window) {
             return false;
 
         default:
+            // Surface tier (audit BL-4): an acquisition failure is
+            // this window's problem, not the process's. Recreate
+            // the surface on the next Configure; other windows
+            // keep rendering.
             ++window.acquireFailures;
-            g.failed = true;
-            Log("unrecoverable surface acquisition failure");
+            window.configured = false;
+            window.recreateSurface = true;
+            Log("surface acquisition failed; recreating the surface");
             return false;
     }
 
@@ -919,6 +938,7 @@ void ResetShared() {
     g.maxTextureDimension = 0;
     g.pendingPresentations = 0;
     g.failed = false;
+    g.recorderPoisoned = false;
 }
 
 uint32_t DecodeImage(const uint8_t* bytes, int32_t length,
@@ -1021,7 +1041,18 @@ uint32_t DecodeImage(const uint8_t* bytes, int32_t length,
 
 int32_t nui_init(void) {
     return Api<int32_t>("nui_init", -1, [] {
-        if (g.context) return Ready() ? 0 : -1;
+        if (g.context && Ready()) return 0;
+
+        // Recovery contract (audit BL-4): with a failed backend the
+        // documented path is destroy every window, then call
+        // nui_init again (or nui_shutdown first). The old early-out
+        // returned -1 whenever a context existed, so the clear
+        // below could never run for the exact partial/failed states
+        // it was written for, and re-init was unreachable.
+        if (!g.windows.empty()) {
+            Log("re-init refused: destroy every window first");
+            return -1;
+        }
 
         // Clear partial GPU initialization, but preserve pre-init font/image
         // registrations. Their CPU-side data does not depend on a device.
@@ -1029,6 +1060,7 @@ int32_t nui_init(void) {
         g.context.reset();
         g.backend = {};
         g.failed = false;
+        g.recorderPoisoned = false;
 
         g.backend = GetDawnContext();
         if (!g.backend.fInstance || !g.backend.fDevice ||
@@ -1093,7 +1125,9 @@ void nui_destroy_window(nui_window* window) {
 
         // Device-loss cleanup must remain possible even after Ready() fails.
         // On failure, handles are still released; no further rendering occurs.
-        (void)Synchronize();
+        if (!Synchronize()) {
+            Log("destroying a window after a failed synchronization; its GPU work may not have drained");
+        }
 
         Trace(*window);
         DropCache(*window);
@@ -1106,13 +1140,18 @@ void nui_destroy_window(nui_window* window) {
 
 void nui_resize(nui_window* window, uint32_t width, uint32_t height) {
     ApiVoid("nui_resize", [&] {
-        if (!Live(window) || !Ready()) return;
+        if (!Live(window)) return;
 
         if (!DimensionsValid(width, height)) {
             Log("resize exceeds device texture limits");
             return;
         }
 
+        // Geometry bookkeeping is CPU-side and always applies,
+        // even while a failure tier blocks rendering (audit BL-4:
+        // resize used to refuse outright when !Ready(), which
+        // blocked the teardown/recovery ordering and left the
+        // window's size stale for the eventual reconfigure).
         if (window->width != width || window->height != height) {
             window->width = width;
             window->height = height;
@@ -1126,6 +1165,23 @@ void nui_resize(nui_window* window, uint32_t width, uint32_t height) {
             window->cacheValid = false;
             return;
         }
+
+        // Device tier: geometry is current; rendering waits for
+        // the destroy + re-init recovery path.
+        if (g.failed) return;
+
+        // Recording tier recovery: a fresh recorder drops whatever
+        // the poisoned one was holding.
+        if (g.recorderPoisoned) {
+            g.recorder = g.context ? g.context->makeRecorder() : nullptr;
+            if (!g.recorder) {
+                Log("could not recreate the Graphite recorder");
+                return;
+            }
+            g.recorderPoisoned = false;
+        }
+
+        if (!Ready()) return;
 
         // Recovery is not skipped merely because dimensions are unchanged.
         (void)Configure(*window);
@@ -1188,7 +1244,7 @@ int32_t nui_render(nui_window* window,
 
         auto recording = g.recorder->snap();
         if (!recording) {
-            g.failed = true;
+            g.recorderPoisoned = true;
             Log("Graphite snap failed");
             return 0;
         }
@@ -1197,7 +1253,7 @@ int32_t nui_render(nui_window* window,
         info.fRecording = recording.get();
         if (!g.context->insertRecording(info) || !g.context->submit() ||
             !Ready()) {
-            g.failed = true;
+            g.recorderPoisoned = true;
             Log("Graphite recording submission failed");
             return 0;
         }
@@ -1298,7 +1354,9 @@ void nui_image_release(uint32_t id) {
 
         // Conservative cold-path synchronization for externally retained
         // Graphite image resources.
-        (void)Synchronize();
+        if (!Synchronize()) {
+            Log("releasing an image after a failed synchronization");
+        }
         g.rasterBytes -= it->second.rasterBytes;
         g.images.erase(it);
     });
@@ -1319,7 +1377,9 @@ void nui_purge_gpu_cache(void) {
         // work first (the Context header's own condition for a complete
         // purge), then drop everything purgeable — 0 ms unused means
         // age is no excuse. In-use resources are never deleted by this.
-        (void)Synchronize();
+        if (!Synchronize()) {
+            Log("purging the GPU cache after a failed synchronization");
+        }
         g.context->performDeferredCleanup(std::chrono::milliseconds(0));
     });
 }
@@ -1331,7 +1391,9 @@ void nui_shutdown(void) {
             return;
         }
 
-        (void)Synchronize();
+        if (!Synchronize()) {
+            Log("shutting down after a failed synchronization; GPU work may not have drained");
+        }
         ResetShared();
 
         // The API thread remains fixed for this process lifetime. Image IDs
