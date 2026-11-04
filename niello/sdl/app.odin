@@ -925,6 +925,18 @@ run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) {
 		if res == .CONTINUE {
 			res = app_iterate()
 		}
+		// Reset the temp allocator every iteration (audit sdl-H2):
+		// the glue allocates from it per frame — the AT-SPI rows
+		// array and window-title cstring in atspi_sync_window, the
+		// window title at creation — and nothing reset it, so those
+		// allocations accumulated for the process lifetime. Every
+		// temp allocation that crosses the FFI is consumed or
+		// copied synchronously by the native side (atspi_start and
+		// register_font_family copy into std::string,
+		// register_font loads the file before returning, and the
+		// exporter copies what it keeps from atspi_sync), so
+		// nothing borrowed from temp storage escapes an iteration.
+		free_all(context.temp_allocator)
 	}
 	when ODIN_OS == .Windows {
 		sdl.RemoveEventWatch(live_resize_watch, nil)
