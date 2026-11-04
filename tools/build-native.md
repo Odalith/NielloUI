@@ -322,6 +322,14 @@ matching the `third_party/native/<platform>/` layout. Attach the three zips
 to a GitHub Release (tag like `native-v0.1.0`); `tools/fetch-native.sh` /
 `fetch-native.ps1` download from the release by tag or `latest`.
 
+Since `native-v0.1.1` the release also carries
+`niello-sdl3-linux-x64.zip` (the CI-built Linux SDL3). On Windows the
+SDL3 runtime is not in these zips — `fetch-native.ps1` takes
+`SDL3.dll` from SDL's official release instead. The ship contract for
+apps is the same either way: everything else is statically linked, so
+a Windows app ships as `app.exe` + `SDL3.dll` in one folder, and a
+Linux app ships with `libSDL3.so.0` beside the binary.
+
 ## 8. CI (later, once the matrix is proven by hand)
 
 `.github/workflows/native.yml`: matrix over `ubuntu-24.04`,

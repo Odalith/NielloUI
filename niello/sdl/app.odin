@@ -817,6 +817,49 @@ loop_timeout :: proc() -> i32 {
 	return best
 }
 
+// live_resize_watch — SDL event watch, Windows only.
+//
+// During a border drag, Windows runs a modal size/move loop inside
+// SDL's event pump, so run()'s loop is blocked inside WaitEvent and
+// the resize events pile up in the queue: the OS stretches the last
+// frame and the window repaints once, on release. SDL's
+// countermeasure is that the modal loop emits WINDOW_EXPOSED on a
+// 10 ms timer, flagged data1 == 1 for these live-resize exposes —
+// and event watches run synchronously as an event is pushed, i.e.
+// inside the modal loop. Framing the dragged window from here is
+// SDL's documented pattern for traditional loops (wiki:
+// AppFreezeDuringDrag). The watched event still lands in the queue
+// afterwards; the post-drag pass frames once more at the final size
+// through the normal path, which is harmless.
+//
+// The watch fires for every pushed event, so it stays narrow: only
+// a live-resize expose, and a frame only when the pixel size
+// actually moved. The size is read back from SDL rather than taken
+// from event data: WM_SIZE has already updated it, and a mid-drag
+// DPI change (same logical size, new pixels) arrives through the
+// same read.
+@(private)
+live_resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
+	context = runtime.default_context()
+	if event.type != .WINDOW_EXPOSED || event.window.data1 != 1 {
+		return true
+	}
+	win := find_sdl(event.window.windowID)
+	if win == nil || win.dead {
+		return true
+	}
+	px_w, px_h: i32
+	sdl.GetWindowSizeInPixels(win.sdl_win, &px_w, &px_h)
+	if px_w != win.pixel_width || px_h != win.pixel_height {
+		win.pixel_width, win.pixel_height = px_w, px_h
+		win.pending_size = true
+	}
+	if win.pending_size {
+		frame_window(win, sdl.GetTicksNS())
+	}
+	return true
+}
+
 // run opens the main window (on the app's context) and drives the
 // frame loop until the last window closes or the app quits.
 //
@@ -840,6 +883,11 @@ run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) {
 		app_quit()
 		sdl.Quit()
 		return
+	}
+	when ODIN_OS == .Windows {
+		// Framing during border drags happens in this watch: the
+		// main loop is blocked inside the drag's modal loop then.
+		_ = sdl.AddEventWatch(live_resize_watch, nil)
 	}
 	when ODIN_OS == .Linux {
 		// Start the AT-SPI exporter (no-op when no accessibility
@@ -874,6 +922,9 @@ run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) {
 		if res == .CONTINUE {
 			res = app_iterate()
 		}
+	}
+	when ODIN_OS == .Windows {
+		sdl.RemoveEventWatch(live_resize_watch, nil)
 	}
 	app_quit()
 }

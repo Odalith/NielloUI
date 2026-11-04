@@ -51,6 +51,12 @@ Windowed examples need the native backend for your platform under
 odin run niello/examples/buttons
 ```
 
+On Windows, run `tools/fetch-native.ps1` instead — and note the one
+dynamic piece: everything links statically into your `.exe` except
+SDL3. `fetch-native.ps1` drops a copy of `SDL3.dll` at the repo root
+(where example `.exe`s land), and a shipped app is just the two files
+together: `yourapp.exe` + `SDL3.dll` in one folder.
+
 ## Examples
 
 - `examples/hello` — the first window: a colored rect and a line of text,

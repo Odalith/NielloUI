@@ -9,6 +9,8 @@
 # The import library (SDL3.lib, from the matching official devel zip)
 # is staged under third_party\sdl3\windows-x64\lib\, where
 # niello/sdl/ffi.odin names it by relative path.
+# A copy of the DLL is also placed at the repo root, where the
+# examples' .exe files land when built from there.
 # Pass -NoSdl to use a system SDL3 instead.
 #
 # Run as: powershell -ExecutionPolicy Bypass -File tools/fetch-native.ps1
@@ -107,9 +109,14 @@ if ($WantSdl) {
     New-Item -ItemType Directory -Force -Path $LibDest | Out-Null
     Copy-Item $Lib.FullName -Destination (Join-Path $LibDest 'SDL3.lib') -Force
     Remove-Item -Recurse -Force $DevelStage
+    # Examples built from the repo root put their .exe there, and
+    # Windows loads DLLs from the .exe's own directory first, so a
+    # copy at the root makes the examples run with no manual step.
+    # Shipped apps work the same way: SDL3.dll beside the .exe.
+    Copy-Item (Join-Path $Dest 'SDL3.dll') -Destination (Join-Path $Root 'SDL3.dll') -Force
     Write-Host 'fetch-native: SDL3 contents:'
     Get-ChildItem -Recurse -File $Dest | Select-Object -ExpandProperty FullName
-    Write-Host 'fetch-native: copy SDL3.dll beside your .exe to run.'
+    Write-Host 'fetch-native: SDL3.dll copied to the repo root for the examples; ship it beside your .exe.'
 }
 
 Write-Host 'fetch-native: done.'
