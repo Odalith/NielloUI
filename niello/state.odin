@@ -131,6 +131,7 @@ Context :: struct {
 	nodes:        [dynamic]Frame_Node,
 	stack:        [dynamic]int, // open container node indices
 	child_counts: [dynamic]int, // children declared so far, per open container
+	clip_stack:   [dynamic]Rect, // declare-time accumulated clip per open container (BL-3)
 
 	// Frame inputs, latched at frame_begin.
 	viewport: Vec2,
@@ -161,7 +162,13 @@ Context :: struct {
 	// TWO map ops per node per frame (rect map + hash map), and the
 	// second op was the input pass's single biggest cost — one op now.
 	instances: map[Instance]Inst_Rec,
-	damage:    [dynamic]Rect,
+	// Cull memory (BL-3): the last layout rect of every culled
+	// node, keyed by identity. The culler tests last-frame rects,
+	// but a culled node's instance is deleted (rect() must report
+	// ok=false), so its rect lives here until it commits again or
+	// leaves the tree. Pass F maintains it.
+	cull_rects: map[Instance]Rect,
+	damage:     [dynamic]Rect,
 
 	// Debug snapshot (TODO #18, debug.odin): this context's last
 	// completed frame as a flat Debug_Node array. The field is an
@@ -420,6 +427,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.nodes)
 	delete(ctx.stack)
 	delete(ctx.child_counts)
+	delete(ctx.clip_stack)
 	delete(ctx.lay)
 	delete(ctx.first_child)
 	delete(ctx.next_sibling)
@@ -434,6 +442,7 @@ free_context :: proc(ctx: ^Context) {
 	}
 	a11y_free_mirror(ctx)
 	delete(ctx.instances)
+	delete(ctx.cull_rects)
 	delete(ctx.damage)
 	delete(ctx.popups)
 	delete(ctx.dismiss_flags)

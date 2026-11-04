@@ -797,6 +797,41 @@ show :: proc(unit: Unit, key: Key = 0, with: With = {}) -> Instance {
 // just slower. Culled subtrees produce no instances this frame → rect() on
 // them returns ok = false. The first frame never culls (no last-frame
 // geometry to test against).
+// child_clip_for computes the clip a container's children inherit:
+// the inherited clip, narrowed by the container's own last-frame
+// committed rect when the container clips — Overflow.Clip or any
+// scrolling, the same predicate pass F uses for pick_clip. The
+// style read is the unit's base style: With carries no
+// overflow/scroll override, and state overlays resolve at
+// frame_end — the same base-style limitation declare-time text
+// resolution already has in v1. A container with no committed rect (first
+// frame, or it was culled) cannot narrow; its children inherit the
+// clip unchanged, and having no committed rects under a new/moved
+// parent they cannot be culled either.
+// last_rect_for returns an identity's last known rect: the
+// committed instance rect when it has one, else its cull-memory
+// rect (BL-3) — a culled container still clips and tests against
+// the rect it would have had.
+@(private)
+last_rect_for :: proc(inst: Instance) -> (Rect, bool) {
+	if rec, ok := g.instances[inst]; ok {
+		return rec.rect, true
+	}
+	r, ok := g.cull_rects[inst]
+	return r, ok
+}
+
+@(private)
+child_clip_for :: proc(unit: Unit, inst: Instance, inherited: Rect) -> Rect {
+	s := style_of(unit)
+	if s.overflow == .Clip || s.scroll != .None {
+		if r, ok := last_rect_for(inst); ok {
+			return rect_intersect(inherited, r)
+		}
+	}
+	return inherited
+}
+
 @(deferred_out = end)
 begin :: proc(unit: Unit, key: Key = 0, with: With = {}, flags: Begin_Flags = {}) -> (
 	i:    Instance,
@@ -805,14 +840,32 @@ begin :: proc(unit: Unit, key: Key = 0, with: With = {}, flags: Begin_Flags = {}
 	new_inst, idx := declare(unit, key, with, true)
 	i = new_inst
 
-	// Mock culling: a container stays open unless its parent was culled or the
-	// test hook fires. (Real culling tests last-frame rects against clip rects.)
-	cull := g.nodes[idx].culled
+	// Real culling (audit BL-3): a container is culled when its
+	// last-frame committed rect misses its ancestors' accumulated
+	// clip entirely — the intersection pass F computes for picking
+	// (pick_clip), evaluated at declare time against last frame's
+	// instances, because this frame's layout does not exist yet.
+	// The decision is one frame latent by construction: a
+	// container scrolled into view was culled last frame and has
+	// no committed rect, so it is never culled this frame — it
+	// declares, commits, and can be culled again once it scrolls
+	// out. The first frame never culls (no committed rects).
+	// No_Cull opts this container out of the rect test; a culled
+	// ancestor still culls the whole subtree.
+	cull := g.nodes[idx].culled // inherited: an ancestor was culled
 	if g.test_force_cull {
 		cull = true
 		g.test_force_cull = false
 	}
-	_ = flags // No_Cull honored by the real culler; the mock never culls by rect.
+	inherited_clip := len(g.clip_stack) > 0 ? g.clip_stack[len(g.clip_stack) - 1] : Rect{{0, 0}, g.viewport}
+	if !cull && .No_Cull not_in flags {
+		if r, ok := last_rect_for(i); ok {
+			inter := rect_intersect(r, inherited_clip)
+			if inter.size.x <= 0 || inter.size.y <= 0 {
+				cull = true
+			}
+		}
+	}
 	g.nodes[idx].culled = cull
 	open = !cull
 
@@ -820,6 +873,7 @@ begin :: proc(unit: Unit, key: Key = 0, with: With = {}, flags: Begin_Flags = {}
 	// while ignoring `open` are still correctly parented (just culled).
 	append(&g.stack, idx)
 	append(&g.child_counts, 0)
+	append(&g.clip_stack, child_clip_for(unit, i, inherited_clip))
 	return i, open
 }
 
@@ -828,6 +882,7 @@ begin :: proc(unit: Unit, key: Key = 0, with: With = {}, flags: Begin_Flags = {}
 end :: proc(i: Instance, open: bool) {
 	pop(&g.stack)
 	pop(&g.child_counts)
+	pop(&g.clip_stack)
 }
 
 // Placement picks where a popup root sits relative to its anchor
@@ -904,6 +959,10 @@ begin_popup :: proc(
 	open = anchor_ok && !decl_culled
 	append(&g.stack, idx)
 	append(&g.child_counts, 0)
+	// Popup children escape the declaring ancestors' clips: their
+	// inherited clip restarts at the viewport, narrowed only by
+	// the popup's own rect when the popup itself clips.
+	append(&g.clip_stack, child_clip_for(unit, i, Rect{{0, 0}, g.viewport}))
 	return i, open
 }
 
@@ -996,6 +1055,7 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	g.popup_ordinal = 0
 	clear(&g.stack)
 	clear(&g.child_counts)
+	clear(&g.clip_stack)
 	clear(&g.lay)
 	clear(&g.pick_clip)
 	clear(&g.wrap_list)

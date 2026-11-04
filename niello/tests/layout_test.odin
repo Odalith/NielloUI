@@ -897,3 +897,92 @@ test_fit_container_passes_deficit_to_children :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, found, "the label's text command exists")
 }
+
+// ---------------------------------------------------------------------------
+// Real culling (BL-3): a container whose last-frame rect misses the
+// accumulated ancestor clip is culled — open=false, no instance
+// (rect() reports ok=false), its disappearance damages its old rect
+// exactly once, and Begin_Flags.No_Cull opts out of the rect test.
+
+@(test)
+test_culling_real :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	scroller: niello.Unit
+	niello.mint(&scroller, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, scroll = .Vertical})
+	row: niello.Unit
+	niello.mint(&row, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(30)}, layout = .Top_To_Bottom})
+	leaf: niello.Unit
+	niello.mint(&leaf, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(20)}})
+
+	// Six 30px rows in a 100px scroller: rows 0..3 intersect the
+	// clip (row 3 only partially), rows 4 and 5 sit fully below it.
+	ids: [6]niello.Instance
+	opens: [6]bool
+	declare_frame :: proc(scroller, row, leaf: niello.Unit, ids: ^[6]niello.Instance, opens: ^[6]bool, no_cull_last: bool) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
+		if _, ok := niello.begin(scroller); ok {
+			for k in 0 ..< 6 {
+				flags: niello.Begin_Flags = {}
+				if no_cull_last && k == 5 {
+					flags = {.No_Cull}
+				}
+				if inst, open := niello.begin(row, niello.key_int(k + 1), {}, flags); open {
+					ids[k] = inst
+					opens[k] = true
+					niello.show(leaf)
+				} else {
+					opens[k] = false
+				}
+			}
+		}
+	}
+
+	// Frame 1: nothing has a committed rect, so nothing culls.
+	declare_frame(scroller, row, leaf, &ids, &opens, false)
+	niello.frame_end()
+	for k in 0 ..< 6 {
+		_, ok := niello.rect(ids[k])
+		testing.expect(t, ok, "frame 1: every row committed")
+	}
+	row4_rect, _ := niello.rect(ids[4])
+	testing.expect(t, row4_rect == niello.Rect{{0, 120}, {200, 30}}, "frame 1: row 4 sits below the clip")
+
+	// Frame 2: rows 4 and 5 cull by rect; the rest stay open.
+	declare_frame(scroller, row, leaf, &ids, &opens, false)
+	res2 := niello.frame_end()
+	testing.expect(t, opens[0] && opens[1] && opens[2] && opens[3], "frame 2: intersecting rows stay open")
+	testing.expect(t, !opens[4] && !opens[5], "frame 2: fully-clipped rows are culled")
+	_, ok4 := niello.rect(ids[4])
+	_, ok5 := niello.rect(ids[5])
+	_, ok0 := niello.rect(ids[0])
+	testing.expect(t, !ok4 && !ok5, "frame 2: culled rows have no instance")
+	testing.expect(t, ok0, "frame 2: visible rows keep their instance")
+	damaged := false
+	for d in res2.damage {
+		if d == row4_rect {
+			damaged = true
+		}
+	}
+	testing.expect(t, damaged, "frame 2: the vanished row's old rect is damage")
+
+	// Frame 3: steady state — still culled, but no repeated damage.
+	declare_frame(scroller, row, leaf, &ids, &opens, false)
+	res3 := niello.frame_end()
+	testing.expect(t, !opens[4] && !opens[5], "frame 3: rows stay culled")
+	damaged = false
+	for d in res3.damage {
+		if d == row4_rect {
+			damaged = true
+		}
+	}
+	testing.expect(t, !damaged, "frame 3: a culled row adds no further damage")
+
+	// Frame 4: No_Cull opts row 5 out of the rect test.
+	declare_frame(scroller, row, leaf, &ids, &opens, true)
+	niello.frame_end()
+	testing.expect(t, opens[5], "frame 4: No_Cull row declares despite sitting outside the clip")
+	_, ok5b := niello.rect(ids[5])
+	testing.expect(t, ok5b, "frame 4: No_Cull row commits an instance again")
+}

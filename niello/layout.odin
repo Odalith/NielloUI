@@ -812,9 +812,33 @@ position_and_damage :: proc() {
 	if g.instances == nil {
 		g.instances = make(map[Instance]Inst_Rec)
 	}
+	culled_vanished := false
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
 		id := nd.identity
+		if nd.culled {
+			// Culled (audit BL-3): no instance is committed and the
+			// node adds no damage of its own — but a node committed
+			// last frame has now vanished, so its old rect is
+			// damage and its instance goes away (rect() reports
+			// ok=false for culled subtrees, as begin documents).
+			// The instance deletion also means the recycle sweep
+			// below cannot rely on the map-outgrew-the-tree signal
+			// alone. The node's layout rect is remembered in
+			// cull_rects: the culler tests last-frame rects, and
+			// deleting the instance must not erase the evidence
+			// that keeps the node culled next frame.
+			if g.cull_rects == nil {
+				g.cull_rects = make(map[Instance]Rect)
+			}
+			g.cull_rects[id] = Rect{g.lay[i].pos, g.lay[i].size}
+			if old, ok := g.instances[id]; ok {
+				append(&g.damage, old.rect)
+				delete_key(&g.instances, id)
+				culled_vanished = true
+			}
+			continue
+		}
 		new := Rect{g.lay[i].pos, g.lay[i].size}
 		ugen := store.units[int(nd.unit)].gen
 		stamp := i < len(g.state_stamp) ? g.state_stamp[i] : 0
@@ -847,6 +871,10 @@ position_and_damage :: proc() {
 			committed_digest = old.digest
 		}
 		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit}
+		if len(g.cull_rects) > 0 {
+			// A live commit retires the node's cull memory.
+			delete_key(&g.cull_rects, id)
+		}
 	}
 	// Recycle: an instance that was committed before but not declared
 	// this frame is gone, and its last rect is damage — otherwise its
@@ -855,7 +883,7 @@ position_and_damage :: proc() {
 	// looked "unchanged" while the dead text label was never damaged).
 	// The sweep only runs when the map outgrew the tree (the death
 	// signal), so a steady-state frame pays one size comparison.
-	if len(g.instances) > n {
+	if len(g.instances) > n || culled_vanished {
 		if g.seen_ids == nil {
 			g.seen_ids = make(map[Instance]bool)
 		}
@@ -872,6 +900,17 @@ position_and_damage :: proc() {
 		}
 		for id in g.dead_ids {
 			delete_key(&g.instances, id)
+		}
+		// Cull memory for identities no longer declared is dead
+		// too (no damage: they were never visible).
+		clear(&g.dead_ids)
+		for id in g.cull_rects {
+			if id not_in g.seen_ids {
+				append(&g.dead_ids, id)
+			}
+		}
+		for id in g.dead_ids {
+			delete_key(&g.cull_rects, id)
 		}
 	}
 }
