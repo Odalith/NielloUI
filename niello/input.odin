@@ -77,16 +77,6 @@ chain_contains :: proc(chain: []Instance, id: Instance) -> bool {
 	return false
 }
 
-// note_affected records an instance whose resolved style may change because
-// of a state transition; frame_end damages its rect and forces the frame.
-@(private)
-note_affected :: proc(id: Instance) {
-	if id != 0 {
-		append(&g.affected, id)
-		g.input_dirty = true
-	}
-}
-
 // DRAG_THRESHOLD is the displacement from the grab point, in DIP, at
 // which a left press becomes a drag (§3.28; an engine feel constant
 // like WHEEL_UNIT_PX, ruled 2026-10-23).
@@ -103,7 +93,6 @@ end_drag :: proc(completed: bool) {
 	g.drag_ended_completed = completed
 	g.drag_ended_total = g.drag_total_v
 	g.drag_active = false
-	note_affected(g.drag_ended_id)
 }
 
 // instance_in_tree reports whether id is a node of the tree dispatch
@@ -227,11 +216,8 @@ set_focus_id :: proc(i: Instance) {
 	if i == g.focus_id {
 		return
 	}
-	note_affected(g.focus_id)
 	g.focus_id = i
-	note_affected(i)
 	if g.key_press_id != 0 && g.key_press_id != i {
-		note_affected(g.key_press_id)
 		g.key_press_id = 0
 		clear(&g.key_press_chain)
 	}
@@ -335,7 +321,6 @@ key_press_begin :: proc(code: u32) {
 			g.key_press_chain[k] = g.nodes[c].identity
 			k -= 1
 		}
-		note_affected(g.key_press_id)
 		return
 	}
 }
@@ -349,7 +334,6 @@ key_press_end :: proc(code: u32) {
 		return
 	}
 	id := g.key_press_id
-	note_affected(id)
 	g.key_press_id = 0
 	if g.focus_id == id {
 		for idx in 0 ..< len(g.nodes) {
@@ -386,7 +370,6 @@ dispatch_keys :: proc(input: Input) {
 		// none anyway), and a held key-press cannot complete across
 		// the loss.
 		if g.key_press_id != 0 {
-			note_affected(g.key_press_id)
 			g.key_press_id = 0
 			clear(&g.key_press_chain)
 		}
@@ -456,7 +439,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	if input.mouse_valid && g.prev_pointer_valid {
 		g.drag_delta_v = input.mouse - g.prev_pointer_pos
 	}
-	clear(&g.affected)
 	// Dismissal requests (§3.19) live for one declare, like clicks.
 	if g.dismiss_flags != nil {
 		clear(&g.dismiss_flags)
@@ -472,7 +454,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		}
 		for b in Mouse_Button {
 			if g.press_ids[b] != 0 {
-				note_affected(g.press_ids[b])
 				g.press_ids[b] = 0
 				clear(&g.press_chains[b])
 			}
@@ -490,12 +471,10 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			end_drag(false)
 		}
 		g.prev_pointer_valid = false
-		note_affected(g.hover_id)
 		g.hover_id = 0
 		clear(&g.hover_chain)
 		clear(&g.hover_since)
 		for b in Mouse_Button {
-			note_affected(g.press_ids[b])
 			g.press_ids[b] = 0
 			clear(&g.press_chains[b])
 		}
@@ -506,7 +485,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// dies with it — a vanished target completes no click either.
 	if g.drag_active && !instance_in_tree(g.press_ids[.Left]) {
 		end_drag(false)
-		note_affected(g.press_ids[.Left])
 		g.press_ids[.Left] = 0
 		clear(&g.press_chains[.Left])
 	}
@@ -630,8 +608,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		}
 	}
 	if new_hover != g.hover_id {
-		note_affected(g.hover_id)
-		note_affected(new_hover)
 		g.hover_id = new_hover
 	}
 
@@ -666,7 +642,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		   DRAG_THRESHOLD * DRAG_THRESHOLD {
 			g.drag_active = true
 			g.drag_started_flag = true
-			note_affected(g.press_ids[.Left])
 		}
 	}
 
@@ -683,12 +658,10 @@ dispatch_input :: proc(input: Input, dt: f32) {
 				g.drag_grab = input.mouse
 				g.drag_total_v = Vec2{}
 			}
-			note_affected(g.press_ids[b])
 		}
 		if b in input.buttons_released {
 			target := g.press_ids[b]
 			if target != 0 {
-				note_affected(target)
 				if b == .Left && g.drag_active {
 					// Orthogonal (2026-10-24, supersedes F1): a
 					// drag's release completes the drag, and the

@@ -275,7 +275,6 @@ Context :: struct {
 	                         // session opened; restored when it ends
 	prev_focused:  bool, // last frame's window_focused; the falling edge
 	                     // drops press capture (input.odin)
-	input_dirty:   bool,     // interaction state changed this frame
 	// Scheduling (§3.3): engine time accumulates frame_begin's dt;
 	// deadlines are engine-time stamps, the nearest one wins.
 	time_ms:           u64,
@@ -294,8 +293,6 @@ Context :: struct {
 	tweens:     [dynamic]Tween,
 	transients: map[Instance]Transient_Rec,
 	edits:      map[Unit]^Edit_State,
-	affected:      [dynamic]Instance, // instances whose resolved style may have
-	                                  // changed; frame_end damages their rects
 
 	// Per-node side arrays, parallel to nodes. pick_clip is the accumulated
 	// ancestor clip pass F computes; the NEXT frame's pick reads it (with
@@ -459,7 +456,6 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.seen_ids)
 	delete(ctx.dead_ids)
 	delete(ctx.clicked_chain)
-	delete(ctx.affected)
 	delete(ctx.pick_clip)
 	delete(ctx.eff)
 	delete(ctx.disabled_flags)

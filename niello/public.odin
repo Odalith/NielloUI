@@ -1172,17 +1172,12 @@ frame_end :: proc() -> Frame_Result {
 			g.modal_prev_id = top_modal
 		}
 	}
-	// Interaction-driven restyles don't pass through the declaration diff:
-	// the affected instances' committed rects are the damage. (A restyle
-	// that changed layout already damaged old ∪ new in pass F.)
-	if g.input_dirty {
-		for id in g.affected {
-			if rec, ok := g.instances[id]; ok {
-				append(&g.damage, rec.rect)
-			}
-		}
-		g.input_dirty = false
-	}
+	// Interaction-driven restyles need no damage route of their
+	// own: dispatch runs at frame_begin, so an overlay-driven
+	// restyle resolves in the same frame's declare and pass F's
+	// stamp comparison damages it (verified across the interaction
+	// suite, audit int-15 — the old affected/input_dirty route
+	// only ever duplicated that damage or added spurious rects).
 	// Debug snapshot (TODO #18): after the commit — a no-op
 	// unless built with NIELLO_DEBUG.
 	debug_snapshot_build()
