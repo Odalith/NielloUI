@@ -748,6 +748,15 @@ bool Conn::connect(const char *address) {
 	}
 	fd_ = fd;
 
+	// Everything below sends via send_locked, whose contract is
+	// "caller holds write_mu_" — hold it for the whole handshake
+	// (audit a11y-M2). connect() used to send unlocked, saved
+	// only by single-threaded call sites; a reconnect from the
+	// dispatch thread (a11y-H3) would interleave bytes on the
+	// wire. shutdown() takes no mutex, so the failure paths
+	// below cannot deadlock on this hold.
+	std::lock_guard<std::mutex> write_lock(write_mu_);
+
 	// SASL EXTERNAL: NUL byte (credentials travel via the socket),
 	// then AUTH with the hex-encoded decimal UID as initial response.
 	{
