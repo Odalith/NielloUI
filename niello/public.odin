@@ -1423,7 +1423,7 @@ focus_prev :: proc() {
 // Text routes to the instance that held focus at dispatch, and only
 // to it. Declare-scoped: read it during declare, like clicked.
 input_text :: proc(i: Instance) -> string {
-	if i == 0 || i != g.text_target || len(g.frame_text) == 0 {
+	if i == 0 || i != g.input_target || len(g.frame_text) == 0 {
 		return ""
 	}
 	return string(g.frame_text[:])
@@ -1436,7 +1436,7 @@ input_text :: proc(i: Instance) -> string {
 // it before calling again.
 input_keys :: proc(i: Instance) -> []Key_Event {
 	clear(&g.keys_scratch)
-	if i == 0 || i != g.keys_target {
+	if i == 0 || i != g.input_target {
 		return g.keys_scratch[:]
 	}
 	for k in 0 ..< g.frame_key_count {

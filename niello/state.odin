@@ -210,8 +210,8 @@ Context :: struct {
 	// frame_end. Chains are identity snapshots, root first: an instance is
 	// "in" a chain when it is the target or one of its ancestors, which is
 	// what gives clicked/hovered their bubble-up semantics.
-	hover_id:      Instance, // pick target under the cursor; 0 = none
-	hover_chain:   [dynamic]Instance,
+	hover_chain:   [dynamic]Instance, // root first; the tail is the
+	                                  // pick target under the cursor
 	hover_clock:   f32, // total dispatch time; durations read against it
 	hover_since:   map[Instance]f32, // per-member chain entry time: an
 	                                  // instance's hover duration is
@@ -220,8 +220,8 @@ Context :: struct {
 	                                  // chain (input.odin maintains both)
 	press_ids:     [Mouse_Button]Instance, // press capture per button; 0 = none
 	press_chains:  [Mouse_Button][dynamic]Instance,
-	clicked_id:    Instance, // set at a release dispatch, valid for one declare
-	clicked_chain: [dynamic]Instance,
+	clicked_chain: [dynamic]Instance, // set at a release dispatch,
+	                                  // valid for one declare
 	// Drag state (§3.28): a left press whose displacement from the
 	// grab point crosses DRAG_THRESHOLD becomes a drag on the same
 	// capture. The ended snapshot, like clicked's, is valid for
@@ -250,8 +250,8 @@ Context :: struct {
 	frame_key_count: int,
 	key_consumed:    [16]bool, // per slot: the core ate this event
 	                         // (traversal's Tab is never delivered)
-	keys_target:     Instance, // routing frozen at dispatch: the
-	text_target:     Instance, // queries answer for these only
+	input_target:    Instance, // key/text routing frozen at dispatch:
+	                           // the queries answer for it only
 	frame_text:      [dynamic]u8, // this frame's committed text (owned)
 	keys_scratch:    [dynamic]Key_Event, // input_keys result assembly
 	seen_ids:        map[Instance]bool, // recycle sweep's live set
