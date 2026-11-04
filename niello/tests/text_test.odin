@@ -629,3 +629,48 @@ test_measure_failures_not_cached :: proc(t: ^testing.T) {
 	r, _ = niello.rect(i)
 	testing.expect(t, abs(r.size.x - 100) < EPS, "fonts_changed invalidates the cache")
 }
+
+@(test)
+test_invalid_utf8_sanitized :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	root := fixed_root()
+	u: niello.Unit
+	niello.mint(&u, niello.NO_UNIT)
+
+	// "a\xffb\xc3" — a stray byte and a truncated sequence. Left
+	// alone, native replay validation would reject the frame's
+	// whole command stream over these two bytes (audit txt-6).
+	bad_bytes := [4]byte{'a', 0xFF, 'b', 0xC3}
+	bad := transmute(string)bad_bytes[:]
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(u, 0, niello.With{text = bad})
+	}
+	niello.frame_end()
+
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			found = true
+			got := string(c.text_ptr[:int(c.text_len)])
+			testing.expect(t, got == "a�b�", "invalid bytes became U+FFFD")
+		}
+	}
+	testing.expect(t, found, "the label still emits a Text command")
+
+	// Valid text (including a genuine U+FFFD) passes through
+	// byte-identical.
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(u, 0, niello.With{text = "café �"})
+	}
+	niello.frame_end()
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			got := string(c.text_ptr[:int(c.text_len)])
+			testing.expect(t, got == "café �", "valid text is untouched")
+		}
+	}
+}
