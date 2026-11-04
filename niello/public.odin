@@ -699,6 +699,10 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 // the explicit write's job there is to cancel the glide, and skipping
 // it would let the glide carry the value away afterwards.
 set_any :: proc(u: Unit, f: Field, v: any) {
+	// One failure policy for cold handles (audit api-A4): an
+	// invalid unit asserts loudly, exactly like pin — the silent
+	// alternative was writing into the NO_UNIT sentinel record.
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set: unit is not minted")
 	rec := &store.units[int(u)]
 	if !field_gliding(u, f) {
 		tmp: Style
@@ -727,6 +731,7 @@ set :: proc(u: Unit, f: Field, v: $T) {
 // set overwrite, the rest is untouched. Also records overlay units,
 // focusable, group memberships, and the explicit field set (for propagate).
 set_many :: proc(u: Unit, decl: Style_Decl) {
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set_many: unit is not minted")
 	s := &store.units[int(u)].style
 	apply_opt(&s.color, decl.color)
 	apply_opt(&s.font_color, decl.font_color)
