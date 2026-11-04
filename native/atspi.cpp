@@ -1970,6 +1970,16 @@ Pending_Signal ready_signal() {
 
 std::string borrowed_or_empty(const char *s) { return s ? s : ""; }
 
+// Node strings cross the ABI as pointer + length (audit BL-1):
+// the Odin side's strings are not NUL-terminated, so building a
+// std::string from the pointer alone reads past the end of the
+// mirror's allocation. NULL means empty. (The window title is a
+// genuine C string from clone_to_cstring and keeps using
+// borrowed_or_empty above.)
+std::string len_or_empty(const char *s, uint32_t len) {
+	return s ? std::string(s, static_cast<size_t>(len)) : "";
+}
+
 // Path of a node's parent: the window path for roots, else the
 // parent node's path.
 std::string parent_path_for(const Shadow_Window &win, int ctx, int node_index) {
@@ -2011,8 +2021,8 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 		n.parent = src.parent;
 		n.odin_role = src.role;
 		n.role = src.role < 43 ? kRoleMap[src.role] : ATSPI_ROLE_INVALID;
-		n.name = borrowed_or_empty(src.name);
-		n.description = borrowed_or_empty(src.description);
+		n.name = len_or_empty(src.name, src.name_len);
+		n.description = len_or_empty(src.description, src.description_len);
 		n.flags = src.flags;
 		n.state = src.state;
 		n.x = src.x;
@@ -2023,7 +2033,7 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
 		n.value_num = src.value_num;
 		n.value_min = src.value_min;
 		n.value_max = src.value_max;
-		n.value_text = borrowed_or_empty(src.value_text);
+		n.value_text = len_or_empty(src.value_text, src.value_text_len);
 		nw.nodes.push_back(std::move(n));
 	}
 

@@ -160,6 +160,10 @@ void nui_purge_gpu_cache(void);
 // bit positions of the Odin A11y_Flag / A11y_State_Flag enums
 // (ORDER IS ABI — append only, on both sides). Strings are
 // borrowed for the call; the exporter copies what it keeps.
+// The strings are NOT NUL-terminated on the Odin side: each
+// pointer's length rides beside it (name_len and friends,
+// appended 2026-11-04, audit BL-1) and the exporter constructs
+// from pointer + length, never by scanning for a terminator.
 // parent is an index into the nodes array (-1 = child of the
 // synthetic window node); rect is DIP, window-relative.
 typedef struct UiA11yNode {
@@ -174,10 +178,13 @@ typedef struct UiA11yNode {
 	int32_t  has_value;
 	float    value_num, value_min, value_max;
 	const char *value_text; // NULL = empty
+	uint32_t name_len;        // bytes at name (0 when NULL)
+	uint32_t description_len; // bytes at description (0 when NULL)
+	uint32_t value_text_len;  // bytes at value_text (0 when NULL)
 } UiA11yNode;
 
 #ifdef __cplusplus
-static_assert(sizeof(UiA11yNode) == 80, "UiA11yNode must match Odin A11y_FFI_Node (80 bytes)");
+static_assert(sizeof(UiA11yNode) == 96, "UiA11yNode must match Odin A11y_FFI_Node (96 bytes)");
 #endif
 
 // Connect to the accessibility bus and register with the AT-SPI

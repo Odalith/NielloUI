@@ -415,8 +415,8 @@ atspi_sync_window :: proc(win: ^Glue_Window) {
 				id          = u64(node.instance),
 				parent      = i32(node.parent),
 				role        = u32(node.role),
-				name        = a11y_ffi_cstring(node.name),
-				description = a11y_ffi_cstring(node.description),
+				name        = a11y_ffi_str_ptr(node.name),
+				description = a11y_ffi_str_ptr(node.description),
 				flags       = a11y_ffi_flags(node.flags),
 				state       = a11y_ffi_state(node.state),
 				x           = node.rect.pos.x,
@@ -427,7 +427,10 @@ atspi_sync_window :: proc(win: ^Glue_Window) {
 				value_num   = node.value.num,
 				value_min   = node.value.min,
 				value_max   = node.value.max,
-				value_text  = a11y_ffi_cstring(node.value.text),
+				value_text  = a11y_ffi_str_ptr(node.value.text),
+				name_len        = u32(len(node.name)),
+				description_len = u32(len(node.description)),
+				value_text_len  = u32(len(node.value.text)),
 			}
 		}
 		wx, wy: i32

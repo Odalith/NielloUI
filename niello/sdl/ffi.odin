@@ -22,7 +22,7 @@ import niello "../"
 #assert(size_of(niello.Draw_Cmd) == 96, "niello.Draw_Cmd must stay 96 bytes: it is the FFI ABI")
 #assert(size_of(niello.Rect) == 16, "niello.Rect must stay 16 bytes: it is the FFI ABI")
 #assert(size_of(Native_Handles) == size_of(rawptr) * 8, "Native_Handles must match UiNativeHandles")
-#assert(size_of(A11y_FFI_Node) == 80, "A11y_FFI_Node must match UiA11yNode in ../../native/nui.h (80 bytes)")
+#assert(size_of(A11y_FFI_Node) == 96, "A11y_FFI_Node must match UiA11yNode in ../../native/nui.h (96 bytes)")
 
 // The native backend ships as ONE fat archive per platform
 // (nui_native + Skia + Dawn, merged per tools/build-native.md §6),
@@ -175,7 +175,11 @@ foreign native {
 // AT-SPI exporter. Field order IS the ABI (UiA11yNode in
 // ../../native/nui.h, statically asserted above). Strings borrow
 // the mirror's owned storage: valid until the next frame_end, and
-// sync runs inside the same frame pass, so borrowing is sound.
+// sync runs inside the same frame pass, so borrowing is sound on
+// LIFETIME only — the strings are not NUL-terminated, so each
+// pointer's length rides beside it (name_len and friends,
+// appended 2026-11-04, audit BL-1) and the native side reads
+// pointer + length, never pointer alone.
 // Flags/state are built explicitly by the helpers below — a
 // bit_set's backing layout is not ABI, so it is never transmuted.
 A11y_FFI_Node :: struct {
@@ -192,9 +196,16 @@ A11y_FFI_Node :: struct {
 	value_min:   f32,
 	value_max:   f32,
 	value_text:  cstring,
+	name_len:        u32, // bytes at name (0 when nil)
+	description_len: u32, // bytes at description (0 when nil)
+	value_text_len:  u32, // bytes at value_text (0 when nil)
 }
 
-a11y_ffi_cstring :: proc(s: string) -> cstring {
+// a11y_ffi_str_ptr returns the string's data pointer typed as a
+// cstring for the ABI struct. It is NOT a C string: no terminator
+// is added or promised (audit BL-1). The matching *_len field
+// carries the byte count; the native side must use both.
+a11y_ffi_str_ptr :: proc(s: string) -> cstring {
 	if len(s) == 0 {
 		return nil
 	}
