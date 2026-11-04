@@ -17,10 +17,10 @@ opened and closed from inside declare procs. A debug window
 (Clay/Avalonia-style: live node tree, hover-to-highlight, the
 overflow report) ships as a package in debug builds only
 (-define:NIELLO_DEBUG=true, F12 in any window) at zero prod cost.
-A headless suite (129 tests; 134 in debug builds) covers the core, and the SDL loop idles at ~0 CPU — it blocks on
+A headless suite (170+ tests, more in debug builds) covers the core, and the SDL loop idles at ~0 CPU — it blocks on
 OS events and wakes on the nearest engine deadline across windows.
-Still ahead: prebuilt releases, a packaged component collection, and
-the remaining parity work in `TODO.md`.
+Still ahead: a packaged component collection and the remaining
+parity work.
 
 ## The model in one paragraph
 
@@ -147,9 +147,9 @@ distributed **prebuilt, one static library per platform**:
 
 Each release artifact (`niello-native-<platform>.zip`) holds a single fat
 static archive (the backend with Skia + Dawn merged in) plus `nui.h`; see
-`third_party/native/README.md` for the layout. The first release is still to
-be cut — until then, build it from `native/` with CMake against an
-out-of-tree Skia checkout:
+`third_party/native/README.md` for the layout. Fetch a release with
+`tools/fetch-native.sh` (`tools/fetch-native.ps1` on Windows), or build it
+from `native/` with CMake against an out-of-tree Skia checkout:
 
 ```sh
 cmake -B build -DSKIA_DIR=/path/to/skia native/

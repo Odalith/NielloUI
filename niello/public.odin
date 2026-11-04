@@ -524,8 +524,11 @@ Input :: struct {
 	              // with input_text. Inline composition (IME preedit)
 	              // is not reported in v1.
 
-	window_focused: bool, // false ends all interaction at dispatch (decision:
-	                      // focus loss / mouse-leave clears pressed+hovered)
+	window_focused: bool, // false = the window lacks OS focus: on the falling
+	                      // edge, press/drag captures drop (no click completes
+	                      // across the loss) and a held key-press cannot
+	                      // complete; hover is not focus-gated and keeps
+	                      // tracking the pointer over unfocused windows.
 }
 
 Frame_Result :: struct {
@@ -1862,8 +1865,3 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 	}
 }
 
-// ============ not yet implemented (roadmap, in doc order) ============
-// Each is a subsystem, not a stub: declaring them now would promise behavior
-// the mock can't deliver.
-//
-//   focus:      traversal + text input (focused/focus work; seams reserved)
