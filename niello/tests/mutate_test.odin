@@ -96,6 +96,25 @@ test_set_cancels_glide :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_tween_zero_ms_cancels_glide :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	a, b, c: niello.Unit
+	niello.mint(&a, niello.NO_UNIT, {color = niello.Color{0, 0, 0, 255}})
+	niello.mint(&b, niello.NO_UNIT, {color = niello.Color{200, 0, 0, 255}})
+	niello.mint(&c, niello.NO_UNIT, {color = niello.Color{0, 0, 200, 255}})
+	niello.tween(a, b, 100, niello.Fields{.Color})
+	mframe(noop_declare, 0.05) // mid-glide toward red
+	niello.tween(a, c, 0, niello.Fields{.Color}) // snap to blue
+	testing.expect(t, niello.test_style(a).color == niello.Color{0, 0, 200, 255},
+		"a zero-ms tween snaps immediately")
+	mframe(noop_declare, 0.05)
+	mframe(noop_declare, 0.05) // the old glide would have landed by now
+	testing.expect(t, niello.test_style(a).color == niello.Color{0, 0, 200, 255},
+		"the snapped value sticks: the old glide was cancelled, not overwritten by it")
+}
+
+@(test)
 test_set_equal_is_noop :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()

@@ -557,7 +557,10 @@ void DrawImage(SkCanvas* canvas, const UiDrawCmd& command) {
         command.src_w <= 0 || command.src_h <= 0) return;
 
     auto& entry = it->second;
-    const bool needMips = command.interp == 1;
+    // Interp 0 (High: cubic) and 1 (linear) both minify with
+    // mipmaps — the Odin enum's contract (audit nat-4: High
+    // silently lost its mips to an enum mismatch here).
+    const bool needMips = command.interp == 0 || command.interp == 1;
 
     if (!entry.texture || (needMips && !entry.mipmapped)) {
         SkImage::RequiredProperties properties{};

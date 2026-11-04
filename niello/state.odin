@@ -1,5 +1,6 @@
-// state.odin — cold unit store and package-global frame state.
-// The real engine would thread a context; the mock keeps one global (tests reset it).
+// state.odin — cold unit store and context state.
+// The engine threads explicit contexts (one per window); g is the
+// currently bound context, bound by the glue for each frame.
 //
 // The public mutation path (mint/set/set_many) lives in public.odin; this file
 // holds the stores it writes to. The struct-of-structs here stands in for the
@@ -22,8 +23,7 @@ Unit_Rec :: struct {
 	pinned:   Fields, // fields protected from group writes (pin)
 	dirty:    Fields, // fields written since last frame_end
 
-	// Warm: read when resolving interaction state (overlays not yet applied —
-	// the mock has no input/rendering passes yet; the data is retained).
+	// Warm: read when resolving interaction state (overlays not yet applied).
 	hover, press, focus, disabled: Unit,
 	focusable: bool,
 	groups:    []Group,

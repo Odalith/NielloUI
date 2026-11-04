@@ -524,8 +524,11 @@ Input :: struct {
 	              // with input_text. Inline composition (IME preedit)
 	              // is not reported in v1.
 
-	window_focused: bool, // false ends all interaction at dispatch (decision:
-	                      // focus loss / mouse-leave clears pressed+hovered)
+	window_focused: bool, // false = the window lacks OS focus: on the falling
+	                      // edge, press/drag captures drop (no click completes
+	                      // across the loss) and a held key-press cannot
+	                      // complete; hover is not focus-gated and keeps
+	                      // tracking the pointer over unfocused windows.
 }
 
 Frame_Result :: struct {
@@ -699,6 +702,10 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 // the explicit write's job there is to cancel the glide, and skipping
 // it would let the glide carry the value away afterwards.
 set_any :: proc(u: Unit, f: Field, v: any) {
+	// One failure policy for cold handles (audit api-A4): an
+	// invalid unit asserts loudly, exactly like pin — the silent
+	// alternative was writing into the NO_UNIT sentinel record.
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set: unit is not minted")
 	rec := &store.units[int(u)]
 	if !field_gliding(u, f) {
 		tmp: Style
@@ -727,6 +734,7 @@ set :: proc(u: Unit, f: Field, v: $T) {
 // set overwrite, the rest is untouched. Also records overlay units,
 // focusable, group memberships, and the explicit field set (for propagate).
 set_many :: proc(u: Unit, decl: Style_Decl) {
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set_many: unit is not minted")
 	s := &store.units[int(u)].style
 	apply_opt(&s.color, decl.color)
 	apply_opt(&s.font_color, decl.font_color)
@@ -1857,8 +1865,3 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 	}
 }
 
-// ============ not yet implemented (roadmap, in doc order) ============
-// Each is a subsystem, not a stub: declaring them now would promise behavior
-// the mock can't deliver.
-//
-//   focus:      traversal + text input (focused/focus work; seams reserved)
