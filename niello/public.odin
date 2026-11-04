@@ -125,18 +125,26 @@ Sizing :: struct {
 Size :: [2]Sizing // indexed by axis
 
 fixed :: proc(v: f32, min: f32 = 0, max: f32 = INF) -> Sizing {
+	assert(v == v && min == min && max == max, "niello.fixed: sizing values must not be NaN")
+	assert(min <= max, "niello.fixed: min must not exceed max")
 	return Sizing{kind = .Fixed, value = v, min = min, max = max}
 }
 
 percent :: proc(v: f32, min: f32 = 0, max: f32 = INF) -> Sizing {
+	assert(v == v && min == min && max == max, "niello.percent: sizing values must not be NaN")
+	assert(min <= max, "niello.percent: min must not exceed max")
 	return Sizing{kind = .Percent, value = v, min = min, max = max}
 }
 
 fit :: proc(min: f32 = 0, max: f32 = INF) -> Sizing {
+	assert(min == min && max == max, "niello.fit: sizing values must not be NaN")
+	assert(min <= max, "niello.fit: min must not exceed max")
 	return Sizing{kind = .Fit, min = min, max = max}
 }
 
 grow :: proc(min: f32 = 0, max: f32 = INF) -> Sizing {
+	assert(min == min && max == max, "niello.grow: sizing values must not be NaN")
+	assert(min <= max, "niello.grow: min must not exceed max")
 	return Sizing{kind = .Grow, min = min, max = max}
 }
 
@@ -1039,6 +1047,25 @@ current_context :: proc() -> ^Context {
 frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	assert(ctx != nil, "frame_begin needs a context (context_create)")
 	g = ctx // bind: this frame's declare operates on ctx
+	input := input // params are immutable; the sanitized copies are the frame's
+	dt := dt
+	// Host-supplied numbers are sanitized at this boundary, not
+	// trusted (audit core-H8 class): dt and the viewport are
+	// runtime data from the host's clock and window system, and
+	// a NaN in either poisons silently — the u64 conversion
+	// below turns NaN dt into arbitrary garbage time, and a
+	// NaN viewport makes every layout comparison false. A
+	// non-finite or negative dt is a clock hiccup: no time
+	// passes. An absurd dt clamps an hour past any real frame
+	// so the conversion stays exact. Viewport dims clamp into
+	// [0, 65536]: a minimized window is a legitimate zero, and
+	// 65536 DIP is beyond any real display.
+	if !(dt >= 0) { dt = 0 }
+	if dt > 3600 { dt = 3600 }
+	if !(input.viewport.x >= 0) { input.viewport.x = 0 }
+	if !(input.viewport.y >= 0) { input.viewport.y = 0 }
+	if input.viewport.x > 65536 { input.viewport.x = 65536 }
+	if input.viewport.y > 65536 { input.viewport.y = 65536 }
 	// Engine time advances by the real frame delta; scheduling
 	// deadlines are stamped against it.
 	g.time_ms += u64(dt * 1000 + 0.5)
@@ -1503,6 +1530,17 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 // on word-cache miss.
 measure_word_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> f32
 line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> f32
+
+// fonts_changed invalidates every cached text measurement. The
+// backend clears its own font cache when a family is (re)registered;
+// the core's word cache keys on the family handle, which does not
+// change — so without this bump, measurements taken under the old
+// binding (or before the font existed) would be served forever.
+// The glue calls it from its register_font / register_font_family;
+// apps wiring custom hooks call it after (re)binding a family.
+fonts_changed :: proc() {
+	store.font_epoch += 1
+}
 
 // ============ scheduling ============
 // The idle-CPU contract (§3.3): changes are found by the next SCHEDULED

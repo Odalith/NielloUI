@@ -7,6 +7,8 @@
 // open == false or on early return.
 package niello
 
+import "core:unicode/utf8"
+
 Frame_Node :: struct {
 	unit:            Unit,
 	identity:        Instance,
@@ -156,6 +158,15 @@ declare_as :: proc(
 		// demo's rows all rendered the buffer's final contents.)
 		text = copy_frame_text(text)
 	}
+	// Invalid UTF-8 is sanitized at this one boundary (audit
+	// txt-6): nothing downstream validates display text, and the
+	// native replay validator rejects the ENTIRE command stream
+	// over one bad byte — one corrupt label (a file tag, a paste)
+	// blanked the window with no Odin-side diagnostic. Valid
+	// text passes through untouched; invalid sequences become
+	// U+FFFD in a frame-arena copy, whichever source the text
+	// came from (With or the unit's style).
+	text = sanitize_frame_text(text)
 	// Accessibility strings (§3.9) get the same treatment as text:
 	// copied into the frame arena at declare time, so the stored
 	// With borrows arena memory, never caller scratch. The mirror
@@ -225,12 +236,11 @@ TEXT_CHUNK :: 16 * 1024
 // earlier in the frame stay valid; frame_begin rewinds the cursor and
 // the chunks are reused next frame. A string larger than a chunk gets
 // a chunk of its own size.
+// frame_text_reserve claims `need` bytes of frame arena and
+// returns them (the cursor advances by the full claim; a caller
+// that writes fewer bytes just leaves a gap).
 @(private)
-copy_frame_text :: proc(text: string) -> string {
-	if len(text) == 0 {
-		return text
-	}
-	need := len(text)
+frame_text_reserve :: proc(need: int) -> []u8 {
 	if len(g.text_chunks) == 0 {
 		append(&g.text_chunks, make([]u8, max(TEXT_CHUNK, need)))
 		g.text_chunk = 0
@@ -247,9 +257,52 @@ copy_frame_text :: proc(text: string) -> string {
 	}
 	chunk := g.text_chunks[g.text_chunk]
 	dst := chunk[g.text_off:g.text_off + need]
-	copy(dst, text)
 	g.text_off += need
+	return dst
+}
+
+@(private)
+copy_frame_text :: proc(text: string) -> string {
+	if len(text) == 0 {
+		return text
+	}
+	dst := frame_text_reserve(len(text))
+	copy(dst, text)
 	return string(dst)
+}
+
+// sanitize_frame_text returns text unchanged when it is valid
+// UTF-8 (the common case: one validation walk, no copy). Invalid
+// input is rebuilt into the frame arena with U+FFFD in place of
+// each bad byte: decoding drives the rebuild, so the output is
+// valid by construction under the same strict rules the native
+// validator applies (no overlongs, no surrogates, nothing past
+// U+10FFFF). A genuine U+FFFD in the source decodes with width
+// 3 and is copied verbatim — only width-1 error decodes are
+// replaced. The arena claim is the worst case (every byte bad:
+// 3 bytes out per byte in); the unused tail is skipped space,
+// rewound next frame like every arena gap.
+@(private)
+sanitize_frame_text :: proc(text: string) -> string {
+	if len(text) == 0 || utf8.valid_string(text) {
+		return text
+	}
+	out := frame_text_reserve(3 * len(text))
+	n := 0
+	i := 0
+	for i < len(text) {
+		r, w := utf8.decode_rune_in_string(text[i:])
+		if r == utf8.RUNE_ERROR && w == 1 {
+			copy(out[n:], "�")
+			n += 3
+			i += 1
+		} else {
+			copy(out[n:], text[i:i + w])
+			n += w
+			i += w
+		}
+	}
+	return string(out[:n])
 }
 
 // copy_frame_spans copies a span slice into the frame spans arena and

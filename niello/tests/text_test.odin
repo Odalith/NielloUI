@@ -574,3 +574,103 @@ test_with_text_copied_at_declare :: proc(t: ^testing.T) {
 	testing.expect(t, seen[0] && seen[1] && seen[2],
 		"each row kept its own bytes despite the shared buffer")
 }
+
+@(test)
+test_measure_failures_not_cached :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	defer niello.measure_word_hook = nil
+
+	root := fixed_root()
+	u: niello.Unit
+	niello.mint(&u, niello.NO_UNIT)
+
+	frame :: proc(u: niello.Unit, root: niello.Unit) -> niello.Instance {
+		i: niello.Instance
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
+		if _, ok := niello.begin(root); ok {
+			i = niello.show(u, 0, niello.With{text = "hello"})
+		}
+		niello.frame_end()
+		return i
+	}
+
+	// Phase 1: the hook returns NaN (a backend measuring with an
+	// unresolved font). The frame completes, the text takes no
+	// width — and the failure must not enter the cache (txt-5).
+	niello.measure_word_hook = proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32, text: string) -> f32 {
+		z: f32 = 0
+		return z / z
+	}
+	i := frame(u, root)
+	r, _ := niello.rect(i)
+	testing.expect(t, abs(r.size.x) < EPS, "failed measure: text takes no width")
+
+	// Phase 2: the hook measures for real now. With NO epoch
+	// bump, the next frame already lays out at the real width —
+	// proof phase 1 cached nothing.
+	niello.measure_word_hook = proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32, text: string) -> f32 {
+		return f32(len(text)) * 10
+	}
+	i = frame(u, root)
+	r, _ = niello.rect(i)
+	testing.expect(t, abs(r.size.x - 50) < EPS, "healed hook re-measures immediately")
+
+	// Phase 3: the good entry IS cached — rescaling the hook
+	// changes nothing until fonts_changed() bumps the epoch.
+	niello.measure_word_hook = proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32, text: string) -> f32 {
+		return f32(len(text)) * 20
+	}
+	i = frame(u, root)
+	r, _ = niello.rect(i)
+	testing.expect(t, abs(r.size.x - 50) < EPS, "cached entry survives a hook change")
+	niello.fonts_changed()
+	i = frame(u, root)
+	r, _ = niello.rect(i)
+	testing.expect(t, abs(r.size.x - 100) < EPS, "fonts_changed invalidates the cache")
+}
+
+@(test)
+test_invalid_utf8_sanitized :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	root := fixed_root()
+	u: niello.Unit
+	niello.mint(&u, niello.NO_UNIT)
+
+	// "a\xffb\xc3" — a stray byte and a truncated sequence. Left
+	// alone, native replay validation would reject the frame's
+	// whole command stream over these two bytes (audit txt-6).
+	bad_bytes := [4]byte{'a', 0xFF, 'b', 0xC3}
+	bad := transmute(string)bad_bytes[:]
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(u, 0, niello.With{text = bad})
+	}
+	niello.frame_end()
+
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			found = true
+			got := string(c.text_ptr[:int(c.text_len)])
+			testing.expect(t, got == "a�b�", "invalid bytes became U+FFFD")
+		}
+	}
+	testing.expect(t, found, "the label still emits a Text command")
+
+	// Valid text (including a genuine U+FFFD) passes through
+	// byte-identical.
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)
+	if _, ok := niello.begin(root); ok {
+		niello.show(u, 0, niello.With{text = "café �"})
+	}
+	niello.frame_end()
+	for c in niello.draw_list() {
+		if c.tag == .Text {
+			got := string(c.text_ptr[:int(c.text_len)])
+			testing.expect(t, got == "café �", "valid text is untouched")
+		}
+	}
+}

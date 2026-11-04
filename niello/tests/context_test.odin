@@ -275,3 +275,43 @@ test_cross_context_reads :: proc(t: ^testing.T) {
 	_, okb := niello.rect_in(ctx1, niello.Instance(987654))
 	testing.expect(t, !okb, "unknown instance reads false")
 }
+
+@(test)
+test_frame_begin_sanitizes_host_numbers :: proc(t: ^testing.T) {
+	// Host-supplied dt and viewport are sanitized at frame_begin
+	// (audit core-H8 class): a NaN dt must not become garbage
+	// engine time, and a NaN viewport must not poison layout —
+	// both degrade to zero, and a normal frame is unaffected.
+	z: f32 = 0
+	nan := z / z
+
+	niello.test_reset()
+	root: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {
+		size = niello.Size{niello.grow(), niello.grow()},
+		color = niello.Color{9, 9, 9, 255},
+	})
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {nan, -50}}, nan)
+	inst: niello.Instance
+	if i, open := niello.begin(root); open { inst = i }
+	niello.frame_end()
+	r, ok := niello.rect(inst)
+	testing.expect(t, ok, "root committed through a NaN host frame")
+	testing.expect(t, r.size == niello.Vec2{0, 0}, "NaN/negative viewport sanitized to zero")
+	niello.test_teardown()
+
+	// Control: the same tree at a real viewport fills it.
+	niello.test_reset()
+	defer niello.test_teardown()
+	root2: niello.Unit
+	niello.mint(&root2, niello.NO_UNIT, {
+		size = niello.Size{niello.grow(), niello.grow()},
+		color = niello.Color{9, 9, 9, 255},
+	})
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {320, 200}}, 1.0 / 60.0)
+	inst2: niello.Instance
+	if i, open := niello.begin(root2); open { inst2 = i }
+	niello.frame_end()
+	r2, ok2 := niello.rect(inst2)
+	testing.expect(t, ok2 && r2.size == niello.Vec2{320, 200}, "normal frame fills the viewport")
+}

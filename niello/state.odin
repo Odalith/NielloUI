@@ -92,6 +92,9 @@ Store :: struct {
 	                                      // index = Image id, slot 0 sentinel
 	text_cache:       map[u64]Text_Entry,
 	ellipsis_widths: map[u64]f32,
+	font_epoch:       u64, // bumped by fonts_changed(); mixed into both
+	                       // text cache keys so a (re)registered font
+	                       // invalidates everything it measured (txt-5)
 }
 
 // Context is one window's frame state (multi-window plan, M1):
