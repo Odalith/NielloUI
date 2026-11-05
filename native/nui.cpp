@@ -262,13 +262,22 @@ uint64_t NowNs() {
             std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
+// Pace sleeps until the window's next frame slot. The anchor is a
+// fixed grid (audit nat-6): the next slot steps by whole periods
+// from the previous one instead of re-anchoring to completion
+// time, so the effective rate is the requested Hz, not Hz minus
+// frame work. A grid that has fallen a full period behind (long
+// frame, suspend) re-anchors to now rather than bursting catch-up
+// presents. Only nui_present_cached calls this — see there.
 void Pace(nui_window& window) {
     const uint64_t now = NowNs();
     if (now < window.nextFrameTimeNs) {
         std::this_thread::sleep_for(
             std::chrono::nanoseconds(window.nextFrameTimeNs - now));
     }
-    window.nextFrameTimeNs = NowNs() + window.targetFrameTimeNs;
+    const uint64_t next = window.nextFrameTimeNs + window.targetFrameTimeNs;
+    const uint64_t after = NowNs();
+    window.nextFrameTimeNs = next > after ? next : after + window.targetFrameTimeNs;
 }
 
 void Trace(const nui_window& window) noexcept {
@@ -1287,8 +1296,13 @@ int32_t nui_present_cached(nui_window* window) {
         if (!Live(window) || !Ready() ||
             !window->width || !window->height) return 0;
 
+        // Pacing lives here and only here (audit nat-6, ruling
+        // F5): this is the present/idle path; nui_render never
+        // sleeps. And only on the success path — a failed present
+        // must not burn a vsync interval before its retry.
+        if (!Present(*window)) return 0;
         Pace(*window);
-        return Present(*window) ? 1 : 0;
+        return 1;
     });
 }
 
@@ -1308,7 +1322,6 @@ int32_t nui_render(nui_window* window,
             return 0;
         }
 
-        Pace(*window);
         if (!Configure(*window)) return 0;
 
         // Bound work before recording another frame, not only before copying.
