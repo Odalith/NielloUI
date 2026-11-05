@@ -169,6 +169,9 @@ struct Shared {
     std::unordered_map<uint32_t, FontFamily> families;
     std::unordered_map<FontKey, SkFont, FontKeyHash> fonts;
     std::unordered_map<uint32_t, ImageEntry> images;
+    // Images released by nui_image_release, awaiting the sweep
+    // (audit nat-13): out of the live map, refs not yet dropped.
+    std::vector<ImageEntry> retiredImages;
     std::unordered_set<nui_window*> windows;
 
     uint64_t rasterBytes = 0;
@@ -323,6 +326,13 @@ bool Synchronize() {
         Log("Graphite submit failed during synchronization");
     }
     const bool drained = DrainQueue();
+    if (drained) {
+        // The sweep point for retired images (audit nat-13): with
+        // the queue empty, nothing in flight can still reference
+        // them, so their refs may drop here — once per drain, not
+        // once per release.
+        g.retiredImages.clear();
+    }
     return drained && !g.failed && !g.recorderPoisoned;
 }
 
@@ -1017,6 +1027,7 @@ bool Present(nui_window& window) {
 void ResetShared() {
     // Caller has already destroyed windows and synchronized where possible.
     g.images.clear();
+    g.retiredImages.clear();
     g.rasterBytes = 0;
     g.fonts.clear();
     g.families.clear();
@@ -1454,12 +1465,17 @@ void nui_image_release(uint32_t id) {
         auto it = g.images.find(id);
         if (it == g.images.end()) return;
 
-        // Conservative cold-path synchronization for externally retained
-        // Graphite image resources.
-        if (!Synchronize()) {
-            Log("releasing an image after a failed synchronization");
-        }
+        // Mark-and-sweep (audit nat-13): the entry leaves the
+        // live map now — draws miss it and the raster budget is
+        // credited — but its GPU refs drop only at the next
+        // Synchronize(), where the queue is known empty. This
+        // used to Synchronize() PER RELEASE: releasing a page of
+        // 200 thumbnails meant 200 full queue drains on the UI
+        // thread. (nui_purge_gpu_cache keeps its immediate drain:
+        // it is the explicit purge-now verb, and its Synchronize
+        // is a sweep point too.)
         g.rasterBytes -= it->second.rasterBytes;
+        g.retiredImages.push_back(std::move(it->second));
         g.images.erase(it);
     });
 }
