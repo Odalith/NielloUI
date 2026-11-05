@@ -552,7 +552,13 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 		// only the backend call waits for its deadline (sdl-H4).
 		if now_ns >= win.render_retry_ns {
 			cmds := niello.draw_list()
-			if render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.content_scale) == 0 {
+			// nui_render returns 1 on success, 0 on failure
+			// (main's original line: force_render armed by
+			// `render(...) == 0`). The first sdl-H4 build had
+			// this test backwards — successes climbed the
+			// failure ladder (gate runs 2026-11-04: healthy
+			// renders "failed" 1/5..5/5 while drawing fine).
+			if render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.content_scale) != 0 {
 				win.force_render = false
 				win.render_fails = 0
 				win.render_retry_ns = 0

@@ -1361,11 +1361,6 @@ int32_t nui_render(nui_window* window,
                    const UiRect* damage, int32_t damageCount,
                    float scale) {
     return Api<int32_t>("nui_render", 0, [&] {
-        static bool witness = false;
-        if (!witness) {
-            witness = true;
-            Log("render path entered (diagnostic build)");
-        }
         if (!Live(window) || !Ready()) {
             Log("render skipped: window not live or backend not ready");
             return 0;
