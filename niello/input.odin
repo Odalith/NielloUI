@@ -815,17 +815,16 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 				continue
 			}
 			id := g.nodes[idx].identity
-			rec := g.scroll_state[id]
-			off := rec.off
-			range_ := rec.max[axis]
+			off := g.scroll_off[id]
+			range_ := g.scroll_max[id][axis]
 			// Accumulation base: a wheel glide's TARGET (where the
 			// scroll is heading — §3.21), but the RENDERED offset
 			// while an overscroll spring is in flight: a spring's
 			// target is the range end, which is not where the
 			// gesture is (§3.22).
 			target := off[axis]
-			if rec.glide.active[axis] && !rec.glide.axis[axis].spring {
-				target = rec.glide.axis[axis].to
+			if gl, ok := g.scroll_glides[id]; ok && gl.active[axis] && !gl.axis[axis].spring {
+				target = gl.axis[axis].to
 			}
 			raw := target + rem
 			banded := false
@@ -869,20 +868,27 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 						// Only this axis is (re)based and
 						// re-timed (audit int-8): the other
 						// axis's glide, if any, flies on.
-						rec.glide.axis[axis] = Axis_Glide{
+						gl := g.scroll_glides[id]
+						gl.axis[axis] = Axis_Glide{
 							from = off[axis], to = clamped,
 							dur = f32(s.smooth_ms),
 						}
-						rec.glide.active[axis] = true
-						g.scroll_state[id] = rec
+						gl.active[axis] = true
+						g.scroll_glides[id] = gl
 					} else {
 						// A direct landing kills this axis's
 						// glide (a spring included); the other
 						// axis is not this landing's business.
-						rec.glide.active[axis] = false
+						if gl, ok := g.scroll_glides[id]; ok {
+							gl.active[axis] = false
+							if gl.active[1 - axis] {
+								g.scroll_glides[id] = gl
+							} else {
+								delete_key(&g.scroll_glides, id)
+							}
+						}
 						off[axis] = clamped
-						rec.off = off
-						g.scroll_state[id] = rec
+						g.scroll_off[id] = off
 					}
 				}
 				rem -= used
@@ -1099,35 +1105,19 @@ current_cursor :: proc() -> Cursor_Kind {
 }
 
 // step_scroll_glides advances every wheel glide by this frame's dt,
-// writing the eased offset into the scroller's record (pass F renders
-// it like any other offset). Runs at frame_end after step_tweens,
-// before layout. A completed glide lands exactly on its target and
-// deactivates; update_animation_wake keeps frames coming while any
-// glide is active.
-// any_glide_active reports whether any scroller has a glide in
-// flight. With the scroll maps merged (audit X-4/F2) there is no
-// standalone glides table to len()-check, so this scans the
-// scroller records — bounded by scroller count, not node count.
-@(private)
-any_glide_active :: proc() -> bool {
-	for _, rec in g.scroll_state {
-		if rec.glide.active[0] || rec.glide.active[1] {
-			return true
-		}
-	}
-	return false
-}
-
+// writing the eased offset scroll_off holds (pass F renders it like
+// any other offset). Runs at frame_end after step_tweens, before
+// layout. A completed glide lands exactly on its target and removes
+// itself; update_animation_wake keeps frames coming while any exist.
 @(private)
 step_scroll_glides :: proc() {
-	if !any_glide_active() {
+	if len(g.scroll_glides) == 0 {
 		return
 	}
-	for id, &rec in g.scroll_state {
-		if !rec.glide.active[0] && !rec.glide.active[1] {
-			continue
-		}
-		gl := &rec.glide
+	done: [dynamic]Instance
+	defer delete(done)
+	for id, &gl in g.scroll_glides {
+		off := g.scroll_off[id]
 		for axis in 0 ..< 2 {
 			if !gl.active[axis] {
 				continue
@@ -1138,7 +1128,7 @@ step_scroll_glides :: proc() {
 			if eff < 0 {
 				// Holding (a spring's quiet window): this
 				// axis stays exactly at its `from`.
-				rec.off[axis] = ag.from
+				off[axis] = ag.from
 				continue
 			}
 			p := ag.dur <= 0 ? f32(1) : min(eff / ag.dur, 1)
@@ -1147,15 +1137,22 @@ step_scroll_glides :: proc() {
 			// every step: content may have shrunk since
 			// the tick that set it.
 			to := ag.to
-			if rec.has_max {
-				to = clamp(to, 0, rec.max[axis])
+			if mx, ok := g.scroll_max[id]; ok {
+				to = clamp(to, 0, mx[axis])
 			}
-			rec.off[axis] = ag.from + (to - ag.from) * e
+			off[axis] = ag.from + (to - ag.from) * e
 			if p >= 1 {
-				rec.off[axis] = to
+				off[axis] = to
 				gl.active[axis] = false
 			}
 		}
+		g.scroll_off[id] = off
+		if !gl.active[0] && !gl.active[1] {
+			append(&done, id)
+		}
+	}
+	for id in done {
+		delete_key(&g.scroll_glides, id)
 	}
 }
 
@@ -1206,15 +1203,15 @@ OVERSCROLL_QUIET_MS :: f32(250)
 apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Style) {
 	// The spring owns its axis only (audit int-8): any glide in
 	// flight on the other axis keeps its own from/to and clock.
-	rec := g.scroll_state[id]
-	rec.glide.axis[axis] = Axis_Glide{
-		from = disp, to = clamp(disp, 0, rec.max[axis]),
+	gl := g.scroll_glides[id]
+	gl.axis[axis] = Axis_Glide{
+		from = disp, to = clamp(disp, 0, g.scroll_max[id][axis]),
 		dur = f32(s.smooth_ms), spring = true,
 		delay = OVERSCROLL_QUIET_MS,
 	}
-	rec.glide.active[axis] = true
+	gl.active[axis] = true
+	g.scroll_glides[id] = gl
 	landed := off
 	landed[axis] = disp
-	rec.off = landed
-	g.scroll_state[id] = rec
+	g.scroll_off[id] = landed
 }

@@ -1071,7 +1071,9 @@ context_create :: proc() -> ^Context {
 	ctx.instances = make(map[Instance]Inst_Rec)
 	ctx.cull_rects = make(map[Instance]Cull_Rec)
 	ctx.a11y_entries = make(map[Instance]A11y_Entry)
-	ctx.scroll_state = make(map[Instance]Scroll_Rec)
+	ctx.scroll_off = make(map[Instance]Vec2)
+	ctx.scroll_max = make(map[Instance]Vec2)
+	ctx.scroll_glides = make(map[Instance]Scroll_Glide)
 	ctx.hover_since = make(map[Instance]f32)
 	ctx.dismiss_flags = make(map[Instance]bool)
 	ctx.transients = make(map[Instance]Transient_Rec)
@@ -1578,7 +1580,7 @@ scroll_offset :: proc(i: Instance) -> Vec2 {
 	if i == 0 {
 		return {0, 0}
 	}
-	return g.scroll_state[i].off
+	return g.scroll_off[i]
 }
 
 // scroll_range reports i's scrollable range in DIP per axis — how
@@ -1587,7 +1589,7 @@ scroll_offset :: proc(i: Instance) -> Vec2 {
 // scroll_offset, read from the same committed state; scrollbar
 // chrome (§3.20) sizes and positions its thumb from the pair.
 scroll_range :: proc(i: Instance) -> Vec2 {
-	return g.scroll_state[i].max
+	return g.scroll_max[i] or_else Vec2{0, 0}
 }
 
 // scroll_to sets i's scroll offset in DIP (back-to-top is
@@ -1600,19 +1602,18 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 	}
 	// A programmatic jump is instant by definition: it cancels any
 	// wheel glide in flight on this scroller (§3.21).
-	rec := g.scroll_state[i]
-	rec.glide = Scroll_Glide{}
-	// And it lands on a legal position: clamped to the known range
-	// when one has been published. (Overscroll is a gesture state
-	// owned by its spring, §3.22 — never a parked programmatic
-	// position.)
-	offset := offset
-	if rec.has_max {
-		offset.x = clamp(offset.x, 0, rec.max.x)
-		offset.y = clamp(offset.y, 0, rec.max.y)
+	delete_key(&g.scroll_glides, i)
+	// And it lands on a legal position: clamped to the known range.
+	// (Overscroll is a gesture state owned by its spring, §3.22 —
+	// never a parked programmatic position.)
+	if mx, ok := g.scroll_max[i]; ok {
+		offset := offset
+		offset.x = clamp(offset.x, 0, mx.x)
+		offset.y = clamp(offset.y, 0, mx.y)
+		g.scroll_off[i] = offset
+		return
 	}
-	rec.off = offset
-	g.scroll_state[i] = rec
+	g.scroll_off[i] = offset
 }
 
 // ============ text measurement backend ============

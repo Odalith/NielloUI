@@ -415,7 +415,7 @@ sweep_transients :: proc() {
 // infinity for a static UI.
 @(private)
 update_animation_wake :: proc() {
-	if len(g.tweens) > 0 || len(g.transients) > 0 || any_glide_active() {
+	if len(g.tweens) > 0 || len(g.transients) > 0 || len(g.scroll_glides) > 0 {
 		schedule_wake_in(ANIM_WAKE_MS)
 	}
 }

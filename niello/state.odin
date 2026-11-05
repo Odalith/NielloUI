@@ -194,25 +194,25 @@ Context :: struct {
 	debug_painted_inst: Instance,
 	debug_painted_ovf:  bool,
 
-	// Scroll state by identity (audit X-4/F2: one record — the
-	// three parallel maps this replaces were always keyed alike
-	// and touched together). off: the offset the last frame
-	// rendered with, written by wheel dispatch at frame_begin and
-	// by scroll_to, read and re-clamped by pass F every frame.
-	// max: the scrollable range, published by pass F from the
-	// fresh overflow every frame — g.lay is zeroed by pass 0, so
-	// the range needs a persistent home of its own; has_max says
-	// a range was ever published (before the first frame, clamps
-	// against max are skipped, so an early scroll_to survives to
-	// be rendered once a range exists). glide: the wheel glides
-	// in flight (§3.21), stepped at frame_end before layout.
-	// Only scrollable containers ever get an entry; absence = 0.
+	// Scroll offsets by identity: written by wheel dispatch at
+	// frame_begin and by scroll_to, read and re-clamped by pass F every
+	// frame (the stored value is the offset the last frame rendered
+	// with). Only scrollable containers ever get an entry; absence = 0.
 	// Lifetime (audit int-2, ruled 2026-11-04): scroll state shares
 	// the instance lifetime — when an instance record is recycled
-	// (undeclared or culled), its record is purged with it. There
-	// is deliberately no separate retention or tab-restore: a
-	// reappearing scroller starts at 0.
-	scroll_state: map[Instance]Scroll_Rec,
+	// (undeclared or culled), its scroll_off/scroll_max/scroll_glides
+	// entries are purged with it. There is deliberately no separate
+	// retention or tab-restore: a reappearing scroller starts at 0.
+	scroll_off: map[Instance]Vec2,
+	// Scroll ranges by identity: the max offset per axis, written by
+	// pass F from the fresh overflow every frame. Dispatch and pass F
+	// clamp against this — g.lay is zeroed by pass 0 each frame, so the
+	// range needs a persistent home of its own.
+	scroll_max: map[Instance]Vec2,
+	// Wheel glides in flight (§3.21): from/to offsets, elapsed ms,
+	// duration. Stepped at frame_end before layout; scroll_to and a
+	// fresh wheel tick rewrite the entry. Absence = not gliding.
+	scroll_glides: map[Instance]Scroll_Glide,
 
 	// Interaction state (input.odin): written by dispatch at frame_begin,
 	// read by the queries during declare and by overlay resolution at
@@ -446,7 +446,9 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.damage)
 	delete(ctx.popups)
 	delete(ctx.dismiss_flags)
-	delete(ctx.scroll_state)
+	delete(ctx.scroll_off)
+	delete(ctx.scroll_max)
+	delete(ctx.scroll_glides)
 	delete(ctx.tweens)
 	delete(ctx.transients)
 	for _, es in ctx.edits {
@@ -608,14 +610,6 @@ Axis_Glide :: struct {
 Scroll_Glide :: struct {
 	axis:   [2]Axis_Glide,
 	active: [2]bool,
-}
-
-// Scroll_Rec is one scroller's whole scroll state (audit X-4/F2).
-Scroll_Rec :: struct {
-	off:     Vec2,
-	max:     Vec2,
-	has_max: bool,
-	glide:   Scroll_Glide,
 }
 
 // One committed instance: its last rect plus the change stamps it
