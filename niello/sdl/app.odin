@@ -578,6 +578,23 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 
 	win.last_changed = result.changed
 	win.last_next_wake = result.next_wake_ms
+
+	// Settle frame: this frame consumed input edges (a click, a
+	// key, wheel, committed text). Handlers run during declare —
+	// clicked() and friends — and the app state they mutate only
+	// takes visual effect in the NEXT declare. If this frame
+	// itself changed nothing, nothing else schedules that next
+	// frame: the loop sleeps until an unrelated event arrives,
+	// and the click's effect sits invisible until the cursor
+	// moves (his a11y-demo / popups catch, 2026-11-04). Re-arm
+	// targeted for exactly one follow-up frame; that frame
+	// consumes no new edges, so the chain ends there. Motion is
+	// deliberately excluded: hover is same-frame state, and a
+	// motion stream keeps the loop awake on its own.
+	if input.buttons_pressed != {} || input.buttons_released != {} ||
+	   input.wheel != {0, 0} || input.key_count > 0 || len(input.text) > 0 {
+		win.targeted = true
+	}
 }
 
 // RENDER_FAIL_LIMIT: consecutive render failures tolerated before
