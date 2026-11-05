@@ -103,6 +103,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -465,6 +466,13 @@ const char *kErrInternal = "org.freedesktop.DBus.Error.Failed";
 struct Exporter {
 	std::mutex mu;
 	bool running = false;
+	// Death bookkeeping (audit a11y-H3): died is set by the
+	// connection's on-close callback when the dispatch loop
+	// exits; stopped is set by exporter_stop — a deliberate stop
+	// must not be resurrected by the lazy reconnect.
+	bool died = false;
+	bool stopped = false;
+	std::chrono::steady_clock::time_point last_reconnect_attempt{};
 	dbus::Conn bus;
 	std::thread dispatch_thread;
 	std::string app_name;
@@ -1999,11 +2007,14 @@ uint64_t parent_id_of(const Shadow_Window &win, const Shadow_Node &n) {
 	return win.nodes[static_cast<size_t>(n.parent)].id;
 }
 
-// --- Sync: diff ABI rows against the shadow, emit signals ---
+// Lazy reconnect (audit a11y-H3), defined with the lifecycle
+// below; sync calls it before doing any work.
+void maybe_reconnect();
 
 void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
                    const char *window_title, int32_t win_x, int32_t win_y, int32_t win_w,
                    int32_t win_h, int32_t win_focused) {
+	maybe_reconnect();
 	Shadow_Window nw;
 	nw.title = borrowed_or_empty(window_title);
 	nw.focused = win_focused != 0;
@@ -2342,8 +2353,36 @@ int32_t exporter_start(const char *app_name) {
 	std::lock_guard<std::mutex> start_lock(g_start_mu);
 	{
 		std::lock_guard<std::mutex> lock(g_exp.mu);
-		if (g_exp.running) {
-			return 1;
+		g_exp.stopped = false; // a start call is a live request
+		if (g_exp.running && !g_exp.registry_path.empty()) {
+			return 1; // live and embedded already
+		}
+	}
+	// Restart prologue (audit a11y-H3): a previous incarnation
+	// may still be on the books — live but unembedded (the
+	// registry missed our Embed), or dead with its dispatch
+	// thread never joined. Tear it down and invalidate the
+	// shadow, so the new connection re-publishes the full tree
+	// instead of diffing against state its clients never saw.
+	{
+		std::thread stale;
+		{
+			std::lock_guard<std::mutex> lock(g_exp.mu);
+			if (g_exp.running) {
+				g_exp.running = false;
+				g_exp.bus.shutdown(); // wakes the dispatch recv
+			}
+			if (g_exp.dispatch_thread.joinable()) {
+				stale = std::move(g_exp.dispatch_thread);
+			}
+			g_exp.windows.clear();
+			g_exp.app_id = 0;
+			g_exp.registry_sender.clear();
+			g_exp.registry_path.clear();
+			g_exp.ready_sent = false;
+		}
+		if (stale.joinable()) {
+			stale.join(); // outside mu: the death callback takes it
 		}
 	}
 	std::string address;
@@ -2366,6 +2405,14 @@ int32_t exporter_start(const char *app_name) {
 		g_exp.locale = (lang != nullptr && *lang != '\0') ? lang : "C";
 		g_exp.machine_id = read_machine_id();
 		unique_name = g_exp.unique_name;
+		// Death notice (audit a11y-H3): when the dispatch loop
+		// exits — bus died, socket killed — running clears the
+		// moment the fd does, not whenever someone next looks.
+		g_exp.bus.set_on_close([] {
+			std::lock_guard<std::mutex> lock(g_exp.mu);
+			g_exp.running = false;
+			g_exp.died = true;
+		});
 		g_exp.dispatch_thread = std::thread([] { g_exp.bus.run_dispatch(handle_message); });
 	}
 	// Embed with the registry (the dispatch thread routes the reply).
@@ -2394,6 +2441,7 @@ int32_t exporter_start(const char *app_name) {
 	{
 		std::lock_guard<std::mutex> lock(g_exp.mu);
 		g_exp.running = true;
+		g_exp.died = false;
 	}
 	return 1;
 }
@@ -2403,9 +2451,14 @@ void exporter_stop() {
 	std::thread to_join;
 	{
 		std::lock_guard<std::mutex> lock(g_exp.mu);
-		if (!g_exp.running) {
-			return;
+		g_exp.stopped = true; // the lazy reconnect must not resurrect this
+		g_exp.died = false;
+		if (!g_exp.running && !g_exp.dispatch_thread.joinable()) {
+			return; // never started, or already fully stopped
 		}
+		// A dead exporter (running already false) still lands
+		// here: its finished thread needs the join and its
+		// shadow needs the clear (audit a11y-H3).
 		g_exp.running = false;
 		g_exp.bus.shutdown();
 		to_join = std::move(g_exp.dispatch_thread);
@@ -2424,6 +2477,33 @@ void exporter_stop() {
 		g_exp.registry_path.clear();
 		g_exp.ready_sent = false;
 	}
+}
+
+// maybe_reconnect is the lazy half of a11y-H3: when the bus died
+// under a live exporter (or the registry missed the Embed), sync
+// retries the whole start — discover, connect, Embed — at most
+// once every five seconds. A deliberate stop is never resurrected,
+// and a failed attempt simply re-arms the throttle (died stays
+// set until a start actually succeeds).
+void maybe_reconnect() {
+	std::string name;
+	{
+		std::lock_guard<std::mutex> lock(g_exp.mu);
+		if (g_exp.stopped) {
+			return;
+		}
+		const bool unembedded = g_exp.running && g_exp.registry_path.empty();
+		if (!g_exp.died && !unembedded) {
+			return;
+		}
+		const auto now = std::chrono::steady_clock::now();
+		if (now - g_exp.last_reconnect_attempt < std::chrono::seconds(5)) {
+			return;
+		}
+		g_exp.last_reconnect_attempt = now;
+		name = g_exp.app_name;
+	}
+	exporter_start(name.c_str());
 }
 
 } // namespace

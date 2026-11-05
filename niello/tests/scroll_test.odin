@@ -590,3 +590,84 @@ test_overscroll_holds_while_ticks_continue :: proc(t: ^testing.T) {
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
 		"one spring, once the wheel actually stops")
 }
+
+@(test)
+test_scroll_state_dies_with_instance :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	scroller: niello.Unit
+	niello.mint(&scroller, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, scroll = .Vertical})
+	content: niello.Unit
+	niello.mint(&content, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(300)}})
+
+	inst: niello.Instance
+	declare :: proc(scroller, content: niello.Unit, inst: ^niello.Instance, show_tree: bool) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
+		if show_tree {
+			if i, ok := niello.begin(scroller); ok {
+				inst^ = i
+				niello.show(content)
+			}
+		}
+		niello.frame_end()
+	}
+
+	declare(scroller, content, &inst, true)
+	niello.scroll_to(inst, {0, 50})
+	declare(scroller, content, &inst, true)
+	off := niello.scroll_offset(inst)
+	testing.expect(t, off.y == 50, "scrolled to 50 while alive")
+
+	// The scroller leaves the tree: its instance is recycled, and
+	// (audit int-2, ruled: scroll state shares the instance
+	// lifetime) the offset record is purged with it.
+	declare(scroller, content, &inst, false)
+
+	declare(scroller, content, &inst, true)
+	off2 := niello.scroll_offset(inst)
+	testing.expect(t, off2.y == 0, "a reappearing scroller starts at 0: scroll state died with the instance")
+}
+
+@(test)
+test_smooth_glides_are_per_axis :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	// A both-axes smoothing scroller: 600x600 content in a 200x200
+	// viewport, range 400 per axis (audit int-8's both-axes case).
+	bi: niello.Unit
+	niello.mint(&bi, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(200)}, scroll = .Both, smooth_scroll = true, smooth_ms = u16(160)})
+	big: niello.Unit
+	niello.mint(&big, niello.NO_UNIT, {size = niello.Size{niello.fixed(600), niello.fixed(600)}})
+
+	bi_i: niello.Instance
+	declare_bi :: proc(bi, big: niello.Unit, bi_i: ^niello.Instance) {
+		if i, ok := niello.begin(bi); ok {
+			bi_i^ = i
+			niello.show(big)
+		}
+	}
+	frame_bi :: proc(bi, big: niello.Unit, bi_i: ^niello.Instance, wheel: niello.Vec2) {
+		inp := idle_input({10, 10})
+		inp.wheel = wheel
+		niello.frame_begin(niello.test_context(), inp, 0.016)
+		declare_bi(bi, big, bi_i)
+		niello.frame_end()
+	}
+
+	frame_bi(bi, big, &bi_i, {0, 0}) // settle
+	frame_bi(bi, big, &bi_i, {-1, 0}) // X tick: glide 0 -> 48 over 160ms
+	frame_bi(bi, big, &bi_i, {0, 0})
+	frame_bi(bi, big, &bi_i, {0, 0})
+	mid := niello.scroll_offset(bi_i)
+	testing.expect(t, mid.x > 0 && mid.x < 48, "the X glide is mid-flight when the Y tick lands")
+
+	frame_bi(bi, big, &bi_i, {0, -1}) // Y tick: must not re-base or re-time X
+	for _ in 0 ..< 20 {
+		frame_bi(bi, big, &bi_i, {0, 0})
+	}
+	off := niello.scroll_offset(bi_i)
+	testing.expect(t, off.x == 48, "X still lands on its own target (the Y tick did not corrupt it)")
+	testing.expect(t, off.y == 48, "Y lands on its target too")
+}
