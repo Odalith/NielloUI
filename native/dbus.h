@@ -166,6 +166,14 @@ public:
 	const std::string &unique_name() const { return unique_name_; }
 	bool connected() const { return fd_ >= 0; }
 
+	// Death notification (audit a11y-H3): run_dispatch invokes
+	// this once as it exits — after closing the fd, so
+	// connected() is already honest when it runs. Fires on the
+	// dispatch thread; also fires after an explicit shutdown()
+	// (the loop exits the same way), so the owner must tolerate
+	// being told about a death it caused itself.
+	void set_on_close(std::function<void()> cb) { on_close_ = std::move(cb); }
+
 	// Send a pre-encoded message (thread-safe).
 	bool send_raw(const std::vector<uint8_t> &bytes);
 	// Send one method call; returns its serial (0 on failure).
@@ -232,6 +240,7 @@ private:
 		Message reply;
 	};
 	std::map<uint32_t, Pending> pending_;
+	std::function<void()> on_close_;
 	bool deliver_reply(const Message &msg); // true if a waiter took it
 };
 

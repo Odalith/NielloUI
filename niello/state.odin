@@ -118,6 +118,7 @@ Context :: struct {
 	emit_breaks: [dynamic][2]int,
 	emit_runs:   [dynamic]Text_Run,
 	emit_scopes: [dynamic]int,
+	emit_clips:  [dynamic]Rect, // accumulated clip per open emit scope (ren-1)
 
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
@@ -194,6 +195,11 @@ Context :: struct {
 	// frame_begin and by scroll_to, read and re-clamped by pass F every
 	// frame (the stored value is the offset the last frame rendered
 	// with). Only scrollable containers ever get an entry; absence = 0.
+	// Lifetime (audit int-2, ruled 2026-11-04): scroll state shares
+	// the instance lifetime — when an instance record is recycled
+	// (undeclared or culled), its scroll_off/scroll_max/scroll_glides
+	// entries are purged with it. There is deliberately no separate
+	// retention or tab-restore: a reappearing scroller starts at 0.
 	scroll_off: map[Instance]Vec2,
 	// Scroll ranges by identity: the max offset per axis, written by
 	// pass F from the fresh overflow every frame. Dispatch and pass F
@@ -231,6 +237,12 @@ Context :: struct {
 	drag_total_v:         Vec2, // live displacement from the grab point
 	drag_delta_v:         Vec2, // pointer movement in the last dispatch
 	drag_started_flag:    bool, // threshold crossed at the last dispatch
+	drag_started_chain:   [dynamic]Instance, // the press chain of a drag
+	                                  // that ended in the last dispatch:
+	                                  // drag_started reads it so a flick
+	                                  // that starts and ends in one
+	                                  // dispatch still reports its start
+	                                  // (audit int-14)
 	drag_ended_id:        Instance,
 	drag_ended_chain:     [dynamic]Instance,
 	drag_ended_completed: bool, // release (true) vs capture loss (false)
@@ -411,6 +423,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.emit_breaks)
 	delete(ctx.emit_runs)
 	delete(ctx.emit_scopes)
+	delete(ctx.emit_clips)
 	delete(ctx.nodes)
 	delete(ctx.stack)
 	delete(ctx.child_counts)
@@ -449,6 +462,7 @@ free_context :: proc(ctx: ^Context) {
 	}
 	delete(ctx.key_press_chain)
 	delete(ctx.drag_ended_chain)
+	delete(ctx.drag_started_chain)
 	delete(ctx.frame_text)
 	delete(ctx.keys_scratch)
 	delete(ctx.seen_ids)
@@ -464,12 +478,6 @@ free_context :: proc(ctx: ^Context) {
 // ---------------------------------------------------------------------------
 // Mutation helpers (used by the public set/set_many in public.odin)
 
-@(private)
-apply_opt :: proc(dst: ^$T, src: Maybe(T)) {
-	if v, ok := src.?; ok {
-		dst^ = v
-	}
-}
 
 // explicit_fields reports which decl fields were set (non-nil Maybe). Recorded
 // at mint for propagate; also read by set_many's write tail.
@@ -580,9 +588,11 @@ Popup_Rec :: struct {
 // `to` over `dur` ms of engine time (cubic ease-out, the house easing).
 // A fresh wheel tick restarts the glide from the CURRENT offset to the
 // accumulated target, so rapid ticks feel like one continuous glide.
-Scroll_Glide :: struct {
-	from:   Vec2,
-	to:     Vec2,
+// Axis_Glide is one axis of a scroll glide: its own from/to and
+// its own clock.
+Axis_Glide :: struct {
+	from:   f32,
+	to:     f32,
 	t:      f32, // ms elapsed
 	dur:    f32, // ms
 	delay:  f32, // ms to hold `from` before easing starts (springs:
@@ -591,6 +601,16 @@ Scroll_Glide :: struct {
 	              // range end it returns to. Wheel accumulation reads
 	              // the rendered offset while one is in flight, not
 	              // this target.
+}
+
+// Scroll_Glide holds a scroller's in-flight glides, one per axis
+// (audit int-8): active[axis] says that axis is gliding, and the
+// axes share nothing — a Y tick never re-bases or re-times an
+// in-flight X glide. (The old single record coupled them: one
+// from/to pair, one clock, one spring flag.)
+Scroll_Glide :: struct {
+	axis:   [2]Axis_Glide,
+	active: [2]bool,
 }
 
 // One committed instance: its last rect plus the change stamps it
@@ -608,4 +628,15 @@ Inst_Rec :: struct {
 	digest: u64,
 	stamp: u64,
 	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
+	// The overflow committed with the rect (audit core-H7): damage
+	// for a change or death must cover the OLD spill as well as the
+	// new — a shrinking spill otherwise leaves its outermost pixels
+	// undamaged forever.
+	overfl: Vec2,
+	// frame_index of the last pass-F commit (audit core-H4): the
+	// recycle sweep deletes records whose last_seen is stale,
+	// which catches deaths the old map-outgrew-the-tree signal
+	// missed (a death balanced by a birth while other declared
+	// nodes are culled inflates the node count, not the map).
+	last_seen: u64,
 }
