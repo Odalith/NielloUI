@@ -893,8 +893,8 @@ last_rect_for :: proc(inst: Instance) -> (Rect, bool) {
 	if rec, ok := g.instances[inst]; ok {
 		return rec.rect, true
 	}
-	r, ok := g.cull_rects[inst]
-	return r, ok
+	rec, ok := g.cull_rects[inst]
+	return rec.rect, ok
 }
 
 @(private)
@@ -1069,13 +1069,12 @@ context_create :: proc() -> ^Context {
 	// inside pass F — and no read site needs a nil-map guard for
 	// a live context ever again.
 	ctx.instances = make(map[Instance]Inst_Rec)
-	ctx.cull_rects = make(map[Instance]Rect)
+	ctx.cull_rects = make(map[Instance]Cull_Rec)
 	ctx.a11y_entries = make(map[Instance]A11y_Entry)
 	ctx.scroll_off = make(map[Instance]Vec2)
 	ctx.scroll_max = make(map[Instance]Vec2)
 	ctx.scroll_glides = make(map[Instance]Scroll_Glide)
 	ctx.hover_since = make(map[Instance]f32)
-	ctx.seen_ids = make(map[Instance]bool)
 	ctx.dismiss_flags = make(map[Instance]bool)
 	ctx.transients = make(map[Instance]Transient_Rec)
 	ctx.edits = make(map[Unit]^Edit_State)

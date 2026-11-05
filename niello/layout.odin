@@ -852,7 +852,7 @@ position_and_damage :: proc() {
 			// cull_rects: the culler tests last-frame rects, and
 			// deleting the instance must not erase the evidence
 			// that keeps the node culled next frame.
-			g.cull_rects[id] = Rect{g.lay[i].pos, g.lay[i].size}
+			g.cull_rects[id] = Cull_Rec{rect = Rect{g.lay[i].pos, g.lay[i].size}, last_seen = g.frame_index}
 			cull_writes += 1
 			if old, ok := g.instances[id]; ok {
 				append(&g.damage, Rect{old.rect.pos, old.rect.size + old.overfl})
@@ -916,10 +916,6 @@ position_and_damage :: proc() {
 	// the same way against this frame's cull writes. A steady-state
 	// frame pays two size comparisons.
 	if len(g.instances) > commits || len(g.cull_rects) > cull_writes {
-		clear(&g.seen_ids)
-		for i in 0 ..< n {
-			g.seen_ids[g.nodes[i].identity] = true
-		}
 		clear(&g.dead_ids)
 		for id, rec in g.instances {
 			if rec.last_seen != g.frame_index {
@@ -934,8 +930,8 @@ position_and_damage :: proc() {
 		// Cull memory for identities no longer declared is dead
 		// too (no damage: they were never visible).
 		clear(&g.dead_ids)
-		for id in g.cull_rects {
-			if id not_in g.seen_ids {
+		for id, rec in g.cull_rects {
+			if rec.last_seen != g.frame_index {
 				append(&g.dead_ids, id)
 			}
 		}
