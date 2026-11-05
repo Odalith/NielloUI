@@ -844,6 +844,12 @@ bool Conn::connect(const char *address) {
 		}
 		// Bounded: unexpected pre-Hello traffic is ignored, but
 		// not forever (the receive timeout bounds each wait too).
+		// hello_ok distinguishes the exits: code after a loop runs
+		// on BOTH the break and the exhaustion path, so the
+		// failure fallthrough must be conditional — the first
+		// version of this bound let a successful Hello fall into
+		// it and connect() never succeeded (gate catch).
+		bool hello_ok = false;
 		for (int guard = 0; guard < 32; guard++) {
 			Message msg;
 			if (!recv_one(msg)) {
@@ -856,6 +862,7 @@ bool Conn::connect(const char *address) {
 					shutdown();
 					return false;
 				}
+				hello_ok = true;
 				break;
 			}
 			if (msg.type == MSG_ERROR && msg.reply_serial == serial) {
@@ -864,8 +871,10 @@ bool Conn::connect(const char *address) {
 			}
 			// Anything else before Hello is unexpected; ignore it.
 		}
-		shutdown();
-		return false; // guard exhausted without a Hello reply
+		if (!hello_ok) {
+			shutdown();
+			return false; // guard exhausted without a Hello reply
+		}
 	}
 	// Handshake complete: the dispatch loop's recv blocks
 	// indefinitely from here (see the deadline note above).
