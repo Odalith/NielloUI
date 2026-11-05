@@ -831,7 +831,10 @@ wgpu::TextureFormat PickFormat(const wgpu::SurfaceCapabilities& capabilities) {
 
 bool Configure(nui_window& window) {
     if (!Ready() || !window.width || !window.height ||
-        !DimensionsValid(window.width, window.height)) return false;
+        !DimensionsValid(window.width, window.height)) {
+        Log("configure skipped: backend not ready or bad size");
+        return false;
+    }
 
     if (window.configured && !window.recreateSurface &&
         window.config.width == window.width &&
@@ -853,7 +856,10 @@ bool Configure(nui_window& window) {
         window.surface = nullptr;
         window.surface =
             CreateDawnSurface(g.backend.fInstance, &window.handles);
-        if (!window.surface) return false;
+        if (!window.surface) {
+            Log("surface creation failed");
+            return false;
+        }
         window.recreateSurface = false;
     }
 
@@ -926,13 +932,19 @@ bool EnsureCache(nui_window& window) {
                  wgpu::TextureUsage::TextureBinding;
 
     auto texture = g.backend.fDevice.CreateTexture(&desc);
-    if (!texture || !Ready()) return false;
+    if (!texture || !Ready()) {
+        Log("cache texture creation failed");
+        return false;
+    }
 
     const auto backend =
         skgpu::graphite::BackendTextures::MakeDawn(texture.Get());
     auto surface = SkSurfaces::WrapBackendTexture(
         g.recorder.get(), backend, SkColorSpace::MakeSRGB(), nullptr);
-    if (!surface) return false;
+    if (!surface) {
+        Log("cache surface wrap failed");
+        return false;
+    }
 
     window.cacheTexture = std::move(texture);
     window.cacheSurface = std::move(surface);
@@ -1337,10 +1349,20 @@ int32_t nui_render(nui_window* window,
                    const UiRect* damage, int32_t damageCount,
                    float scale) {
     return Api<int32_t>("nui_render", 0, [&] {
-        if (!Live(window) || !Ready() ||
-            !window->width || !window->height ||
+        if (!Live(window) || !Ready()) {
+            Log("render skipped: window not live or backend not ready");
+            return 0;
+        }
+        if (!window->width || !window->height ||
             !std::isfinite(scale) || scale <= 0 ||
-            damageCount < 0 || (damageCount > 0 && !damage)) return 0;
+            damageCount < 0 || (damageCount > 0 && !damage)) {
+            std::fprintf(stderr,
+                "nui: render skipped: bad geometry/scale "
+                "(w=%u h=%u scale=%f damage_count=%d)\n",
+                window->width, window->height,
+                static_cast<double>(scale), damageCount);
+            return 0;
+        }
 
         // Damage is intentionally ignored: the entire cache is cleared.
         if (!ValidateCommands(commands, count)) {

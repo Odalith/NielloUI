@@ -88,7 +88,6 @@ Glue_Window :: struct {
 	                     // live frame after restore re-arms force_render
 	render_fails:     int,  // consecutive render failures (audit sdl-H4)
 	render_retry_ns:  u64,  // backoff: no render attempt before this tick
-	render_recreated: bool, // the one backend recreate has been spent
 	// loop bookkeeping
 	last_changed:   bool, // last frame_end's changed; idle windows are not framed
 	last_next_wake: u32,  // last frame_end's next_wake_ms
@@ -576,30 +575,33 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 }
 
 // RENDER_FAIL_LIMIT: consecutive render failures tolerated before
-// the escalation moves on — backoff first, then the one recreate,
-// then the run ends (audit sdl-H4, ruling F4(a)).
+// the run ends (audit sdl-H4, ruling F4(a) AS AMENDED 2026-11-04).
 RENDER_FAIL_LIMIT :: 5
 
 // note_render_failure advances one window's failure escalation:
 // exponential backoff from 100 ms capped at 1 s between attempts;
-// at the limit, ONE backend recreate (the surface/device may be
-// what died); failures past a recreate are terminal — the window
-// dies and run() reports Render_Failed rather than spinning on a
-// permanently broken renderer.
+// at the limit the failure is terminal — the window dies and run()
+// reports Render_Failed rather than spinning on a permanently
+// broken renderer.
+//
+// The original F4(a) ladder had a backend recreate between the
+// backoff and the terminal step. His popups gate run (2026-11-04)
+// proved it fatal on Wayland: the recreate destroyed the backend
+// window and created a new one on the same SDL window, and KWin
+// killed the connection — "surface already exists" from the
+// linux-drm-syncobj manager, because the old surface was still
+// compositor-registered when the new one asked for its syncobj
+// surface. It was also mis-aimed: nui_create_window refuses when
+// the device tier is latched, so the recreate could only ever
+// succeed while the device was healthy and the failure local or
+// transient — exactly what backoff-and-retry already covers. On
+// his ruling the recreate is gone; the surface tier's own in-place
+// recreation (native, BL-4) remains the window-local recovery.
 @(private)
 note_render_failure :: proc(win: ^Glue_Window, now_ns: u64) {
 	win.render_fails += 1
 	if win.render_fails >= RENDER_FAIL_LIMIT {
-		if !win.render_recreated {
-			win.render_recreated = true
-			win.render_fails = 0
-			win.render_retry_ns = 0
-			fmt.printfln("nui_sdl: render failed %d times in a row; recreating the backend once", RENDER_FAIL_LIMIT)
-			if recreate_backend(win) {
-				return
-			}
-		}
-		fmt.printfln("nui_sdl: rendering still failing after a backend recreate; ending the run")
+		fmt.printfln("nui_sdl: render failed %d times in a row; ending the run", RENDER_FAIL_LIMIT)
 		g_run_error = .Render_Failed
 		win.dead = true
 		return
@@ -607,35 +609,6 @@ note_render_failure :: proc(win: ^Glue_Window, now_ns: u64) {
 	delay_ms := u64(min(100 << u32(win.render_fails - 1), 1000))
 	fmt.printfln("nui_sdl: render failed (%d/%d); retrying in %d ms", win.render_fails, RENDER_FAIL_LIMIT, delay_ms)
 	win.render_retry_ns = now_ns + delay_ms * 1_000_000
-}
-
-// recreate_backend replaces a window's backend surface in place
-// (the SDL window, the engine context and the declare proc all
-// survive): the sdl-H4 escalation's one second chance.
-@(private)
-recreate_backend :: proc(win: ^Glue_Window) -> bool {
-	fmt.println("nui_sdl: destroying the backend window to recreate it")
-	destroy_window(win.nui)
-	win.nui = nil
-	handles := native_handles_for_window(win.sdl_win)
-	px_w, px_h: i32
-	sdl.GetWindowSizeInPixels(win.sdl_win, &px_w, &px_h)
-	nui := create_window(&handles, u32(max(px_w, 0)), u32(max(px_h, 0)))
-	if nui == nil {
-		fmt.println("nui_create_window failed during backend recreate")
-		return false
-	}
-	win.nui = nui
-	fmt.println("nui_sdl: backend window recreated")
-	display := sdl.GetDisplayForWindow(win.sdl_win)
-	if display != 0 {
-		mode := sdl.GetCurrentDisplayMode(display)
-		if mode != nil && mode.refresh_rate > 0 {
-			set_refresh_rate(nui, mode.refresh_rate)
-		}
-	}
-	win.force_render = true
-	return true
 }
 
 @(private)
@@ -995,8 +968,9 @@ live_resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
 Run_Error :: enum {
 	None,
 	Init_Failed,   // SDL or the main window/backend did not come up
-	Render_Failed, // rendering failed through backoff AND one
-	               // backend recreate (audit sdl-H4)
+	Render_Failed, // rendering failed through the whole backoff
+	               // ladder (audit sdl-H4; the recreate step was
+	               // dropped 2026-11-04 — see note_render_failure)
 }
 
 // Set by the loop when it ends abnormally; run() returns it.
