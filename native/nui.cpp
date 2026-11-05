@@ -1271,10 +1271,13 @@ void nui_resize(nui_window* window, uint32_t width, uint32_t height) {
             g.recorderPoisoned = false;
         }
 
-        if (!Ready()) return;
-
-        // Recovery is not skipped merely because dimensions are unchanged.
-        (void)Configure(*window);
+        // Record-only (audit nat-11): no eager Configure here.
+        // nui_render configures first thing and reports failure;
+        // an eager call drained the queue on every resize event
+        // and swallowed its result in a (void) cast. (Recovery
+        // above is not skipped merely because dimensions are
+        // unchanged — a resize is the runtime recorder-recreate
+        // trigger, per BL-4.)
     });
 }
 

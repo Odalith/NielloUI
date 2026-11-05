@@ -113,6 +113,11 @@ nui_window* nui_create_window(const UiNativeHandles* handles,
 void nui_destroy_window(nui_window* win);
 
 // Reconfigure once per host iteration, before layout/render. Zero size suspends.
+// Record-only: the size is stored and the cache invalidated; the
+// surface is (re)configured by the next nui_render. A zero size
+// keeps the window's cache texture allocated — suspend is expected
+// to be brief (minimize/restore); the texture is dropped on the
+// next nonzero configure or at nui_destroy_window.
 // A size change invalidates the window's pixel cache. Fifo is used throughout.
 void nui_resize(nui_window* win, uint32_t width_px, uint32_t height_px);
 void nui_set_refresh_rate(nui_window* win, float hz);
