@@ -84,6 +84,8 @@ Glue_Window :: struct {
 	content_scale: f32,
 	wayland:       bool,
 	force_render:  bool,
+	was_minimized: bool, // the minimized early-return ran; the first
+	                     // live frame after restore re-arms force_render
 	// loop bookkeeping
 	last_changed:   bool, // last frame_end's changed; idle windows are not framed
 	last_next_wake: u32,  // last frame_end's next_wake_ms
@@ -442,23 +444,46 @@ atspi_sync_window :: proc(win: ^Glue_Window) {
 	}
 }
 
+// window_minimized reports whether a window can paint at all right
+// now: no pixels, or the OS says minimized.
+@(private)
+window_minimized :: proc(win: ^Glue_Window) -> bool {
+	return win.pixel_width <= 0 || win.pixel_height <= 0 || .MINIMIZED in sdl.GetWindowFlags(win.sdl_win)
+}
+
 // frame_window runs one window's frame pass (the old single-window
 // app_iterate body, parameterized).
 @(private)
 frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
+	if window_minimized(win) {
+		// Nothing can change while minimized; the loop wakes on the
+		// restore/resize event. A pending size is dropped, not
+		// consumed: it is stale by restore time and the restore
+		// brings fresh size events. force_render is cleared too —
+		// left armed it kept window_due true and loop_timeout at 0
+		// for the whole minimization: a busy spin (audit sdl-H3).
+		// The first live frame after restore re-arms it below (a
+		// restored window must repaint regardless), and the frame
+		// clock restarts there, so dt never spans the minimization.
+		win.pending_size = false
+		win.force_render = false
+		win.last_changed = false
+		win.targeted = false
+		win.was_minimized = true
+		win.last_frame_ns = now_ns
+		return
+	}
+	if win.was_minimized {
+		win.was_minimized = false
+		win.force_render = true
+		win.last_frame_ns = now_ns
+	}
 	// Events only retain the latest size; layout follows the single reconfiguration.
 	if win.pending_size {
 		resize(win.nui, u32(max(win.pixel_width, 0)), u32(max(win.pixel_height, 0)))
 		win.content_scale = content_scale(win)
 		win.pending_size = false
 		win.force_render = true
-	}
-	if win.pixel_width <= 0 || win.pixel_height <= 0 || .MINIMIZED in sdl.GetWindowFlags(win.sdl_win) {
-		// Nothing can change while minimized; the loop wakes on the
-		// restore/resize event.
-		win.last_changed = false
-		win.targeted = false
-		return
 	}
 
 	dt := f32(now_ns - win.last_frame_ns) / 1e9
@@ -799,6 +824,13 @@ loop_timeout :: proc() -> i32 {
 	now_ns := sdl.GetTicksNS()
 	best: i32 = -1
 	for win in g_windows {
+		// A minimized window contributes nothing (audit sdl-H3):
+		// not a 0 (its force_render/wake state would spin the
+		// loop) and not a deadline (its frame clock is frozen).
+		// The restore event wakes the loop itself.
+		if window_minimized(win) {
+			continue
+		}
 		if win.pending_size || win.force_render || win.last_changed || win.targeted || win.dead {
 			return 0
 		}
@@ -864,8 +896,7 @@ live_resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
 }
 
 // run opens the main window (on the app's context) and drives the
-// frame loop until the last window closes or the app quits.
-//
+// frame loop until the last window closes or the app quits. It
 // The loop is hand-driven — the SDL_App* entry points, restructured
 // as plain procs called from here instead of EnterAppMainCallbacks —
 // so the idle path can BLOCK: when every window's last frame changed
