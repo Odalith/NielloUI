@@ -1115,6 +1115,15 @@ void Conn::run_dispatch(const std::function<void(const Message &)> &handler) {
 		pending_.clear();
 		pending_cv_.notify_all();
 	}
+	// Honest state on exit (audit a11y-H3): the fd closes here,
+	// so connected() stops reporting a dead connection as live,
+	// and the owner hears about the death. (A send-side kill or
+	// an explicit shutdown() lands here too — shutdown() on an
+	// already-closed fd is a no-op.)
+	shutdown();
+	if (on_close_) {
+		on_close_();
+	}
 }
 
 void Conn::shutdown() {

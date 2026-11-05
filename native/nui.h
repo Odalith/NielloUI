@@ -166,8 +166,12 @@ void nui_purge_gpu_cache(void);
 // tree + change signals over a hand-rolled D-Bus client (dbus.h).
 // The exporter is inert when no accessibility bus answers: start
 // returns 0 and sync is a no-op, so apps never pay for AT-SPI
-// they don't have. The native library must be rebuilt after
-// pulling this (new objects in the static archive).
+// they don't have. If the bus dies after a successful start,
+// the exporter notices (sync returns to being a no-op) and
+// retries lazily from later syncs — throttled, re-running
+// discovery, connect and Embed — until nui_atspi_stop ends it
+// for good. The native library must be rebuilt after pulling
+// this (new objects in the static archive).
 //
 // UiA11yNode mirrors the Odin A11y_Node's FFI projection
 // (niello/sdl/ffi.odin). Field order IS the ABI: role is the Odin
@@ -205,7 +209,8 @@ static_assert(sizeof(UiA11yNode) == 96, "UiA11yNode must match Odin A11y_FFI_Nod
 // Connect to the accessibility bus and register with the AT-SPI
 // registry. Returns 1 when the exporter is live, 0 when inert
 // (no bus, no registry, or connection failure). Safe to call
-// repeatedly; later calls are no-ops while live. app_name is the
+// repeatedly; later calls are no-ops while live and registered.
+// app_name is the
 // application name reported to assistive tools (borrowed).
 int32_t nui_atspi_start(const char *app_name);
 // Stop the exporter: ends the dispatch thread and closes the bus
