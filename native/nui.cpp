@@ -997,11 +997,21 @@ bool Present(nui_window& window) {
             return false;
     }
 
-    if (!acquired.texture || !Ready()) return false;
+    if (!acquired.texture || !Ready()) {
+        Log("present aborted: no acquired texture or backend not ready");
+        return false;
+    }
 
     if (acquired.texture.GetWidth() != window.width ||
         acquired.texture.GetHeight() != window.height ||
         acquired.texture.GetFormat() != window.config.format) {
+        std::fprintf(stderr,
+            "nui: present aborted: acquired texture %ux%u format %d "
+            "!= window %ux%u format %d\n",
+            acquired.texture.GetWidth(), acquired.texture.GetHeight(),
+            static_cast<int>(acquired.texture.GetFormat()),
+            window.width, window.height,
+            static_cast<int>(window.config.format));
         // Release the acquisition before a future reconfiguration.
         acquired.texture = nullptr;
         window.configured = false;
@@ -1010,6 +1020,7 @@ bool Present(nui_window& window) {
 
     auto encoder = g.backend.fDevice.CreateCommandEncoder();
     if (!encoder) {
+        Log("present aborted: command encoder creation failed");
         g.failed = true;
         return false;
     }
@@ -1022,6 +1033,7 @@ bool Present(nui_window& window) {
 
     auto commands = encoder.Finish();
     if (!commands || !Ready()) {
+        Log("present aborted: command buffer finish failed");
         g.failed = true;
         return false;
     }
@@ -1349,6 +1361,11 @@ int32_t nui_render(nui_window* window,
                    const UiRect* damage, int32_t damageCount,
                    float scale) {
     return Api<int32_t>("nui_render", 0, [&] {
+        static bool witness = false;
+        if (!witness) {
+            witness = true;
+            Log("render path entered (diagnostic build)");
+        }
         if (!Live(window) || !Ready()) {
             Log("render skipped: window not live or backend not ready");
             return 0;
