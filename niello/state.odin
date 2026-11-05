@@ -608,4 +608,10 @@ Inst_Rec :: struct {
 	digest: u64,
 	stamp: u64,
 	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
+	// frame_index of the last pass-F commit (audit core-H4): the
+	// recycle sweep deletes records whose last_seen is stale,
+	// which catches deaths the old map-outgrew-the-tree signal
+	// missed (a death balanced by a birth while other declared
+	// nodes are culled inflates the node count, not the map).
+	last_seen: u64,
 }

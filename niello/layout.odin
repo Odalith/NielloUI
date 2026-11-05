@@ -803,7 +803,8 @@ position_and_damage :: proc() {
 	if g.instances == nil {
 		g.instances = make(map[Instance]Inst_Rec)
 	}
-	culled_vanished := false
+	commits := 0     // pass-F commits this frame (non-culled nodes)
+	cull_writes := 0 // cull_rects writes this frame (culled nodes)
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
 		id := nd.identity
@@ -823,10 +824,10 @@ position_and_damage :: proc() {
 				g.cull_rects = make(map[Instance]Rect)
 			}
 			g.cull_rects[id] = Rect{g.lay[i].pos, g.lay[i].size}
+			cull_writes += 1
 			if old, ok := g.instances[id]; ok {
 				append(&g.damage, old.rect)
 				delete_key(&g.instances, id)
-				culled_vanished = true
 			}
 			continue
 		}
@@ -861,7 +862,8 @@ position_and_damage :: proc() {
 		if ok && nd.with.static_values {
 			committed_digest = old.digest
 		}
-		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit}
+		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit, last_seen = g.frame_index}
+		commits += 1
 		if len(g.cull_rects) > 0 {
 			// A live commit retires the node's cull memory.
 			delete_key(&g.cull_rects, id)
@@ -872,9 +874,15 @@ position_and_damage :: proc() {
 	// pixels linger until something unrelated repaints (the form demo's
 	// Clear: the placeholder returning with its settle-frame rect+hash
 	// looked "unchanged" while the dead text label was never damaged).
-	// The sweep only runs when the map outgrew the tree (the death
-	// signal), so a steady-state frame pays one size comparison.
-	if len(g.instances) > n || culled_vanished {
+	// The trigger is exact arithmetic, not the old map-outgrew-the-tree
+	// heuristic (audit core-H4): every live instance committed exactly
+	// once this frame, so a map larger than the commit count holds a
+	// stale record — including the swap case the heuristic missed (a
+	// death and a birth in one frame, balanced in the node count by
+	// declared-but-culled nodes). Stale cull_rects entries are counted
+	// the same way against this frame's cull writes. A steady-state
+	// frame pays two size comparisons.
+	if len(g.instances) > commits || len(g.cull_rects) > cull_writes {
 		if g.seen_ids == nil {
 			g.seen_ids = make(map[Instance]bool)
 		}
@@ -884,7 +892,7 @@ position_and_damage :: proc() {
 		}
 		clear(&g.dead_ids)
 		for id, rec in g.instances {
-			if id not_in g.seen_ids {
+			if rec.last_seen != g.frame_index {
 				append(&g.dead_ids, id)
 				append(&g.damage, rec.rect)
 			}

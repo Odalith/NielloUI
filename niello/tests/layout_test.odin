@@ -977,3 +977,54 @@ test_culling_real :: proc(t: ^testing.T) {
 	_, ok5b := niello.rect(ids[5])
 	testing.expect(t, ok5b, "frame 4: No_Cull row commits an instance again")
 }
+
+@(test)
+test_recycle_swap_with_culled_node :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	clip: niello.Unit
+	niello.mint(&clip, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, overflow = .Clip})
+	row: niello.Unit
+	niello.mint(&row, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(30)}})
+
+	ids: [5]niello.Instance // keys 1..4 -> slots 1..4
+	declare :: proc(clip, row: niello.Unit, ids: ^[5]niello.Instance, keys: []int) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 200}}, 0)
+		if _, ok := niello.begin(clip); ok {
+			for k in keys {
+				if inst, open := niello.begin(row, niello.key_int(k)); open {
+					ids[k] = inst
+				}
+			}
+		}
+		niello.frame_end()
+	}
+
+	// Frame 1: clip is 100 tall; rows 1..3 (y 0, 30, 60) all commit.
+	declare(clip, row, &ids, []int{1, 2, 3})
+	count1 := niello.instance_count(niello.test_context())
+	_, ok_b1 := niello.rect(ids[2])
+	testing.expect(t, ok_b1, "frame 1: row 2 committed")
+
+	// Frame 2: clip shrinks to 45. The culler tests last-frame rects,
+	// so row 3 is culled one frame later, when the shrink has settled.
+	niello.set(clip, .Size, niello.Size{niello.fixed(200), niello.fixed(45)})
+	declare(clip, row, &ids, []int{1, 2, 3})
+	declare(clip, row, &ids, []int{1, 2, 3})
+	count2 := niello.instance_count(niello.test_context())
+	testing.expect(t, count2 == count1 - 1, "frame 2: culled row's instance is gone")
+
+	// Frame 3 — the swap the old sweep missed (audit core-H4): row 2
+	// dies, row 4 is born in its place, and row 3 stays declared but
+	// culled. Declared-node count (4) equals the instance-map size
+	// (clip, 1, 2, 4), so the map-outgrew-the-tree signal never fired
+	// and row 2's record leaked: rect() kept answering for a dead id.
+	declare(clip, row, &ids, []int{1, 4, 3})
+	_, ok_b3 := niello.rect(ids[2])
+	testing.expect(t, !ok_b3, "frame 3: swapped-out row 2 is recycled despite the culled bystander")
+	count3 := niello.instance_count(niello.test_context())
+	testing.expect(t, count3 == count2, "frame 3: a swap keeps the instance count (one death, one birth)")
+	_, ok_d3 := niello.rect(ids[4])
+	testing.expect(t, ok_d3, "frame 3: row 4 committed")
+}
