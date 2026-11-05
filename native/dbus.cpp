@@ -12,7 +12,6 @@
 
 #include <cerrno>
 #include <chrono>
-#include <poll.h>
 #include <cstring>
 #include <unistd.h>
 
@@ -611,53 +610,20 @@ uint32_t Conn::next_serial() {
 	return s;
 }
 
-// SEND_BUDGET_MS: one message's total send budget (audit a11y-H2).
-// nui_atspi_sync sends on the app's UI thread: a peer that stops
-// reading (a stalled screen reader) fills the send buffer, and an
-// unbounded send would freeze the app indefinitely — because of
-// its accessibility exporter. On expiry the connection is marked
-// dead and the batch dropped: AT-SPI signals are state snapshots
-// and the next sync re-publishes, so dropping is safe.
-constexpr int SEND_BUDGET_MS = 100;
-
 bool Conn::send_locked(const std::vector<uint8_t> &bytes) {
 	if (fd_ < 0) {
 		return false;
 	}
-	const auto deadline =
-		std::chrono::steady_clock::now() + std::chrono::milliseconds(SEND_BUDGET_MS);
 	size_t sent = 0;
 	while (sent < bytes.size()) {
-		const auto now = std::chrono::steady_clock::now();
-		if (now >= deadline) {
-			shutdown(); // honest death: connected() goes false
-			return false;
-		}
-		const int ms = static_cast<int>(
-			std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
-		pollfd pfd{fd_, POLLOUT, 0};
-		const int pr = ::poll(&pfd, 1, ms);
-		if (pr < 0) {
+		ssize_t n = ::send(fd_, bytes.data() + sent, bytes.size() - sent, MSG_NOSIGNAL);
+		if (n < 0) {
 			if (errno == EINTR) {
 				continue;
 			}
-			shutdown();
-			return false;
-		}
-		if (pr == 0) {
-			shutdown(); // budget expired with the buffer still full
-			return false;
-		}
-		ssize_t n = ::send(fd_, bytes.data() + sent, bytes.size() - sent, MSG_NOSIGNAL);
-		if (n < 0) {
-			if (errno == EINTR || errno == EAGAIN) {
-				continue; // deadline above bounds the retry
-			}
-			shutdown();
 			return false;
 		}
 		if (n == 0) {
-			shutdown();
 			return false;
 		}
 		sent += static_cast<size_t>(n);
@@ -782,19 +748,6 @@ bool Conn::connect(const char *address) {
 	}
 	fd_ = fd;
 
-	// Handshake receive deadline (audit a11y-H2): a daemon that
-	// accepts but never answers AUTH/Hello would otherwise hang
-	// the caller before its event loop starts. The auth + Hello
-	// phase gets a bounded receive timeout, cleared before the
-	// socket hands over to the dispatch loop (whose recv must
-	// block indefinitely; expiry is its death signal, and a
-	// timeout would fake one every interval).
-	{
-		timeval tv{};
-		tv.tv_sec = 2;
-		::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	}
-
 	// Everything below sends via send_locked, whose contract is
 	// "caller holds write_mu_" — hold it for the whole handshake
 	// (audit a11y-M2). connect() used to send unlocked, saved
@@ -842,9 +795,7 @@ bool Conn::connect(const char *address) {
 			shutdown();
 			return false;
 		}
-		// Bounded: unexpected pre-Hello traffic is ignored, but
-		// not forever (the receive timeout bounds each wait too).
-		for (int guard = 0; guard < 32; guard++) {
+		for (;;) {
 			Message msg;
 			if (!recv_one(msg)) {
 				shutdown();
@@ -864,14 +815,6 @@ bool Conn::connect(const char *address) {
 			}
 			// Anything else before Hello is unexpected; ignore it.
 		}
-		shutdown();
-		return false; // guard exhausted without a Hello reply
-	}
-	// Handshake complete: the dispatch loop's recv blocks
-	// indefinitely from here (see the deadline note above).
-	{
-		timeval tv{};
-		::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	}
 	return true;
 }
@@ -1114,15 +1057,6 @@ void Conn::run_dispatch(const std::function<void(const Message &)> &handler) {
 		std::lock_guard<std::mutex> lock(pending_mu_);
 		pending_.clear();
 		pending_cv_.notify_all();
-	}
-	// Honest state on exit (audit a11y-H3): the fd closes here,
-	// so connected() stops reporting a dead connection as live,
-	// and the owner hears about the death. (A send-side kill or
-	// an explicit shutdown() lands here too — shutdown() on an
-	// already-closed fd is a no-op.)
-	shutdown();
-	if (on_close_) {
-		on_close_();
 	}
 }
 
