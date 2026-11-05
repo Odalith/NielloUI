@@ -832,8 +832,8 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 			// target is the range end, which is not where the
 			// gesture is (§3.22).
 			target := off[axis]
-			if gl, ok := g.scroll_glides[id]; ok && !gl.spring {
-				target = gl.to[axis]
+			if gl, ok := g.scroll_glides[id]; ok && gl.active[axis] && !gl.axis[axis].spring {
+				target = gl.axis[axis].to
 			}
 			raw := target + rem
 			banded := false
@@ -877,19 +877,29 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 						if g.scroll_glides == nil {
 							g.scroll_glides = make(map[Instance]Scroll_Glide)
 						}
+						// Only this axis is (re)based and
+						// re-timed (audit int-8): the other
+						// axis's glide, if any, flies on.
 						gl := g.scroll_glides[id]
-						gl.from = off
-						gl.to = off
-						gl.to[axis] = clamped
-						gl.t = 0
-						gl.dur = f32(s.smooth_ms)
-						gl.spring = false
+						gl.axis[axis] = Axis_Glide{
+							from = off[axis], to = clamped,
+							dur = f32(s.smooth_ms),
+						}
+						gl.active[axis] = true
 						g.scroll_glides[id] = gl
 					} else {
-						// A direct landing kills any spring in
-						// flight on this scroller.
+						// A direct landing kills this axis's
+						// glide (a spring included); the other
+						// axis is not this landing's business.
 						if g.scroll_glides != nil {
-							delete_key(&g.scroll_glides, id)
+							if gl, ok := g.scroll_glides[id]; ok {
+								gl.active[axis] = false
+								if gl.active[1 - axis] {
+									g.scroll_glides[id] = gl
+								} else {
+									delete_key(&g.scroll_glides, id)
+								}
+							}
 						}
 						off[axis] = clamped
 						g.scroll_off[id] = off
@@ -1124,27 +1134,37 @@ step_scroll_glides :: proc() {
 	done: [dynamic]Instance
 	defer delete(done)
 	for id, &gl in g.scroll_glides {
-		gl.t += g.dt * 1000
-		eff := gl.t - gl.delay
-		if eff < 0 {
-			// Holding (a spring's quiet window): the offset stays
-			// exactly at `from`; the glide outlives the window or
-			// a fresh tick re-arms it.
-			g.scroll_off[id] = gl.from
-			continue
+		off := g.scroll_off[id]
+		for axis in 0 ..< 2 {
+			if !gl.active[axis] {
+				continue
+			}
+			ag := &gl.axis[axis]
+			ag.t += g.dt * 1000
+			eff := ag.t - ag.delay
+			if eff < 0 {
+				// Holding (a spring's quiet window): this
+				// axis stays exactly at its `from`.
+				off[axis] = ag.from
+				continue
+			}
+			p := ag.dur <= 0 ? f32(1) : min(eff / ag.dur, 1)
+			e := ease_out_cubic(p)
+			// Re-clamp the target against the live range
+			// every step: content may have shrunk since
+			// the tick that set it.
+			to := ag.to
+			if mx, ok := g.scroll_max[id]; ok {
+				to = clamp(to, 0, mx[axis])
+			}
+			off[axis] = ag.from + (to - ag.from) * e
+			if p >= 1 {
+				off[axis] = to
+				gl.active[axis] = false
+			}
 		}
-		p := gl.dur <= 0 ? f32(1) : min(eff / gl.dur, 1)
-		e := ease_out_cubic(p)
-		// Re-clamp the target against the live range every step:
-		// content may have shrunk since the tick that set it.
-		to := gl.to
-		if mx, ok := g.scroll_max[id]; ok {
-			to.x = clamp(to.x, 0, mx.x)
-			to.y = clamp(to.y, 0, mx.y)
-		}
-		g.scroll_off[id] = gl.from + (to - gl.from) * e
-		if p >= 1 {
-			g.scroll_off[id] = to
+		g.scroll_off[id] = off
+		if !gl.active[0] && !gl.active[1] {
 			append(&done, id)
 		}
 	}
@@ -1201,17 +1221,17 @@ apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Styl
 	if g.scroll_glides == nil {
 		g.scroll_glides = make(map[Instance]Scroll_Glide)
 	}
-	from := off
-	from[axis] = disp
-	to := off
-	to[axis] = clamp(disp, 0, g.scroll_max[id][axis])
-	if gl, ok := g.scroll_glides[id]; ok && !gl.spring {
-		to[1 - axis] = gl.to[1 - axis]
-	}
-	g.scroll_glides[id] = Scroll_Glide{
-		from = from, to = to, t = 0,
+	// The spring owns its axis only (audit int-8): any glide in
+	// flight on the other axis keeps its own from/to and clock.
+	gl := g.scroll_glides[id]
+	gl.axis[axis] = Axis_Glide{
+		from = disp, to = clamp(disp, 0, g.scroll_max[id][axis]),
 		dur = f32(s.smooth_ms), spring = true,
 		delay = OVERSCROLL_QUIET_MS,
 	}
-	g.scroll_off[id] = from
+	gl.active[axis] = true
+	g.scroll_glides[id] = gl
+	landed := off
+	landed[axis] = disp
+	g.scroll_off[id] = landed
 }

@@ -588,9 +588,11 @@ Popup_Rec :: struct {
 // `to` over `dur` ms of engine time (cubic ease-out, the house easing).
 // A fresh wheel tick restarts the glide from the CURRENT offset to the
 // accumulated target, so rapid ticks feel like one continuous glide.
-Scroll_Glide :: struct {
-	from:   Vec2,
-	to:     Vec2,
+// Axis_Glide is one axis of a scroll glide: its own from/to and
+// its own clock.
+Axis_Glide :: struct {
+	from:   f32,
+	to:     f32,
 	t:      f32, // ms elapsed
 	dur:    f32, // ms
 	delay:  f32, // ms to hold `from` before easing starts (springs:
@@ -599,6 +601,16 @@ Scroll_Glide :: struct {
 	              // range end it returns to. Wheel accumulation reads
 	              // the rendered offset while one is in flight, not
 	              // this target.
+}
+
+// Scroll_Glide holds a scroller's in-flight glides, one per axis
+// (audit int-8): active[axis] says that axis is gliding, and the
+// axes share nothing — a Y tick never re-bases or re-times an
+// in-flight X glide. (The old single record coupled them: one
+// from/to pair, one clock, one spring flag.)
+Scroll_Glide :: struct {
+	axis:   [2]Axis_Glide,
+	active: [2]bool,
 }
 
 // One committed instance: its last rect plus the change stamps it

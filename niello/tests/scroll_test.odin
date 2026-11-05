@@ -628,3 +628,46 @@ test_scroll_state_dies_with_instance :: proc(t: ^testing.T) {
 	off2 := niello.scroll_offset(inst)
 	testing.expect(t, off2.y == 0, "a reappearing scroller starts at 0: scroll state died with the instance")
 }
+
+@(test)
+test_smooth_glides_are_per_axis :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	// A both-axes smoothing scroller: 600x600 content in a 200x200
+	// viewport, range 400 per axis (audit int-8's both-axes case).
+	bi: niello.Unit
+	niello.mint(&bi, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(200)}, scroll = .Both, smooth_scroll = true, smooth_ms = u16(160)})
+	big: niello.Unit
+	niello.mint(&big, niello.NO_UNIT, {size = niello.Size{niello.fixed(600), niello.fixed(600)}})
+
+	bi_i: niello.Instance
+	declare_bi :: proc(bi, big: niello.Unit, bi_i: ^niello.Instance) {
+		if i, ok := niello.begin(bi); ok {
+			bi_i^ = i
+			niello.show(big)
+		}
+	}
+	frame_bi :: proc(bi, big: niello.Unit, bi_i: ^niello.Instance, wheel: niello.Vec2) {
+		inp := idle_input({10, 10})
+		inp.wheel = wheel
+		niello.frame_begin(niello.test_context(), inp, 0.016)
+		declare_bi(bi, big, bi_i)
+		niello.frame_end()
+	}
+
+	frame_bi(bi, big, &bi_i, {0, 0}) // settle
+	frame_bi(bi, big, &bi_i, {-1, 0}) // X tick: glide 0 -> 48 over 160ms
+	frame_bi(bi, big, &bi_i, {0, 0})
+	frame_bi(bi, big, &bi_i, {0, 0})
+	mid := niello.scroll_offset(bi_i)
+	testing.expect(t, mid.x > 0 && mid.x < 48, "the X glide is mid-flight when the Y tick lands")
+
+	frame_bi(bi, big, &bi_i, {0, -1}) // Y tick: must not re-base or re-time X
+	for _ in 0 ..< 20 {
+		frame_bi(bi, big, &bi_i, {0, 0})
+	}
+	off := niello.scroll_offset(bi_i)
+	testing.expect(t, off.x == 48, "X still lands on its own target (the Y tick did not corrupt it)")
+	testing.expect(t, off.y == 48, "Y lands on its target too")
+}

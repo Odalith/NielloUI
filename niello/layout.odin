@@ -795,12 +795,12 @@ position_and_damage :: proc() {
 			// (§3.22). An out-of-range offset with no spring (a
 			// stale one, say) heals back to the legal range here.
 			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
-			springing := false
-			if gl, ok := g.scroll_glides[nd.identity]; ok && gl.spring {
-				springing = true
-			}
+			gl, has_gl := g.scroll_glides[nd.identity]
 			for axis in 0 ..< 2 {
 				if scrollable_axis(s, axis) {
+					// Per axis (audit int-8): the band domain
+					// applies to an axis while ITS spring owns it.
+					springing := has_gl && gl.active[axis] && gl.axis[axis].spring
 					lo := springing ? -allow : f32(0)
 					hi := springing ? g.lay[i].overfl[axis] + allow : g.lay[i].overfl[axis]
 					eff[axis] = clamp(stored_off[axis], lo, hi)
