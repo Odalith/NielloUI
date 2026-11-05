@@ -95,16 +95,75 @@ end_drag :: proc(completed: bool) {
 	g.drag_active = false
 }
 
-// instance_in_tree reports whether id is a node of the tree dispatch
-// is reading (last frame's committed tree).
+// cancel_capture ends one button's press capture, completing the
+// capture-loss bookkeeping: an in-flight drag on it ends as a
+// cancellation (never a completion), then the press state clears.
+// cancel_captures does it for every button. These two are the ONLY
+// capture-loss path (audit int-12): focus loss, cursor departure,
+// target death / culling / disablement, a modal opening over the
+// capture, and a duplicate press edge all funnel here, so the
+// taxonomy cannot drift between hand-copied variants again.
 @(private)
-instance_in_tree :: proc(id: Instance) -> bool {
-	for nd in g.nodes {
-		if nd.identity == id {
-			return true
+cancel_capture :: proc(b: Mouse_Button) {
+	if b == .Left && g.drag_active {
+		end_drag(false)
+	}
+	g.press_ids[b] = 0
+	clear(&g.press_chains[b])
+}
+
+@(private)
+cancel_captures :: proc() {
+	for b in Mouse_Button {
+		cancel_capture(b)
+	}
+}
+
+// validate_captures cancels any capture that can no longer
+// complete (audit int-12), checked once per dispatch against last
+// frame's tree and popup stack:
+//   - the target left the tree, or was culled (a culled node is in
+//     the tree but has no committed instance: it cannot be clicked);
+//   - the target or one of its ancestors is disabled (disabled
+//     absorbs — ruled 2026-11-04: mid-press disablement cancels,
+//     for drags and plain presses alike);
+//   - a modal is topmost and the target sits neither in the modal's
+//     subtree nor in a popup above it (ruled 2026-11-04: a modal
+//     opening mid-capture cancels what it covers).
+// (Before, only an active drag on a vanished target was cancelled;
+// a plain press on a dead target lingered until release and could
+// still click a surviving ancestor.)
+@(private)
+validate_captures :: proc() {
+	mk := topmost_modal()
+	for b in Mouse_Button {
+		target := g.press_ids[b]
+		if target == 0 {
+			continue
+		}
+		idx := -1
+		for i in 0 ..< len(g.nodes) {
+			if g.nodes[i].identity == target {
+				idx = i
+				break
+			}
+		}
+		dead := idx < 0 || g.nodes[idx].culled
+		if !dead && mk >= 0 {
+			dead = popup_containing(idx) < mk
+		}
+		if !dead {
+			for c := idx; c != -1; c = g.nodes[c].parent {
+				if g.nodes[c].with.disabled {
+					dead = true
+					break
+				}
+			}
+		}
+		if dead {
+			cancel_capture(b)
 		}
 	}
-	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -445,15 +504,7 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// it tracks the cursor over unfocused windows too, and the press
 	// that focuses the window dispatches below like any other.
 	if !input.window_focused && g.prev_focused {
-		if g.drag_active {
-			end_drag(false)
-		}
-		for b in Mouse_Button {
-			if g.press_ids[b] != 0 {
-				g.press_ids[b] = 0
-				clear(&g.press_chains[b])
-			}
-		}
+		cancel_captures()
 	}
 	g.prev_focused = input.window_focused
 
@@ -463,26 +514,15 @@ dispatch_input :: proc(input: Input, dt: f32) {
 
 	if !input.mouse_valid {
 		// Cursor departure: everything ends at once.
-		if g.drag_active {
-			end_drag(false)
-		}
+		cancel_captures()
 		g.prev_pointer_valid = false
 		clear(&g.hover_chain)
 		clear(&g.hover_since)
-		for b in Mouse_Button {
-			g.press_ids[b] = 0
-			clear(&g.press_chains[b])
-		}
 		return
 	}
 
-	// A drag whose target left the tree is cancelled, and its capture
-	// dies with it — a vanished target completes no click either.
-	if g.drag_active && !instance_in_tree(g.press_ids[.Left]) {
-		end_drag(false)
-		g.press_ids[.Left] = 0
-		clear(&g.press_chains[.Left])
-	}
+	// Captures that can no longer complete die here (audit int-12).
+	validate_captures()
 
 	pick := pick_at(input.mouse)
 
@@ -637,6 +677,14 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	for b in Mouse_Button {
 		if b in input.buttons_pressed && pick >= 0 && !blocked &&
 		   !(press_consumed && b == .Left) {
+			// A duplicate press edge on an already-captured button
+			// (audit int-13): end the old capture first, as a
+			// cancellation, instead of overwriting it — overwriting
+			// resurrected drag_active on the new target with no
+			// threshold crossing of its own.
+			if g.press_ids[b] != 0 {
+				cancel_capture(b)
+			}
 			g.press_ids[b] = g.nodes[pick].identity
 			clear(&g.press_chains[b])
 			for idx in chain_idx {
