@@ -387,7 +387,9 @@ Style_Decl :: struct {
 	image_interp: Maybe(Image_Interp),
 
 	hover, press, focus, disabled: Unit, // automatic state overlays, declared as data
-	focusable: bool,                     // reserved seam: participates in keyboard focus traversal
+	focusable: Maybe(bool),              // participates in keyboard focus traversal;
+	                                     // Maybe so set_many can tell "unset" from
+	                                     // an explicit false (audit core-H5)
 
 	groups: []Group,
 }
@@ -709,17 +711,21 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 // NOT a no-op even when the value equals the live (mid-glide) value —
 // the explicit write's job there is to cancel the glide, and skipping
 // it would let the glide carry the value away afterwards.
-set_any :: proc(u: Unit, f: Field, v: any) {
-	// One failure policy for cold handles (audit api-A4): an
-	// invalid unit asserts loudly, exactly like pin — the silent
-	// alternative was writing into the NO_UNIT sentinel record.
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set: unit is not minted")
+// write_style_field is the one compare-then-write path for a style field
+// (audit core-H5): set calls it for a single field, set_many for
+// every field its decl sets — the two routes can no longer drift
+// apart on no-op discipline. Returns true when the stored value
+// changed (or a glide had to be cancelled, which is also a write).
+// An equal write is skipped BEFORE any clone, so Text / Text_Spans
+// never delete + re-clone on a no-op.
+@(private)
+write_style_field :: proc(u: Unit, f: Field, v: any) -> bool {
 	rec := &store.units[int(u)]
 	if !field_gliding(u, f) {
 		tmp: Style
 		style_set_any(&tmp, f, v)
 		if field_equal(&rec.style, &tmp, f) {
-			return
+			return false
 		}
 	}
 	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
@@ -731,71 +737,126 @@ set_any :: proc(u: Unit, f: Field, v: any) {
 	case:
 		style_set_any(&rec.style, f, v)
 	}
-	touch(u, Fields{f})
+	return true
+}
+
+set_any :: proc(u: Unit, f: Field, v: any) {
+	// One failure policy for cold handles (audit api-A4): an
+	// invalid unit asserts loudly, exactly like pin — the silent
+	// alternative was writing into the NO_UNIT sentinel record.
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set: unit is not minted")
+	if write_style_field(u, f, v) {
+		touch(u, Fields{f})
+	}
 }
 
 set :: proc(u: Unit, f: Field, v: $T) {
 	set_any(u, f, v)
 }
 
+// apply_decl_field routes one decl field through write_style_field,
+// folding a real change into the caller's changed set.
+@(private)
+apply_decl_field :: proc(u: Unit, f: Field, m: Maybe($T), changed: ^Fields) {
+	if v, ok := m.?; ok {
+		if write_style_field(u, f, v) {
+			changed^ += Fields{f}
+		}
+	}
+}
+
 // set_many merges a decl into the unit's owned style: Maybe fields that are
 // set overwrite, the rest is untouched. Also records overlay units,
-// focusable, group memberships, and the explicit field set (for propagate).
+// focusable, and the explicit field set (for propagate). Every style
+// field goes through write_style_field (audit core-H5), so an unchanged
+// value is a no-op here exactly as it is through set: no clone, no
+// generation bump. Explicitness is recorded for every field the decl
+// sets — changed or not — because a deliberate restatement is still
+// the author's choice, and propagate must not override it.
 set_many :: proc(u: Unit, decl: Style_Decl) {
 	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set_many: unit is not minted")
-	s := &store.units[int(u)].style
-	apply_opt(&s.color, decl.color)
-	apply_opt(&s.font_color, decl.font_color)
-	apply_opt(&s.border_color, decl.border_color)
-	if v, ok := decl.text.?; ok {
-		store_text(&s.text, v)
-	}
-	apply_opt(&s.font, decl.font)
-	apply_opt(&s.font_size, decl.font_size)
-	apply_opt(&s.font_weight, decl.font_weight)
-	apply_opt(&s.font_slant, decl.font_slant)
-	if v, ok := decl.text_spans.?; ok {
-		store_spans(&s.text_spans, v)
-	}
-	apply_opt(&s.padding, decl.padding)
-	apply_opt(&s.gap, decl.gap)
-	apply_opt(&s.border_width, decl.border_width)
-	apply_opt(&s.corner_radius, decl.corner_radius)
-	apply_opt(&s.opacity, decl.opacity)
-	apply_opt(&s.layout, decl.layout)
-	apply_opt(&s.size, decl.size)
-	apply_opt(&s.scroll, decl.scroll)
-	apply_opt(&s.align, decl.align)
-	apply_opt(&s.wrap, decl.wrap)
-	apply_opt(&s.whitespace, decl.whitespace)
-	apply_opt(&s.ellipsis, decl.ellipsis)
-	apply_opt(&s.overflow, decl.overflow)
-	apply_opt(&s.overlay_color, decl.overlay_color)
-	apply_opt(&s.overlay_border_color, decl.overlay_border_color)
-	apply_opt(&s.overlay_border_width, decl.overlay_border_width)
-	apply_opt(&s.cursor, decl.cursor)
-	apply_opt(&s.scroll_chain, decl.scroll_chain)
-	apply_opt(&s.smooth_scroll, decl.smooth_scroll)
-	apply_opt(&s.smooth_ms, decl.smooth_ms)
-	apply_opt(&s.overscroll, decl.overscroll)
-	apply_opt(&s.overscroll_px, decl.overscroll_px)
-	apply_opt(&s.image, decl.image)
-	apply_opt(&s.image_fit, decl.image_fit)
-	apply_opt(&s.image_interp, decl.image_interp)
+	changed: Fields
+	apply_decl_field(u, .Color, decl.color, &changed)
+	apply_decl_field(u, .Font_Color, decl.font_color, &changed)
+	apply_decl_field(u, .Border_Color, decl.border_color, &changed)
+	apply_decl_field(u, .Text, decl.text, &changed)
+	apply_decl_field(u, .Font, decl.font, &changed)
+	apply_decl_field(u, .Font_Size, decl.font_size, &changed)
+	apply_decl_field(u, .Font_Weight, decl.font_weight, &changed)
+	apply_decl_field(u, .Font_Slant, decl.font_slant, &changed)
+	apply_decl_field(u, .Text_Spans, decl.text_spans, &changed)
+	apply_decl_field(u, .Padding, decl.padding, &changed)
+	apply_decl_field(u, .Gap, decl.gap, &changed)
+	apply_decl_field(u, .Border_Width, decl.border_width, &changed)
+	apply_decl_field(u, .Corner_Radius, decl.corner_radius, &changed)
+	apply_decl_field(u, .Opacity, decl.opacity, &changed)
+	apply_decl_field(u, .Layout, decl.layout, &changed)
+	apply_decl_field(u, .Size, decl.size, &changed)
+	apply_decl_field(u, .Scroll, decl.scroll, &changed)
+	apply_decl_field(u, .Align, decl.align, &changed)
+	apply_decl_field(u, .Text_Wrap, decl.wrap, &changed)
+	apply_decl_field(u, .Whitespace, decl.whitespace, &changed)
+	apply_decl_field(u, .Ellipsis, decl.ellipsis, &changed)
+	apply_decl_field(u, .Overflow, decl.overflow, &changed)
+	apply_decl_field(u, .Overlay_Color, decl.overlay_color, &changed)
+	apply_decl_field(u, .Overlay_Border_Color, decl.overlay_border_color, &changed)
+	apply_decl_field(u, .Overlay_Border_Width, decl.overlay_border_width, &changed)
+	apply_decl_field(u, .Cursor, decl.cursor, &changed)
+	apply_decl_field(u, .Scroll_Chain, decl.scroll_chain, &changed)
+	apply_decl_field(u, .Smooth_Scroll, decl.smooth_scroll, &changed)
+	apply_decl_field(u, .Smooth_Ms, decl.smooth_ms, &changed)
+	apply_decl_field(u, .Overscroll, decl.overscroll, &changed)
+	apply_decl_field(u, .Overscroll_Px, decl.overscroll_px, &changed)
+	apply_decl_field(u, .Image, decl.image, &changed)
+	apply_decl_field(u, .Image_Fit, decl.image_fit, &changed)
+	apply_decl_field(u, .Image_Interp, decl.image_interp, &changed)
 
 	rec := &store.units[int(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
-	// doesn't mention them leaves existing overlays alone.
+	// doesn't mention them leaves existing overlays alone; clearing one is
+	// clear_overlay's job (audit core-H5).
 	if decl.hover != NO_UNIT    { rec.hover = decl.hover }
 	if decl.press != NO_UNIT    { rec.press = decl.press }
 	if decl.focus != NO_UNIT    { rec.focus = decl.focus }
 	if decl.disabled != NO_UNIT { rec.disabled = decl.disabled }
-	rec.focusable = decl.focusable
+	// focusable is presence-tracked (Maybe): a decl that doesn't
+	// mention it no longer resets it to false.
+	if v, ok := decl.focusable.?; ok {
+		rec.focusable = v
+	}
 
 	fields := explicit_fields(decl)
 	if fields != {} {
 		cancel_glide_fields(u, fields)
-		touch(u, fields)
+		// touch(), split: explicitness for every set field, the
+		// visual generation only for the ones that actually changed.
+		rec.explicit += fields
+		if changed & VISUAL_FIELDS != {} {
+			rec.gen += 1
+		}
+	}
+}
+
+// Overlay_Kind names one of a unit's automatic state-overlay slots
+// (the hover / press / focus / disabled units of Style_Decl).
+Overlay_Kind :: enum {
+	Hover,
+	Press,
+	Focus,
+	Disabled,
+}
+
+// clear_overlay removes a unit's state overlay for one slot. It is
+// the only way to clear one: in a decl, NO_UNIT means "unset" and
+// leaves the slot alone (audit core-H5).
+clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
+	assert(int(u) >= 1 && int(u) < len(store.units), "niello.clear_overlay: unit is not minted")
+	rec := &store.units[int(u)]
+	switch kind {
+	case .Hover:    rec.hover = NO_UNIT
+	case .Press:    rec.press = NO_UNIT
+	case .Focus:    rec.focus = NO_UNIT
+	case .Disabled: rec.disabled = NO_UNIT
 	}
 }
 

@@ -450,3 +450,65 @@ test_transient_refire_does_not_restart :: proc(t: ^testing.T) {
 	c, _ = fill_color_at(r)        // the replacement (out=400) is still near its peak
 	testing.expect(t, c.r > 200, "the replacement envelope governs, not the original")
 }
+
+// ---------------------------------------------------------------------------
+// set_many discipline (audit core-H5)
+
+@(test)
+test_set_many_noop_and_focusable_and_clear_overlay :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	box: niello.Unit
+	niello.mint(&box, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(50)}, color = niello.Color{10, 20, 30, 255}, focusable = true})
+
+	// An unchanged set_many is a no-op, exactly like set: no
+	// generation bump (the old route cloned + touched every call,
+	// so a per-frame set_many kept the app framing at vsync).
+	gen0 := niello.test_visual_gen(box)
+	niello.set_many(box, {color = niello.Color{10, 20, 30, 255}})
+	testing.expect(t, niello.test_visual_gen(box) == gen0, "set_many with an equal value does not bump the generation")
+	niello.set_many(box, {color = niello.Color{99, 20, 30, 255}})
+	testing.expect(t, niello.test_visual_gen(box) == gen0 + 1, "set_many with a new value bumps it once")
+
+	// focusable survives an unrelated set_many (the old route reset
+	// it to false on every call: rec.focusable = decl.focusable with
+	// an unset decl field).
+	niello.set_many(box, {color = niello.Color{1, 2, 3, 255}})
+	inst: niello.Instance
+	declare_box :: proc(box: niello.Unit, inst: ^niello.Instance) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}, window_focused = true}, 0)
+		inst^ = niello.show(box)
+		niello.frame_end()
+	}
+	declare_box(box, &inst)
+	inp := niello.Input{viewport = {400, 300}, window_focused = true}
+	inp.keys[0] = niello.Key_Event{scancode = niello.SCANCODE_TAB, down = true}
+	inp.key_count = 1
+	niello.frame_begin(niello.test_context(), inp, 0)
+	niello.show(box)
+	niello.frame_end()
+	testing.expect(t, niello.focused(inst), "Tab still lands on the unit: focusable survived the unrelated set_many")
+
+	// clear_overlay: the one way to remove a state overlay (in a
+	// decl, NO_UNIT means "leave it alone").
+	hov: niello.Unit
+	niello.mint(&hov, niello.NO_UNIT, {color = niello.Color{0, 200, 0, 255}})
+	btn: niello.Unit
+	niello.mint(&btn, niello.NO_UNIT, {size = niello.Size{niello.fixed(100), niello.fixed(50)}, color = niello.Color{200, 0, 0, 255}, hover = hov})
+	hframe :: proc(btn: niello.Unit, mouse: niello.Vec2) -> niello.Frame_Result {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}, mouse = mouse, mouse_valid = true, window_focused = true}, 0)
+		niello.show(btn)
+		return niello.frame_end()
+	}
+	AWAY :: niello.Vec2{300, 200}
+	OVER :: niello.Vec2{10, 10}
+	hframe(btn, AWAY)
+	res := hframe(btn, OVER)
+	testing.expect(t, res.changed, "hover overlay applies before the clear")
+	hframe(btn, OVER)
+	hframe(btn, AWAY)
+	niello.clear_overlay(btn, .Hover)
+	res = hframe(btn, OVER)
+	testing.expect(t, !res.changed, "after clear_overlay, hovering changes nothing")
+}

@@ -469,12 +469,6 @@ free_context :: proc(ctx: ^Context) {
 // ---------------------------------------------------------------------------
 // Mutation helpers (used by the public set/set_many in public.odin)
 
-@(private)
-apply_opt :: proc(dst: ^$T, src: Maybe(T)) {
-	if v, ok := src.?; ok {
-		dst^ = v
-	}
-}
 
 // explicit_fields reports which decl fields were set (non-nil Maybe). Recorded
 // at mint for propagate; also read by set_many's write tail.
