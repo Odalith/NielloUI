@@ -76,28 +76,77 @@ draw_list :: proc() -> []Draw_Cmd {
 	// depth-first declaration order: node i's subtree is the contiguous range
 	// [i, subtree_end[i]].
 	scopes := &g.emit_scopes
+	clips := &g.emit_clips
 	clear(scopes)
-	for i in 0 ..< len(g.nodes) {
+	clear(clips)
+	// The accumulated clip starts at the viewport (the same root the
+	// declare-time culler uses); a zero viewport means none was ever
+	// latched, in which case nothing is culled at emit.
+	root_clip := Rect{{0, 0}, g.viewport}
+	if g.viewport == {0, 0} {
+		root_clip = Rect{{-1e18, -1e18}, {2e18, 2e18}}
+	}
+	i := 0
+	for i < len(g.nodes) {
 		for len(scopes) > 0 && g.subtree_end[scopes[len(scopes) - 1]] < i {
 			emit_node_close(pop(scopes))
+			pop(clips)
 		}
 		if g.nodes[i].culled {
+			i += 1
 			continue
 		}
-		if emit_node_open(i) {
-			append(scopes, i)
+		nd := &g.nodes[i]
+		s := node_style(i)
+		r := Rect{g.lay[i].pos, g.lay[i].size}
+		cur := len(clips) > 0 ? clips[len(clips) - 1] : root_clip
+		clips_node := s.overflow == .Clip || scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS)
+		// Geometric culling at emit (audit ren-1): a node whose
+		// spill-expanded rect misses the accumulated clip paints
+		// nothing itself — its text is never packed, its runs never
+		// merged. A clipping node in that state takes its whole
+		// subtree with it (everything inside is clipped to the same
+		// empty intersection, and the scopes stay balanced by never
+		// opening); a non-clipping node's children may still spill
+		// into view, so only its own commands are skipped.
+		paint := Rect{r.pos, r.size + g.lay[i].overfl}
+		if rect_outside(paint, cur) {
+			if clips_node {
+				i = g.subtree_end[i] + 1
+				continue
+			}
+			if emit_node_open(i, false) {
+				append(scopes, i)
+				append(clips, cur)
+			}
+			i += 1
+			continue
 		}
+		if emit_node_open(i, true) {
+			append(scopes, i)
+			append(clips, clips_node ? rect_intersect(cur, r) : cur)
+		}
+		i += 1
 	}
 	for len(scopes) > 0 {
 		emit_node_close(pop(scopes))
+		pop(clips)
 	}
 	return g.draw_cmds[:]
+}
+
+// rect_outside reports whether two rects share no area (touching
+// edges count as outside: a zero-area intersection paints nothing).
+@(private)
+rect_outside :: proc(a, b: Rect) -> bool {
+	return a.pos.x + a.size.x <= b.pos.x || a.pos.y + a.size.y <= b.pos.y ||
+		b.pos.x + b.size.x <= a.pos.x || b.pos.y + b.size.y <= a.pos.y
 }
 
 // emit_node_open emits a node's scope opens and its own commands. Returns
 // true when it opened a scope (clip and/or opacity).
 @(private)
-emit_node_open :: proc(i: int) -> bool {
+emit_node_open :: proc(i: int, paint_leaves: bool) -> bool {
 	nd := &g.nodes[i]
 	s := node_style(i)
 	r := Rect{g.lay[i].pos, g.lay[i].size}
@@ -113,7 +162,7 @@ emit_node_open :: proc(i: int) -> bool {
 		scoped = true
 	}
 
-	if s.color.a > 0 || s.border_width > 0 {
+	if paint_leaves && (s.color.a > 0 || s.border_width > 0) {
 		append(
 			&g.draw_cmds,
 			Draw_Cmd{
@@ -127,13 +176,15 @@ emit_node_open :: proc(i: int) -> bool {
 		)
 	}
 
-	emit_image(nd, s, r)
+	if paint_leaves {
+		emit_image(nd, s, r)
 
-	if nd.has_text {
-		emit_text(i, nd, s, r)
+		if nd.has_text {
+			emit_text(i, nd, s, r)
+		}
 	}
 
-	if s.overlay_color.a > 0 || s.overlay_border_width > 0 {
+	if paint_leaves && (s.overlay_color.a > 0 || s.overlay_border_width > 0) {
 		append(
 			&g.draw_cmds,
 			Draw_Cmd{
@@ -148,7 +199,9 @@ emit_node_open :: proc(i: int) -> bool {
 
 	// Debug highlight / overflow tint (TODO #18): no-op unless
 	// built with NIELLO_DEBUG.
-	emit_debug_overlay(i, nd, s, r)
+	if paint_leaves {
+		emit_debug_overlay(i, nd, s, r)
+	}
 
 	return scoped
 }
