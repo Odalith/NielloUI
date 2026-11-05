@@ -379,9 +379,6 @@ a11y_state_for :: proc(i: int, nd: ^Frame_Node, rec: ^Inst_Rec) -> A11y_State {
 // rect every frame; sweep entries whose instances left the tree.
 @(private)
 a11y_mirror_build :: proc() {
-	if g.a11y_entries == nil {
-		g.a11y_entries = make(map[Instance]A11y_Entry)
-	}
 	g.a11y_gen += 1
 	gen := g.a11y_gen
 	clear(&g.a11y_order)
