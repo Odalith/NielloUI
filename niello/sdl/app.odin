@@ -86,6 +86,9 @@ Glue_Window :: struct {
 	force_render:  bool,
 	was_minimized: bool, // the minimized early-return ran; the first
 	                     // live frame after restore re-arms force_render
+	render_fails:     int,  // consecutive render failures (audit sdl-H4)
+	render_retry_ns:  u64,  // backoff: no render attempt before this tick
+	render_recreated: bool, // the one backend recreate has been spent
 	// loop bookkeeping
 	last_changed:   bool, // last frame_end's changed; idle windows are not framed
 	last_next_wake: u32,  // last frame_end's next_wake_ms
@@ -279,7 +282,9 @@ destroy_window_now :: proc(win: ^Glue_Window) {
 	when ODIN_OS == .Linux {
 		atspi_remove_window(i32(u32(win.id)))
 	}
-	destroy_window(win.nui)
+	if win.nui != nil {
+		destroy_window(win.nui)
+	}
 	sdl.DestroyWindow(win.sdl_win)
 	delete(win.text_buf)
 	for w, i in g_windows {
@@ -544,8 +549,19 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	}
 
 	if result.changed || win.force_render {
-		cmds := niello.draw_list()
-		win.force_render = render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.content_scale) == 0
+		// During a render-failure backoff the frame still runs;
+		// only the backend call waits for its deadline (sdl-H4).
+		if now_ns >= win.render_retry_ns {
+			cmds := niello.draw_list()
+			if render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.content_scale) == 0 {
+				win.force_render = false
+				win.render_fails = 0
+				win.render_retry_ns = 0
+			} else {
+				win.force_render = true
+				note_render_failure(win, now_ns)
+			}
+		}
 	} else if win.wayland {
 		if present_cached(win.nui) == 0 {
 			// Retry through a complete current frame after a failed update/acquire.
@@ -557,6 +573,64 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 
 	win.last_changed = result.changed
 	win.last_next_wake = result.next_wake_ms
+}
+
+// RENDER_FAIL_LIMIT: consecutive render failures tolerated before
+// the escalation moves on — backoff first, then the one recreate,
+// then the run ends (audit sdl-H4, ruling F4(a)).
+RENDER_FAIL_LIMIT :: 5
+
+// note_render_failure advances one window's failure escalation:
+// exponential backoff from 100 ms capped at 1 s between attempts;
+// at the limit, ONE backend recreate (the surface/device may be
+// what died); failures past a recreate are terminal — the window
+// dies and run() reports Render_Failed rather than spinning on a
+// permanently broken renderer.
+@(private)
+note_render_failure :: proc(win: ^Glue_Window, now_ns: u64) {
+	win.render_fails += 1
+	if win.render_fails >= RENDER_FAIL_LIMIT {
+		if !win.render_recreated {
+			win.render_recreated = true
+			win.render_fails = 0
+			win.render_retry_ns = 0
+			if recreate_backend(win) {
+				return
+			}
+		}
+		g_run_error = .Render_Failed
+		win.dead = true
+		return
+	}
+	delay_ms := u64(min(100 << u32(win.render_fails - 1), 1000))
+	win.render_retry_ns = now_ns + delay_ms * 1_000_000
+}
+
+// recreate_backend replaces a window's backend surface in place
+// (the SDL window, the engine context and the declare proc all
+// survive): the sdl-H4 escalation's one second chance.
+@(private)
+recreate_backend :: proc(win: ^Glue_Window) -> bool {
+	destroy_window(win.nui)
+	win.nui = nil
+	handles := native_handles_for_window(win.sdl_win)
+	px_w, px_h: i32
+	sdl.GetWindowSizeInPixels(win.sdl_win, &px_w, &px_h)
+	nui := create_window(&handles, u32(max(px_w, 0)), u32(max(px_h, 0)))
+	if nui == nil {
+		fmt.println("nui_create_window failed during backend recreate")
+		return false
+	}
+	win.nui = nui
+	display := sdl.GetDisplayForWindow(win.sdl_win)
+	if display != 0 {
+		mode := sdl.GetCurrentDisplayMode(display)
+		if mode != nil && mode.refresh_rate > 0 {
+			set_refresh_rate(nui, mode.refresh_rate)
+		}
+	}
+	win.force_render = true
+	return true
 }
 
 @(private)
@@ -831,8 +905,21 @@ loop_timeout :: proc() -> i32 {
 		if window_minimized(win) {
 			continue
 		}
-		if win.pending_size || win.force_render || win.last_changed || win.targeted || win.dead {
+		if win.pending_size || win.last_changed || win.targeted || win.dead {
 			return 0
+		}
+		if win.force_render {
+			// Armed but backing off (sdl-H4): the retry
+			// deadline is a wake time, not a spin.
+			if now_ns >= win.render_retry_ns {
+				return 0
+			}
+			remaining_ms := (win.render_retry_ns - now_ns) / 1_000_000
+			r := i32(min(remaining_ms, u64(max(i32))))
+			if best < 0 || r < best {
+				best = r
+			}
+			continue
 		}
 		if niello.wake_pending(win.ctx) {
 			return 0
@@ -895,8 +982,27 @@ live_resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
 	return true
 }
 
+// Run_Error is what run() reports when it could not keep going.
+// This is the first piece of the sdl-M7 error surface, pulled
+// forward by audit sdl-H4's ruling: failures are returned, not
+// just printed. None covers every normal exit (last window
+// closed, app quit).
+Run_Error :: enum {
+	None,
+	Init_Failed,   // SDL or the main window/backend did not come up
+	Render_Failed, // rendering failed through backoff AND one
+	               // backend recreate (audit sdl-H4)
+}
+
+// Set by the loop when it ends abnormally; run() returns it.
+@(private)
+g_run_error: Run_Error
+
 // run opens the main window (on the app's context) and drives the
 // frame loop until the last window closes or the app quits. It
+// returns why it ended; callers that do not care may ignore the
+// result.
+//
 // The loop is hand-driven — the SDL_App* entry points, restructured
 // as plain procs called from here instead of EnterAppMainCallbacks —
 // so the idle path can BLOCK: when every window's last frame changed
@@ -906,17 +1012,18 @@ live_resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
 // event, including the wake user event, cuts the wait short. Desktop
 // targets only: platforms where SDL must own main() (web, consoles)
 // are not NielloUI targets.
-run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) {
+run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> Run_Error {
+	g_run_error = .None
 	if sdl_init() != .CONTINUE {
 		sdl.Quit()
-		return
+		return .Init_Failed
 	}
 	main_id := g_next_id
 	g_next_id += 1
 	if !create_window_now(main_id, ctx, config, declare) {
 		app_quit()
 		sdl.Quit()
-		return
+		return .Init_Failed
 	}
 	when ODIN_OS == .Windows {
 		// Framing during border drags happens in this watch: the
@@ -973,4 +1080,5 @@ run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) {
 		sdl.RemoveEventWatch(live_resize_watch, nil)
 	}
 	app_quit()
+	return g_run_error
 }
