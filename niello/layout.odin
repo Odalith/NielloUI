@@ -626,14 +626,8 @@ wrap_text :: proc() {
 // committed record goes away (audit int-2; lifetime ruled with the
 // instances, 2026-11-04).
 purge_scroll_state :: proc(id: Instance) {
-	if len(g.scroll_off) > 0 {
-		delete_key(&g.scroll_off, id)
-	}
-	if len(g.scroll_max) > 0 {
-		delete_key(&g.scroll_max, id)
-	}
-	if len(g.scroll_glides) > 0 {
-		delete_key(&g.scroll_glides, id)
+	if len(g.scroll_state) > 0 {
+		delete_key(&g.scroll_state, id)
 	}
 }
 
@@ -666,20 +660,21 @@ position_and_damage :: proc() {
 		}
 		s := node_style(i)
 		// The live scroll offset: the stored value, clamped per
-		// scrollable axis to last frame's range (g.scroll_max — g.lay
-		// was zeroed by pass 0, so the range cannot come from there).
-		// The fresh range computed below re-clamps it for storage.
+		// scrollable axis to last frame's range (the record's max —
+		// g.lay was zeroed by pass 0, so the range cannot come from
+		// there). The fresh range computed below re-clamps it for
+		// storage. A record with off == 0 clamps to 0, so keying
+		// this on the record's presence (audit X-4/F2) is the same
+		// value the old has_off gate produced.
 		scroll := Vec2{0, 0}
-		stored_off, has_off := g.scroll_off[nd.identity]
-		if has_off {
-			prev_max := g.scroll_max[nd.identity]
+		if rec, has_rec := g.scroll_state[nd.identity]; has_rec {
 			// An overscroll-enabled scroller (§3.22) renders its
 			// offset inside the widened band domain; the spring
-			// in scroll_glides owns positions out there.
+			// in the record's glide owns positions out there.
 			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
 			for axis in 0 ..< 2 {
 				if scrollable_axis(s, axis) {
-					scroll[axis] = clamp(stored_off[axis], -allow, prev_max[axis] + allow)
+					scroll[axis] = clamp(rec.off[axis], -allow, rec.max[axis] + allow)
 				}
 			}
 		}
@@ -780,30 +775,36 @@ position_and_damage :: proc() {
 		// stranded offset back in. The write-back clamps the STORED
 		// value (not this frame's read-clamped scroll), so an offset
 		// set before the first frame survives to be rendered once a
-		// range exists. Pass F never creates an offset entry.
-		if scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
-			g.scroll_max[nd.identity] = g.lay[i].overfl
+		// range exists. Pass F publishes the record but never
+		// invents an offset: off only ever comes from the wheel,
+		// a glide, an overscroll landing, or scroll_to.
+		scrollable := scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS)
+		rec, has_rec := g.scroll_state[nd.identity]
+		if scrollable {
+			rec.max = g.lay[i].overfl
+			rec.has_max = true
 		}
-		stored_off, has_off := g.scroll_off[nd.identity]
-		if has_off {
+		if has_rec {
 			eff := Vec2{0, 0}
 			// The stored offset re-clamps to the fresh range — or
 			// to the band domain while a spring owns the position
 			// (§3.22). An out-of-range offset with no spring (a
 			// stale one, say) heals back to the legal range here.
 			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
-			gl, has_gl := g.scroll_glides[nd.identity]
 			for axis in 0 ..< 2 {
 				if scrollable_axis(s, axis) {
 					// Per axis (audit int-8): the band domain
 					// applies to an axis while ITS spring owns it.
-					springing := has_gl && gl.active[axis] && gl.axis[axis].spring
+					springing := rec.glide.active[axis] && rec.glide.axis[axis].spring
 					lo := springing ? -allow : f32(0)
 					hi := springing ? g.lay[i].overfl[axis] + allow : g.lay[i].overfl[axis]
-					eff[axis] = clamp(stored_off[axis], lo, hi)
+					eff[axis] = clamp(rec.off[axis], lo, hi)
 				}
 			}
-			g.scroll_off[nd.identity] = eff
+			rec.off = eff
+		}
+		if scrollable || has_rec {
+			g.scroll_state[nd.identity] = rec
 		}
 	}
 	// Accumulated ancestor clips for the next frame's hit test (input.odin's
