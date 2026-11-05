@@ -594,15 +594,18 @@ note_render_failure :: proc(win: ^Glue_Window, now_ns: u64) {
 			win.render_recreated = true
 			win.render_fails = 0
 			win.render_retry_ns = 0
+			fmt.printfln("nui_sdl: render failed %d times in a row; recreating the backend once", RENDER_FAIL_LIMIT)
 			if recreate_backend(win) {
 				return
 			}
 		}
+		fmt.printfln("nui_sdl: rendering still failing after a backend recreate; ending the run")
 		g_run_error = .Render_Failed
 		win.dead = true
 		return
 	}
 	delay_ms := u64(min(100 << u32(win.render_fails - 1), 1000))
+	fmt.printfln("nui_sdl: render failed (%d/%d); retrying in %d ms", win.render_fails, RENDER_FAIL_LIMIT, delay_ms)
 	win.render_retry_ns = now_ns + delay_ms * 1_000_000
 }
 
@@ -611,6 +614,7 @@ note_render_failure :: proc(win: ^Glue_Window, now_ns: u64) {
 // survive): the sdl-H4 escalation's one second chance.
 @(private)
 recreate_backend :: proc(win: ^Glue_Window) -> bool {
+	fmt.println("nui_sdl: destroying the backend window to recreate it")
 	destroy_window(win.nui)
 	win.nui = nil
 	handles := native_handles_for_window(win.sdl_win)
@@ -622,6 +626,7 @@ recreate_backend :: proc(win: ^Glue_Window) -> bool {
 		return false
 	}
 	win.nui = nui
+	fmt.println("nui_sdl: backend window recreated")
 	display := sdl.GetDisplayForWindow(win.sdl_win)
 	if display != 0 {
 		mode := sdl.GetCurrentDisplayMode(display)

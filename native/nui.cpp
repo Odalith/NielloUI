@@ -841,6 +841,14 @@ bool Configure(nui_window& window) {
     if (!Synchronize()) return false;
 
     if (window.recreateSurface || !window.surface) {
+        if (window.surface) {
+            // Replacing a live surface object: logged because a
+            // second CreateSurface for the same OS surface while
+            // the first is still compositor-registered is fatal
+            // on Wayland (linux-drm-syncobj "surface already
+            // exists") — this line is the witness for that path.
+            Log("replacing an existing surface");
+        }
         window.configured = false;
         window.surface = nullptr;
         window.surface =
@@ -949,15 +957,18 @@ bool Present(nui_window& window) {
 
         case wgpu::SurfaceGetCurrentTextureStatus::Timeout:
             ++window.acquireFailures;
+            Log("surface acquisition timed out");
             return false;
 
         case wgpu::SurfaceGetCurrentTextureStatus::Outdated:
             ++window.acquireFailures;
+            Log("surface acquisition outdated; reconfiguring");
             window.configured = false;
             return false;
 
         case wgpu::SurfaceGetCurrentTextureStatus::Lost:
             ++window.acquireFailures;
+            Log("surface lost; recreating the surface");
             window.configured = false;
             window.recreateSurface = true;
             return false;
@@ -1010,6 +1021,7 @@ bool Present(nui_window& window) {
 
     const auto status = window.surface.Present();
     if (status != wgpu::Status::Success || !Ready()) {
+        Log("surface present failed");
         window.configured = false;
         return false;
     }
