@@ -90,86 +90,21 @@ end_drag :: proc(completed: bool) {
 	g.drag_ended_id = g.press_ids[.Left]
 	clear(&g.drag_ended_chain)
 	append(&g.drag_ended_chain, ..g.press_chains[.Left][:])
-	// The started chain rides along (audit int-14): a drag that
-	// starts and ends within one dispatch has drag_active already
-	// false at declare time, so drag_started needs this snapshot —
-	// the same one-declare lifetime as the ended chain.
-	clear(&g.drag_started_chain)
-	append(&g.drag_started_chain, ..g.press_chains[.Left][:])
 	g.drag_ended_completed = completed
 	g.drag_ended_total = g.drag_total_v
 	g.drag_active = false
 }
 
-// cancel_capture ends one button's press capture, completing the
-// capture-loss bookkeeping: an in-flight drag on it ends as a
-// cancellation (never a completion), then the press state clears.
-// cancel_captures does it for every button. These two are the ONLY
-// capture-loss path (audit int-12): focus loss, cursor departure,
-// target death / culling / disablement, a modal opening over the
-// capture, and a duplicate press edge all funnel here, so the
-// taxonomy cannot drift between hand-copied variants again.
+// instance_in_tree reports whether id is a node of the tree dispatch
+// is reading (last frame's committed tree).
 @(private)
-cancel_capture :: proc(b: Mouse_Button) {
-	if b == .Left && g.drag_active {
-		end_drag(false)
-	}
-	g.press_ids[b] = 0
-	clear(&g.press_chains[b])
-}
-
-@(private)
-cancel_captures :: proc() {
-	for b in Mouse_Button {
-		cancel_capture(b)
-	}
-}
-
-// validate_captures cancels any capture that can no longer
-// complete (audit int-12), checked once per dispatch against last
-// frame's tree and popup stack:
-//   - the target left the tree, or was culled (a culled node is in
-//     the tree but has no committed instance: it cannot be clicked);
-//   - the target or one of its ancestors is disabled (disabled
-//     absorbs — ruled 2026-11-04: mid-press disablement cancels,
-//     for drags and plain presses alike);
-//   - a modal is topmost and the target sits neither in the modal's
-//     subtree nor in a popup above it (ruled 2026-11-04: a modal
-//     opening mid-capture cancels what it covers).
-// (Before, only an active drag on a vanished target was cancelled;
-// a plain press on a dead target lingered until release and could
-// still click a surviving ancestor.)
-@(private)
-validate_captures :: proc() {
-	mk := topmost_modal()
-	for b in Mouse_Button {
-		target := g.press_ids[b]
-		if target == 0 {
-			continue
-		}
-		idx := -1
-		for i in 0 ..< len(g.nodes) {
-			if g.nodes[i].identity == target {
-				idx = i
-				break
-			}
-		}
-		dead := idx < 0 || g.nodes[idx].culled
-		if !dead && mk >= 0 {
-			dead = popup_containing(idx) < mk
-		}
-		if !dead {
-			for c := idx; c != -1; c = g.nodes[c].parent {
-				if g.nodes[c].with.disabled {
-					dead = true
-					break
-				}
-			}
-		}
-		if dead {
-			cancel_capture(b)
+instance_in_tree :: proc(id: Instance) -> bool {
+	for nd in g.nodes {
+		if nd.identity == id {
+			return true
 		}
 	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -441,26 +376,6 @@ dispatch_keys :: proc(input: Input) {
 		return
 	}
 
-	// Modal containment (audit int-1): while a modal is topmost,
-	// keyboard and text belong to its subtree (or a popup above it).
-	// Focus sitting outside it — a field behind the modal, when the
-	// modal offered no focus candidate of its own — receives
-	// nothing: no activation captures, and the routing target is
-	// zeroed so input_keys / input_text answer empty. Traversal and
-	// Esc still run: Tab is already scoped to the modal, and Esc is
-	// how a dismissible popup closes.
-	modal_blocks_keys := false
-	if mk := topmost_modal(); mk >= 0 && g.focus_id != 0 {
-		focus_idx := -1
-		for idx in 0 ..< len(g.nodes) {
-			if g.nodes[idx].identity == g.focus_id {
-				focus_idx = idx
-				break
-			}
-		}
-		modal_blocks_keys = focus_idx < 0 || popup_containing(focus_idx) < mk
-	}
-
 	for k in 0 ..< g.frame_key_count {
 		ev := g.frame_keys[k]
 		if ev.scancode == SCANCODE_ESCAPE && ev.down && !ev.repeat {
@@ -480,41 +395,23 @@ dispatch_keys :: proc(input: Input) {
 				continue
 			}
 		}
-		if ev.scancode == SCANCODE_TAB {
-			// Traversal consumes Tab outright — the key-up too
-			// (audit int-11: the up used to leak to the newly
-			// focused instance). Repeats included: holding Tab
-			// keeps cycling, as everywhere else.
+		if ev.scancode == SCANCODE_TAB && ev.down {
+			// Traversal consumes Tab outright (repeats included:
+			// holding Tab keeps cycling, as everywhere else).
 			g.key_consumed[k] = true
-			if ev.down {
-				traverse_focus((ev.mods & MOD_SHIFT) != 0 ? -1 : 1)
-			}
+			traverse_focus((ev.mods & MOD_SHIFT) != 0 ? -1 : 1)
 			continue
 		}
 		if ev.scancode == SCANCODE_SPACE || ev.scancode == SCANCODE_RETURN ||
 		   ev.scancode == SCANCODE_KP_ENTER {
-			// The core's own activation keys (audit int-11): when
-			// they drive a capture they are consumed, so an app
-			// never sees Space twice — once via input_keys and
-			// once as clicked(). The up is consumed when it ends
-			// the capture its down began. Behind a modal that
-			// blocks keys (audit int-1) no capture begins or ends.
-			if !modal_blocks_keys {
-				if ev.down {
-					g.key_consumed[k] = true
-					if !ev.repeat {
-						key_press_begin(ev.scancode)
-					}
-				} else {
-					if g.key_press_id != 0 && ev.scancode == g.key_press_code {
-						g.key_consumed[k] = true
-					}
-					key_press_end(ev.scancode)
-				}
+			if ev.down && !ev.repeat {
+				key_press_begin(ev.scancode)
+			} else if !ev.down {
+				key_press_end(ev.scancode)
 			}
 		}
 	}
-	g.input_target = modal_blocks_keys ? 0 : g.focus_id
+	g.input_target = g.focus_id
 }
 
 // ---------------------------------------------------------------------------
@@ -533,7 +430,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	g.drag_started_flag = false
 	g.drag_ended_id = 0
 	clear(&g.drag_ended_chain)
-	clear(&g.drag_started_chain)
 	g.drag_ended_completed = false
 	g.drag_delta_v = Vec2{}
 	if input.mouse_valid && g.prev_pointer_valid {
@@ -549,7 +445,15 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// it tracks the cursor over unfocused windows too, and the press
 	// that focuses the window dispatches below like any other.
 	if !input.window_focused && g.prev_focused {
-		cancel_captures()
+		if g.drag_active {
+			end_drag(false)
+		}
+		for b in Mouse_Button {
+			if g.press_ids[b] != 0 {
+				g.press_ids[b] = 0
+				clear(&g.press_chains[b])
+			}
+		}
 	}
 	g.prev_focused = input.window_focused
 
@@ -559,15 +463,26 @@ dispatch_input :: proc(input: Input, dt: f32) {
 
 	if !input.mouse_valid {
 		// Cursor departure: everything ends at once.
-		cancel_captures()
+		if g.drag_active {
+			end_drag(false)
+		}
 		g.prev_pointer_valid = false
 		clear(&g.hover_chain)
 		clear(&g.hover_since)
+		for b in Mouse_Button {
+			g.press_ids[b] = 0
+			clear(&g.press_chains[b])
+		}
 		return
 	}
 
-	// Captures that can no longer complete die here (audit int-12).
-	validate_captures()
+	// A drag whose target left the tree is cancelled, and its capture
+	// dies with it — a vanished target completes no click either.
+	if g.drag_active && !instance_in_tree(g.press_ids[.Left]) {
+		end_drag(false)
+		g.press_ids[.Left] = 0
+		clear(&g.press_chains[.Left])
+	}
 
 	pick := pick_at(input.mouse)
 
@@ -722,14 +637,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	for b in Mouse_Button {
 		if b in input.buttons_pressed && pick >= 0 && !blocked &&
 		   !(press_consumed && b == .Left) {
-			// A duplicate press edge on an already-captured button
-			// (audit int-13): end the old capture first, as a
-			// cancellation, instead of overwriting it — overwriting
-			// resurrected drag_active on the new target with no
-			// threshold crossing of its own.
-			if g.press_ids[b] != 0 {
-				cancel_capture(b)
-			}
 			g.press_ids[b] = g.nodes[pick].identity
 			clear(&g.press_chains[b])
 			for idx in chain_idx {
@@ -832,8 +739,8 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 			// target is the range end, which is not where the
 			// gesture is (§3.22).
 			target := off[axis]
-			if gl, ok := g.scroll_glides[id]; ok && gl.active[axis] && !gl.axis[axis].spring {
-				target = gl.axis[axis].to
+			if gl, ok := g.scroll_glides[id]; ok && !gl.spring {
+				target = gl.to[axis]
 			}
 			raw := target + rem
 			banded := false
@@ -877,29 +784,19 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 						if g.scroll_glides == nil {
 							g.scroll_glides = make(map[Instance]Scroll_Glide)
 						}
-						// Only this axis is (re)based and
-						// re-timed (audit int-8): the other
-						// axis's glide, if any, flies on.
 						gl := g.scroll_glides[id]
-						gl.axis[axis] = Axis_Glide{
-							from = off[axis], to = clamped,
-							dur = f32(s.smooth_ms),
-						}
-						gl.active[axis] = true
+						gl.from = off
+						gl.to = off
+						gl.to[axis] = clamped
+						gl.t = 0
+						gl.dur = f32(s.smooth_ms)
+						gl.spring = false
 						g.scroll_glides[id] = gl
 					} else {
-						// A direct landing kills this axis's
-						// glide (a spring included); the other
-						// axis is not this landing's business.
+						// A direct landing kills any spring in
+						// flight on this scroller.
 						if g.scroll_glides != nil {
-							if gl, ok := g.scroll_glides[id]; ok {
-								gl.active[axis] = false
-								if gl.active[1 - axis] {
-									g.scroll_glides[id] = gl
-								} else {
-									delete_key(&g.scroll_glides, id)
-								}
-							}
+							delete_key(&g.scroll_glides, id)
 						}
 						off[axis] = clamped
 						g.scroll_off[id] = off
@@ -1134,37 +1031,27 @@ step_scroll_glides :: proc() {
 	done: [dynamic]Instance
 	defer delete(done)
 	for id, &gl in g.scroll_glides {
-		off := g.scroll_off[id]
-		for axis in 0 ..< 2 {
-			if !gl.active[axis] {
-				continue
-			}
-			ag := &gl.axis[axis]
-			ag.t += g.dt * 1000
-			eff := ag.t - ag.delay
-			if eff < 0 {
-				// Holding (a spring's quiet window): this
-				// axis stays exactly at its `from`.
-				off[axis] = ag.from
-				continue
-			}
-			p := ag.dur <= 0 ? f32(1) : min(eff / ag.dur, 1)
-			e := ease_out_cubic(p)
-			// Re-clamp the target against the live range
-			// every step: content may have shrunk since
-			// the tick that set it.
-			to := ag.to
-			if mx, ok := g.scroll_max[id]; ok {
-				to = clamp(to, 0, mx[axis])
-			}
-			off[axis] = ag.from + (to - ag.from) * e
-			if p >= 1 {
-				off[axis] = to
-				gl.active[axis] = false
-			}
+		gl.t += g.dt * 1000
+		eff := gl.t - gl.delay
+		if eff < 0 {
+			// Holding (a spring's quiet window): the offset stays
+			// exactly at `from`; the glide outlives the window or
+			// a fresh tick re-arms it.
+			g.scroll_off[id] = gl.from
+			continue
 		}
-		g.scroll_off[id] = off
-		if !gl.active[0] && !gl.active[1] {
+		p := gl.dur <= 0 ? f32(1) : min(eff / gl.dur, 1)
+		e := ease_out_cubic(p)
+		// Re-clamp the target against the live range every step:
+		// content may have shrunk since the tick that set it.
+		to := gl.to
+		if mx, ok := g.scroll_max[id]; ok {
+			to.x = clamp(to.x, 0, mx.x)
+			to.y = clamp(to.y, 0, mx.y)
+		}
+		g.scroll_off[id] = gl.from + (to - gl.from) * e
+		if p >= 1 {
+			g.scroll_off[id] = to
 			append(&done, id)
 		}
 	}
@@ -1221,17 +1108,17 @@ apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Styl
 	if g.scroll_glides == nil {
 		g.scroll_glides = make(map[Instance]Scroll_Glide)
 	}
-	// The spring owns its axis only (audit int-8): any glide in
-	// flight on the other axis keeps its own from/to and clock.
-	gl := g.scroll_glides[id]
-	gl.axis[axis] = Axis_Glide{
-		from = disp, to = clamp(disp, 0, g.scroll_max[id][axis]),
+	from := off
+	from[axis] = disp
+	to := off
+	to[axis] = clamp(disp, 0, g.scroll_max[id][axis])
+	if gl, ok := g.scroll_glides[id]; ok && !gl.spring {
+		to[1 - axis] = gl.to[1 - axis]
+	}
+	g.scroll_glides[id] = Scroll_Glide{
+		from = from, to = to, t = 0,
 		dur = f32(s.smooth_ms), spring = true,
 		delay = OVERSCROLL_QUIET_MS,
 	}
-	gl.active[axis] = true
-	g.scroll_glides[id] = gl
-	landed := off
-	landed[axis] = disp
-	g.scroll_off[id] = landed
+	g.scroll_off[id] = from
 }

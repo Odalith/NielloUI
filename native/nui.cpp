@@ -169,9 +169,6 @@ struct Shared {
     std::unordered_map<uint32_t, FontFamily> families;
     std::unordered_map<FontKey, SkFont, FontKeyHash> fonts;
     std::unordered_map<uint32_t, ImageEntry> images;
-    // Images released by nui_image_release, awaiting the sweep
-    // (audit nat-13): out of the live map, refs not yet dropped.
-    std::vector<ImageEntry> retiredImages;
     std::unordered_set<nui_window*> windows;
 
     uint64_t rasterBytes = 0;
@@ -265,22 +262,13 @@ uint64_t NowNs() {
             std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
-// Pace sleeps until the window's next frame slot. The anchor is a
-// fixed grid (audit nat-6): the next slot steps by whole periods
-// from the previous one instead of re-anchoring to completion
-// time, so the effective rate is the requested Hz, not Hz minus
-// frame work. A grid that has fallen a full period behind (long
-// frame, suspend) re-anchors to now rather than bursting catch-up
-// presents. Only nui_present_cached calls this — see there.
 void Pace(nui_window& window) {
     const uint64_t now = NowNs();
     if (now < window.nextFrameTimeNs) {
         std::this_thread::sleep_for(
             std::chrono::nanoseconds(window.nextFrameTimeNs - now));
     }
-    const uint64_t next = window.nextFrameTimeNs + window.targetFrameTimeNs;
-    const uint64_t after = NowNs();
-    window.nextFrameTimeNs = next > after ? next : after + window.targetFrameTimeNs;
+    window.nextFrameTimeNs = NowNs() + window.targetFrameTimeNs;
 }
 
 void Trace(const nui_window& window) noexcept {
@@ -326,13 +314,6 @@ bool Synchronize() {
         Log("Graphite submit failed during synchronization");
     }
     const bool drained = DrainQueue();
-    if (drained) {
-        // The sweep point for retired images (audit nat-13): with
-        // the queue empty, nothing in flight can still reference
-        // them, so their refs may drop here — once per drain, not
-        // once per release.
-        g.retiredImages.clear();
-    }
     return drained && !g.failed && !g.recorderPoisoned;
 }
 
@@ -831,10 +812,7 @@ wgpu::TextureFormat PickFormat(const wgpu::SurfaceCapabilities& capabilities) {
 
 bool Configure(nui_window& window) {
     if (!Ready() || !window.width || !window.height ||
-        !DimensionsValid(window.width, window.height)) {
-        Log("configure skipped: backend not ready or bad size");
-        return false;
-    }
+        !DimensionsValid(window.width, window.height)) return false;
 
     if (window.configured && !window.recreateSurface &&
         window.config.width == window.width &&
@@ -844,22 +822,11 @@ bool Configure(nui_window& window) {
     if (!Synchronize()) return false;
 
     if (window.recreateSurface || !window.surface) {
-        if (window.surface) {
-            // Replacing a live surface object: logged because a
-            // second CreateSurface for the same OS surface while
-            // the first is still compositor-registered is fatal
-            // on Wayland (linux-drm-syncobj "surface already
-            // exists") — this line is the witness for that path.
-            Log("replacing an existing surface");
-        }
         window.configured = false;
         window.surface = nullptr;
         window.surface =
             CreateDawnSurface(g.backend.fInstance, &window.handles);
-        if (!window.surface) {
-            Log("surface creation failed");
-            return false;
-        }
+        if (!window.surface) return false;
         window.recreateSurface = false;
     }
 
@@ -932,19 +899,13 @@ bool EnsureCache(nui_window& window) {
                  wgpu::TextureUsage::TextureBinding;
 
     auto texture = g.backend.fDevice.CreateTexture(&desc);
-    if (!texture || !Ready()) {
-        Log("cache texture creation failed");
-        return false;
-    }
+    if (!texture || !Ready()) return false;
 
     const auto backend =
         skgpu::graphite::BackendTextures::MakeDawn(texture.Get());
     auto surface = SkSurfaces::WrapBackendTexture(
         g.recorder.get(), backend, SkColorSpace::MakeSRGB(), nullptr);
-    if (!surface) {
-        Log("cache surface wrap failed");
-        return false;
-    }
+    if (!surface) return false;
 
     window.cacheTexture = std::move(texture);
     window.cacheSurface = std::move(surface);
@@ -969,18 +930,15 @@ bool Present(nui_window& window) {
 
         case wgpu::SurfaceGetCurrentTextureStatus::Timeout:
             ++window.acquireFailures;
-            Log("surface acquisition timed out");
             return false;
 
         case wgpu::SurfaceGetCurrentTextureStatus::Outdated:
             ++window.acquireFailures;
-            Log("surface acquisition outdated; reconfiguring");
             window.configured = false;
             return false;
 
         case wgpu::SurfaceGetCurrentTextureStatus::Lost:
             ++window.acquireFailures;
-            Log("surface lost; recreating the surface");
             window.configured = false;
             window.recreateSurface = true;
             return false;
@@ -997,21 +955,11 @@ bool Present(nui_window& window) {
             return false;
     }
 
-    if (!acquired.texture || !Ready()) {
-        Log("present aborted: no acquired texture or backend not ready");
-        return false;
-    }
+    if (!acquired.texture || !Ready()) return false;
 
     if (acquired.texture.GetWidth() != window.width ||
         acquired.texture.GetHeight() != window.height ||
         acquired.texture.GetFormat() != window.config.format) {
-        std::fprintf(stderr,
-            "nui: present aborted: acquired texture %ux%u format %d "
-            "!= window %ux%u format %d\n",
-            acquired.texture.GetWidth(), acquired.texture.GetHeight(),
-            static_cast<int>(acquired.texture.GetFormat()),
-            window.width, window.height,
-            static_cast<int>(window.config.format));
         // Release the acquisition before a future reconfiguration.
         acquired.texture = nullptr;
         window.configured = false;
@@ -1020,7 +968,6 @@ bool Present(nui_window& window) {
 
     auto encoder = g.backend.fDevice.CreateCommandEncoder();
     if (!encoder) {
-        Log("present aborted: command encoder creation failed");
         g.failed = true;
         return false;
     }
@@ -1033,7 +980,6 @@ bool Present(nui_window& window) {
 
     auto commands = encoder.Finish();
     if (!commands || !Ready()) {
-        Log("present aborted: command buffer finish failed");
         g.failed = true;
         return false;
     }
@@ -1045,7 +991,6 @@ bool Present(nui_window& window) {
 
     const auto status = window.surface.Present();
     if (status != wgpu::Status::Success || !Ready()) {
-        Log("surface present failed");
         window.configured = false;
         return false;
     }
@@ -1063,7 +1008,6 @@ bool Present(nui_window& window) {
 void ResetShared() {
     // Caller has already destroyed windows and synchronized where possible.
     g.images.clear();
-    g.retiredImages.clear();
     g.rasterBytes = 0;
     g.fonts.clear();
     g.families.clear();
@@ -1318,13 +1262,10 @@ void nui_resize(nui_window* window, uint32_t width, uint32_t height) {
             g.recorderPoisoned = false;
         }
 
-        // Record-only (audit nat-11): no eager Configure here.
-        // nui_render configures first thing and reports failure;
-        // an eager call drained the queue on every resize event
-        // and swallowed its result in a (void) cast. (Recovery
-        // above is not skipped merely because dimensions are
-        // unchanged — a resize is the runtime recorder-recreate
-        // trigger, per BL-4.)
+        if (!Ready()) return;
+
+        // Recovery is not skipped merely because dimensions are unchanged.
+        (void)Configure(*window);
     });
 }
 
@@ -1346,13 +1287,8 @@ int32_t nui_present_cached(nui_window* window) {
         if (!Live(window) || !Ready() ||
             !window->width || !window->height) return 0;
 
-        // Pacing lives here and only here (audit nat-6, ruling
-        // F5): this is the present/idle path; nui_render never
-        // sleeps. And only on the success path — a failed present
-        // must not burn a vsync interval before its retry.
-        if (!Present(*window)) return 0;
         Pace(*window);
-        return 1;
+        return Present(*window) ? 1 : 0;
     });
 }
 
@@ -1361,20 +1297,10 @@ int32_t nui_render(nui_window* window,
                    const UiRect* damage, int32_t damageCount,
                    float scale) {
     return Api<int32_t>("nui_render", 0, [&] {
-        if (!Live(window) || !Ready()) {
-            Log("render skipped: window not live or backend not ready");
-            return 0;
-        }
-        if (!window->width || !window->height ||
+        if (!Live(window) || !Ready() ||
+            !window->width || !window->height ||
             !std::isfinite(scale) || scale <= 0 ||
-            damageCount < 0 || (damageCount > 0 && !damage)) {
-            std::fprintf(stderr,
-                "nui: render skipped: bad geometry/scale "
-                "(w=%u h=%u scale=%f damage_count=%d)\n",
-                window->width, window->height,
-                static_cast<double>(scale), damageCount);
-            return 0;
-        }
+            damageCount < 0 || (damageCount > 0 && !damage)) return 0;
 
         // Damage is intentionally ignored: the entire cache is cleared.
         if (!ValidateCommands(commands, count)) {
@@ -1382,6 +1308,7 @@ int32_t nui_render(nui_window* window,
             return 0;
         }
 
+        Pace(*window);
         if (!Configure(*window)) return 0;
 
         // Bound work before recording another frame, not only before copying.
@@ -1511,17 +1438,12 @@ void nui_image_release(uint32_t id) {
         auto it = g.images.find(id);
         if (it == g.images.end()) return;
 
-        // Mark-and-sweep (audit nat-13): the entry leaves the
-        // live map now — draws miss it and the raster budget is
-        // credited — but its GPU refs drop only at the next
-        // Synchronize(), where the queue is known empty. This
-        // used to Synchronize() PER RELEASE: releasing a page of
-        // 200 thumbnails meant 200 full queue drains on the UI
-        // thread. (nui_purge_gpu_cache keeps its immediate drain:
-        // it is the explicit purge-now verb, and its Synchronize
-        // is a sweep point too.)
+        // Conservative cold-path synchronization for externally retained
+        // Graphite image resources.
+        if (!Synchronize()) {
+            Log("releasing an image after a failed synchronization");
+        }
         g.rasterBytes -= it->second.rasterBytes;
-        g.retiredImages.push_back(std::move(it->second));
         g.images.erase(it);
     });
 }
