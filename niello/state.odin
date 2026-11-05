@@ -194,6 +194,11 @@ Context :: struct {
 	// frame_begin and by scroll_to, read and re-clamped by pass F every
 	// frame (the stored value is the offset the last frame rendered
 	// with). Only scrollable containers ever get an entry; absence = 0.
+	// Lifetime (audit int-2, ruled 2026-11-04): scroll state shares
+	// the instance lifetime — when an instance record is recycled
+	// (undeclared or culled), its scroll_off/scroll_max/scroll_glides
+	// entries are purged with it. There is deliberately no separate
+	// retention or tab-restore: a reappearing scroller starts at 0.
 	scroll_off: map[Instance]Vec2,
 	// Scroll ranges by identity: the max offset per axis, written by
 	// pass F from the fresh overflow every frame. Dispatch and pass F

@@ -590,3 +590,41 @@ test_overscroll_holds_while_ticks_continue :: proc(t: ^testing.T) {
 	testing.expect(t, niello.scroll_offset(sc_outer_i).y == 80,
 		"one spring, once the wheel actually stops")
 }
+
+@(test)
+test_scroll_state_dies_with_instance :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	scroller: niello.Unit
+	niello.mint(&scroller, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, scroll = .Vertical})
+	content: niello.Unit
+	niello.mint(&content, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(300)}})
+
+	inst: niello.Instance
+	declare :: proc(scroller, content: niello.Unit, inst: ^niello.Instance, show_tree: bool) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
+		if show_tree {
+			if i, ok := niello.begin(scroller); ok {
+				inst^ = i
+				niello.show(content)
+			}
+		}
+		niello.frame_end()
+	}
+
+	declare(scroller, content, &inst, true)
+	niello.scroll_to(inst, {0, 50})
+	declare(scroller, content, &inst, true)
+	off := niello.scroll_offset(inst)
+	testing.expect(t, off.y == 50, "scrolled to 50 while alive")
+
+	// The scroller leaves the tree: its instance is recycled, and
+	// (audit int-2, ruled: scroll state shares the instance
+	// lifetime) the offset record is purged with it.
+	declare(scroller, content, &inst, false)
+
+	declare(scroller, content, &inst, true)
+	off2 := niello.scroll_offset(inst)
+	testing.expect(t, off2.y == 0, "a reappearing scroller starts at 0: scroll state died with the instance")
+}

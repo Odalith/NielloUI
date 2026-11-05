@@ -621,6 +621,21 @@ wrap_text :: proc() {
 	clear(&g.wrap_list)
 }
 
+// purge_scroll_state drops an instance's scroll records when its
+// committed record goes away (audit int-2; lifetime ruled with the
+// instances, 2026-11-04).
+purge_scroll_state :: proc(id: Instance) {
+	if len(g.scroll_off) > 0 {
+		delete_key(&g.scroll_off, id)
+	}
+	if len(g.scroll_max) > 0 {
+		delete_key(&g.scroll_max, id)
+	}
+	if len(g.scroll_glides) > 0 {
+		delete_key(&g.scroll_glides, id)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Pass F: positioning, instance rects, damage, overflow
 
@@ -828,6 +843,7 @@ position_and_damage :: proc() {
 			if old, ok := g.instances[id]; ok {
 				append(&g.damage, old.rect)
 				delete_key(&g.instances, id)
+				purge_scroll_state(id)
 			}
 			continue
 		}
@@ -899,6 +915,7 @@ position_and_damage :: proc() {
 		}
 		for id in g.dead_ids {
 			delete_key(&g.instances, id)
+			purge_scroll_state(id)
 		}
 		// Cull memory for identities no longer declared is dead
 		// too (no damage: they were never visible).
