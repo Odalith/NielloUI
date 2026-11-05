@@ -552,3 +552,41 @@ test_draw_list_scroll_clip_radius :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, found, "scroll container emits a clip scope")
 }
+
+@(test)
+test_emit_skips_offscreen_leaves :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	// A 100px scroller over ten 30px text rows: rows 0..3 intersect
+	// the clip, rows 4..9 sit fully below it. Before audit ren-1 the
+	// emit walk built every row's text runs; now the off-screen
+	// rows emit nothing.
+	scroller: niello.Unit
+	niello.mint(&scroller, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, scroll = .Vertical})
+	row: niello.Unit
+	niello.mint(&row, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(30)}, text = "row"})
+
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
+	if _, ok := niello.begin(scroller); ok {
+		for k in 0 ..< 10 {
+			if _, open := niello.begin(row, niello.key_int(k + 1)); open {
+			}
+		}
+	}
+	niello.frame_end()
+
+	cmds := niello.draw_list()
+	texts := 0
+	pushes, pops := 0, 0
+	for c in cmds {
+		#partial switch c.tag {
+		case .Text: texts += 1
+		case .Push_Clip: pushes += 1
+		case .Pop_Clip: pops += 1
+		case: // Rect / Push_Opacity / etc. not under test here
+		}
+	}
+	testing.expect(t, texts == 4, "only the four rows intersecting the clip emit text")
+	testing.expect(t, pushes == pops, "clip scopes stay balanced")
+}

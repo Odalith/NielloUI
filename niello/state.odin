@@ -118,6 +118,7 @@ Context :: struct {
 	emit_breaks: [dynamic][2]int,
 	emit_runs:   [dynamic]Text_Run,
 	emit_scopes: [dynamic]int,
+	emit_clips:  [dynamic]Rect, // accumulated clip per open emit scope (ren-1)
 
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
@@ -416,6 +417,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.emit_breaks)
 	delete(ctx.emit_runs)
 	delete(ctx.emit_scopes)
+	delete(ctx.emit_clips)
 	delete(ctx.nodes)
 	delete(ctx.stack)
 	delete(ctx.child_counts)
