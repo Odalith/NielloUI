@@ -317,6 +317,22 @@ test_duplicate_press_edge_cancels_first :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_drag_started_reports_same_frame_flick :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_input_tree()
+	frame(idle_input(BTN_PT))
+
+	frame(press_at(BTN_PT))
+	// One dispatch: move past the threshold AND release.
+	frame(release_at(BTN_PT + {20, 0}))
+	testing.expect(t, niello.drag_ended(input_btn_i), "the flick's drag ended")
+	testing.expect(t, niello.drag_completed(input_btn_i), "by release")
+	testing.expect(t, niello.drag_started(input_btn_i),
+		"and its start still reports in the same declare (audit int-14)")
+}
+
+@(test)
 test_capture_dies_when_modal_opens :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()

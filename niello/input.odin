@@ -90,6 +90,12 @@ end_drag :: proc(completed: bool) {
 	g.drag_ended_id = g.press_ids[.Left]
 	clear(&g.drag_ended_chain)
 	append(&g.drag_ended_chain, ..g.press_chains[.Left][:])
+	// The started chain rides along (audit int-14): a drag that
+	// starts and ends within one dispatch has drag_active already
+	// false at declare time, so drag_started needs this snapshot —
+	// the same one-declare lifetime as the ended chain.
+	clear(&g.drag_started_chain)
+	append(&g.drag_started_chain, ..g.press_chains[.Left][:])
 	g.drag_ended_completed = completed
 	g.drag_ended_total = g.drag_total_v
 	g.drag_active = false
@@ -489,6 +495,7 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	g.drag_started_flag = false
 	g.drag_ended_id = 0
 	clear(&g.drag_ended_chain)
+	clear(&g.drag_started_chain)
 	g.drag_ended_completed = false
 	g.drag_delta_v = Vec2{}
 	if input.mouse_valid && g.prev_pointer_valid {

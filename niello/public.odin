@@ -1382,7 +1382,12 @@ dragging :: proc(i: Instance) -> bool {
 // drag_started reports the drag crossed the threshold in this frame's
 // dispatch. True for exactly one declare.
 drag_started :: proc(i: Instance) -> bool {
-	return g.drag_started_flag && dragging(i)
+	// The snapshot half covers a drag that started AND ended in
+	// the last dispatch (audit int-14): drag_active is already
+	// false by declare time, but the start still reports, beside
+	// the end, for exactly one declare.
+	return (g.drag_started_flag && dragging(i)) ||
+		chain_contains(g.drag_started_chain[:], i)
 }
 
 // drag_ended reports the drag on the instance (or a descendant) ended

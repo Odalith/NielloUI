@@ -237,6 +237,12 @@ Context :: struct {
 	drag_total_v:         Vec2, // live displacement from the grab point
 	drag_delta_v:         Vec2, // pointer movement in the last dispatch
 	drag_started_flag:    bool, // threshold crossed at the last dispatch
+	drag_started_chain:   [dynamic]Instance, // the press chain of a drag
+	                                  // that ended in the last dispatch:
+	                                  // drag_started reads it so a flick
+	                                  // that starts and ends in one
+	                                  // dispatch still reports its start
+	                                  // (audit int-14)
 	drag_ended_id:        Instance,
 	drag_ended_chain:     [dynamic]Instance,
 	drag_ended_completed: bool, // release (true) vs capture loss (false)
@@ -456,6 +462,7 @@ free_context :: proc(ctx: ^Context) {
 	}
 	delete(ctx.key_press_chain)
 	delete(ctx.drag_ended_chain)
+	delete(ctx.drag_started_chain)
 	delete(ctx.frame_text)
 	delete(ctx.keys_scratch)
 	delete(ctx.seen_ids)
