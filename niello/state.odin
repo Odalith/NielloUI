@@ -613,6 +613,11 @@ Inst_Rec :: struct {
 	digest: u64,
 	stamp: u64,
 	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
+	// The overflow committed with the rect (audit core-H7): damage
+	// for a change or death must cover the OLD spill as well as the
+	// new — a shrinking spill otherwise leaves its outermost pixels
+	// undamaged forever.
+	overfl: Vec2,
 	// frame_index of the last pass-F commit (audit core-H4): the
 	// recycle sweep deletes records whose last_seen is stale,
 	// which catches deaths the old map-outgrew-the-tree signal

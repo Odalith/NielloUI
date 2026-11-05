@@ -1028,3 +1028,60 @@ test_recycle_swap_with_culled_node :: proc(t: ^testing.T) {
 	_, ok_d3 := niello.rect(ids[4])
 	testing.expect(t, ok_d3, "frame 3: row 4 committed")
 }
+
+@(test)
+test_overflow_propagates_and_damage_covers_old_spill :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+
+	// (a) Propagation (audit core-H7): a grandchild spilling past a
+	// non-clipping child extends the grandparent's scroll range.
+	gp: niello.Unit
+	niello.mint(&gp, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, scroll = .Vertical})
+	mid: niello.Unit
+	niello.mint(&mid, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom})
+	leaf: niello.Unit
+	niello.mint(&leaf, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(300)}})
+
+	gp_inst: niello.Instance
+	declare_gp :: proc(gp, mid, leaf: niello.Unit, gp_inst: ^niello.Instance) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
+		if i, ok := niello.begin(gp); ok {
+			gp_inst^ = i
+			if _, ok2 := niello.begin(mid); ok2 {
+				niello.show(leaf)
+			}
+		}
+		niello.frame_end()
+	}
+	declare_gp(gp, mid, leaf, &gp_inst)
+	niello.scroll_to(gp_inst, {0, 150})
+	declare_gp(gp, mid, leaf, &gp_inst)
+	off := niello.scroll_offset(gp_inst)
+	testing.expect(t, off.y == 150, "grandchild spill extends the grandparent's scroll range to 200")
+
+	// (b) Shrinking spill: the frame that shrinks the child must
+	// damage the OLD spill's extent, not just the new rect.
+	niello.test_reset()
+	parent: niello.Unit
+	niello.mint(&parent, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom})
+	child: niello.Unit
+	niello.mint(&child, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(200)}})
+	declare_p :: proc(parent, child: niello.Unit) -> niello.Frame_Result {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 300}}, 0)
+		if _, ok := niello.begin(parent); ok {
+			niello.show(child)
+		}
+		return niello.frame_end()
+	}
+	declare_p(parent, child)
+	niello.set(child, .Size, niello.Size{niello.fixed(200), niello.fixed(50)})
+	res := declare_p(parent, child)
+	covered := false
+	for d in res.damage {
+		if d.pos.y + d.size.y >= 200 {
+			covered = true
+		}
+	}
+	testing.expect(t, covered, "shrinking the spill damages the old spill's full extent (bottom reaches 200)")
+}

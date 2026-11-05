@@ -18,6 +18,7 @@ Lay :: struct {
 	size:    Vec2, // resolved size
 	pos:     Vec2, // resolved top-left
 	overfl:  Vec2, // content extent beyond bounds, per axis
+	scroll:  Vec2, // pass F scratch: the effective scroll offset positioning used
 }
 
 X_AXIS, Y_AXIS :: 0, 1
@@ -685,6 +686,7 @@ position_and_damage :: proc() {
 		base := g.lay[i].pos
 		pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
 		axis := main_axis(s.layout) if s.layout != .Stack else X_AXIS
+		g.lay[i].scroll = scroll
 		cursor := base + pad - scroll
 		if s.layout != .Stack {
 			// Main-axis alignment: shift the whole row/column in leftover space.
@@ -703,7 +705,6 @@ position_and_damage :: proc() {
 			free := (g.lay[i].size[axis] - padding_sum(s, axis)) - used
 			cursor[axis] += align_offset(s.align[axis], free)
 		}
-		max_end := Vec2{0, 0} // pre-scroll content extent
 		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
 			p := cursor
 			if s.layout == .Stack {
@@ -737,16 +738,37 @@ position_and_damage :: proc() {
 			if s.layout != .Stack && !anchored {
 				cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
 			}
-			if !anchored {
-				ce := p + scroll + g.lay[c].size // content extent, pre-scroll
-				max_end.x = max(max_end.x, ce.x)
-				max_end.y = max(max_end.y, ce.y)
-			}
 		}
+	}
+	// Overflow, bottom-up (audit core-H7): a container's content
+	// extent includes each child's own overflow — a grandchild
+	// spilling past a non-clipping child extends the grandparent's
+	// overflow (and therefore its scroll range). Children sit after
+	// their parents in declare order, so this pass runs in reverse:
+	// every child's overfl is final before its parent reads it. The
+	// scroll-range publish and offset write-back ride along: both
+	// consume the final overflow.
+	for i := n - 1; i >= 0; i -= 1 {
+		nd := &g.nodes[i]
+		if !nd.is_container {
+			continue
+		}
+		s := node_style(i)
+		base := g.lay[i].pos
+		pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
 		origin := base + pad
 		inner := Vec2{
 			g.lay[i].size.x - padding_sum(s, X_AXIS),
 			g.lay[i].size.y - padding_sum(s, Y_AXIS),
+		}
+		max_end := Vec2{0, 0} // pre-scroll content extent
+		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				continue // overlays take no flow slot (§3.20)
+			}
+			ce := g.lay[c].pos + g.lay[i].scroll + g.lay[c].size + g.lay[c].overfl
+			max_end.x = max(max_end.x, ce.x)
+			max_end.y = max(max_end.y, ce.y)
 		}
 		g.lay[i].overfl = Vec2{
 			max(0, max_end.x - (origin.x + inner.x)),
@@ -765,6 +787,7 @@ position_and_damage :: proc() {
 			}
 			g.scroll_max[nd.identity] = g.lay[i].overfl
 		}
+		stored_off, has_off := g.scroll_off[nd.identity]
 		if has_off {
 			eff := Vec2{0, 0}
 			// The stored offset re-clamps to the fresh range — or
@@ -841,7 +864,7 @@ position_and_damage :: proc() {
 			g.cull_rects[id] = Rect{g.lay[i].pos, g.lay[i].size}
 			cull_writes += 1
 			if old, ok := g.instances[id]; ok {
-				append(&g.damage, old.rect)
+				append(&g.damage, Rect{old.rect.pos, old.rect.size + old.overfl})
 				delete_key(&g.instances, id)
 				purge_scroll_state(id)
 			}
@@ -865,9 +888,12 @@ position_and_damage :: proc() {
 			append(&g.damage, r)
 		} else if old.rect != new || old.gen != ugen || old.stamp != stamp ||
 		          tr_now || (!nd.with.static_values && old.digest != nd.digest) {
-			r := rect_union(old.rect, new)
-			r.size.x += g.lay[i].overfl.x
-			r.size.y += g.lay[i].overfl.y
+			// Union of BOTH spill-expanded rects (audit core-H7):
+			// expanding only by the new overflow leaves a shrinking
+			// spill's old outermost pixels undamaged forever.
+			r := rect_union(
+				Rect{old.rect.pos, old.rect.size + old.overfl},
+				Rect{new.pos, new.size + g.lay[i].overfl})
 			append(&g.damage, r)
 		}
 		// A static_values instance freezes its baseline digest: the
@@ -878,7 +904,7 @@ position_and_damage :: proc() {
 		if ok && nd.with.static_values {
 			committed_digest = old.digest
 		}
-		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit, last_seen = g.frame_index}
+		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit, overfl = g.lay[i].overfl, last_seen = g.frame_index}
 		commits += 1
 		if len(g.cull_rects) > 0 {
 			// A live commit retires the node's cull memory.
@@ -910,7 +936,7 @@ position_and_damage :: proc() {
 		for id, rec in g.instances {
 			if rec.last_seen != g.frame_index {
 				append(&g.dead_ids, id)
-				append(&g.damage, rec.rect)
+				append(&g.damage, Rect{rec.rect.pos, rec.rect.size + rec.overfl})
 			}
 		}
 		for id in g.dead_ids {
