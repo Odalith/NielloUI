@@ -1207,11 +1207,19 @@ frame_end :: proc() -> Frame_Result {
 				g.modal_saved_focus = g.focus_id
 			}
 			if top_modal != 0 && top_root >= 0 {
+				found := false
 				for idx in top_root ..= g.subtree_end[top_root] {
 					if focus_candidate(idx) {
 						set_focus_id(g.nodes[idx].identity)
+						found = true
 						break
 					}
+				}
+				if !found {
+					// No candidate inside the modal (audit
+					// int-1): focus must not stay parked on
+					// whatever sits behind it.
+					set_focus_id(0)
 				}
 			} else if top_modal == 0 {
 				// Session over. If the snapshot is still live it
@@ -1230,6 +1238,29 @@ frame_end :: proc() -> Frame_Result {
 				}
 			}
 			g.modal_prev_id = top_modal
+		}
+		// Steady-state containment (audit int-1): while a modal is
+		// up, focus may not sit outside its subtree — a declare-time
+		// focus() behind the modal, or the focused node leaving the
+		// subtree, is corrected here, beside the grab that handles
+		// the transitions. (Popups above the modal count as inside.)
+		if top_modal != 0 && top_root >= 0 && g.focus_id != 0 {
+			mk := -1
+			for rec, k in g.popups {
+				if rec.id == top_modal {
+					mk = k
+				}
+			}
+			focus_idx := -1
+			for idx in 0 ..< len(g.nodes) {
+				if g.nodes[idx].identity == g.focus_id {
+					focus_idx = idx
+					break
+				}
+			}
+			if focus_idx < 0 || popup_containing(focus_idx) < mk {
+				set_focus_id(0)
+			}
 		}
 	}
 	// Interaction-driven restyles need no damage route of their

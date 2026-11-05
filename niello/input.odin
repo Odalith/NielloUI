@@ -441,28 +441,6 @@ dispatch_keys :: proc(input: Input) {
 		return
 	}
 
-	for k in 0 ..< g.frame_key_count {
-		g.frame_keys[k] = input.keys[k]
-	}
-	g.key_consumed = {}
-	clear(&g.frame_text)
-	if len(input.text) > 0 {
-		bytes := transmute([]u8)input.text
-		append(&g.frame_text, ..bytes)
-	}
-
-	if !input.window_focused {
-		// No key semantics without window focus (the host delivers
-		// none anyway), and a held key-press cannot complete across
-		// the loss.
-		if g.key_press_id != 0 {
-			g.key_press_id = 0
-			clear(&g.key_press_chain)
-		}
-		g.input_target = 0
-		return
-	}
-
 	// Modal containment (audit int-1): while a modal is topmost,
 	// keyboard and text belong to its subtree (or a popup above it).
 	// Focus sitting outside it — a field behind the modal, when the
@@ -519,20 +497,24 @@ dispatch_keys :: proc(input: Input) {
 			// they drive a capture they are consumed, so an app
 			// never sees Space twice — once via input_keys and
 			// once as clicked(). The up is consumed when it ends
-			if ev.down {
-				g.key_consumed[k] = true
-				if !ev.repeat {
-					key_press_begin(ev.scancode)
-				}
-			} else {
-				if g.key_press_id != 0 && ev.scancode == g.key_press_code {
+			// the capture its down began. Behind a modal that
+			// blocks keys (audit int-1) no capture begins or ends.
+			if !modal_blocks_keys {
+				if ev.down {
 					g.key_consumed[k] = true
+					if !ev.repeat {
+						key_press_begin(ev.scancode)
+					}
+				} else {
+					if g.key_press_id != 0 && ev.scancode == g.key_press_code {
+						g.key_consumed[k] = true
+					}
+					key_press_end(ev.scancode)
 				}
-				key_press_end(ev.scancode)
 			}
 		}
 	}
-	g.input_target = g.focus_id
+	g.input_target = modal_blocks_keys ? 0 : g.focus_id
 }
 
 // ---------------------------------------------------------------------------
