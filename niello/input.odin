@@ -442,6 +442,48 @@ dispatch_keys :: proc(input: Input) {
 	}
 
 	for k in 0 ..< g.frame_key_count {
+		g.frame_keys[k] = input.keys[k]
+	}
+	g.key_consumed = {}
+	clear(&g.frame_text)
+	if len(input.text) > 0 {
+		bytes := transmute([]u8)input.text
+		append(&g.frame_text, ..bytes)
+	}
+
+	if !input.window_focused {
+		// No key semantics without window focus (the host delivers
+		// none anyway), and a held key-press cannot complete across
+		// the loss.
+		if g.key_press_id != 0 {
+			g.key_press_id = 0
+			clear(&g.key_press_chain)
+		}
+		g.input_target = 0
+		return
+	}
+
+	// Modal containment (audit int-1): while a modal is topmost,
+	// keyboard and text belong to its subtree (or a popup above it).
+	// Focus sitting outside it — a field behind the modal, when the
+	// modal offered no focus candidate of its own — receives
+	// nothing: no activation captures, and the routing target is
+	// zeroed so input_keys / input_text answer empty. Traversal and
+	// Esc still run: Tab is already scoped to the modal, and Esc is
+	// how a dismissible popup closes.
+	modal_blocks_keys := false
+	if mk := topmost_modal(); mk >= 0 && g.focus_id != 0 {
+		focus_idx := -1
+		for idx in 0 ..< len(g.nodes) {
+			if g.nodes[idx].identity == g.focus_id {
+				focus_idx = idx
+				break
+			}
+		}
+		modal_blocks_keys = focus_idx < 0 || popup_containing(focus_idx) < mk
+	}
+
+	for k in 0 ..< g.frame_key_count {
 		ev := g.frame_keys[k]
 		if ev.scancode == SCANCODE_ESCAPE && ev.down && !ev.repeat {
 			// Esc light-dismisses the topmost dismissible popup
@@ -460,18 +502,32 @@ dispatch_keys :: proc(input: Input) {
 				continue
 			}
 		}
-		if ev.scancode == SCANCODE_TAB && ev.down {
-			// Traversal consumes Tab outright (repeats included:
-			// holding Tab keeps cycling, as everywhere else).
+		if ev.scancode == SCANCODE_TAB {
+			// Traversal consumes Tab outright — the key-up too
+			// (audit int-11: the up used to leak to the newly
+			// focused instance). Repeats included: holding Tab
+			// keeps cycling, as everywhere else.
 			g.key_consumed[k] = true
-			traverse_focus((ev.mods & MOD_SHIFT) != 0 ? -1 : 1)
+			if ev.down {
+				traverse_focus((ev.mods & MOD_SHIFT) != 0 ? -1 : 1)
+			}
 			continue
 		}
 		if ev.scancode == SCANCODE_SPACE || ev.scancode == SCANCODE_RETURN ||
 		   ev.scancode == SCANCODE_KP_ENTER {
-			if ev.down && !ev.repeat {
-				key_press_begin(ev.scancode)
-			} else if !ev.down {
+			// The core's own activation keys (audit int-11): when
+			// they drive a capture they are consumed, so an app
+			// never sees Space twice — once via input_keys and
+			// once as clicked(). The up is consumed when it ends
+			if ev.down {
+				g.key_consumed[k] = true
+				if !ev.repeat {
+					key_press_begin(ev.scancode)
+				}
+			} else {
+				if g.key_press_id != 0 && ev.scancode == g.key_press_code {
+					g.key_consumed[k] = true
+				}
 				key_press_end(ev.scancode)
 			}
 		}

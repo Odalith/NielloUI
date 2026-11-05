@@ -338,3 +338,27 @@ test_instance_death_damages :: proc(t: ^testing.T) {
 	res = finish(dd_declare)
 	testing.expect(t, !res.changed, "steady state again: no phantom damage")
 }
+
+@(test)
+test_core_keys_are_consumed :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	fo_mint()
+	fo_hide_c, fo_disable_b = false, false
+	fo_frame() // settle
+
+	// Tab down moves focus; Tab UP must not leak to the instance
+	// that just received focus (audit int-11).
+	fo_frame({kev(TAB_EV, true)})
+	testing.expect(t, niello.focused(fo_a), "Tab landed on the first focusable")
+	fo_frame({kev(TAB_EV, false)})
+	testing.expect(t, len(niello.input_keys(fo_a)) == 0, "Tab's key-up is consumed by the core")
+
+	// Space drives a capture: neither its down nor its up arrives
+	// via input_keys, and the activation still lands as clicked().
+	fo_frame({kev(niello.SCANCODE_SPACE, true)})
+	testing.expect(t, len(niello.input_keys(fo_a)) == 0, "Space down is consumed when it begins a capture")
+	fo_frame({kev(niello.SCANCODE_SPACE, false)})
+	testing.expect(t, len(niello.input_keys(fo_a)) == 0, "Space up is consumed when it ends the capture")
+	testing.expect(t, niello.clicked(fo_a), "the activation itself still fires as a click")
+}
