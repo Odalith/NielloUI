@@ -185,7 +185,7 @@ test_popup_esc_dismisses_and_is_consumed :: proc(t: ^testing.T) {
 	pp_frame(pp_idle())
 	testing.expect(t, niello.focused(pp_anchor_i), "anchor focused")
 	inp := pp_idle()
-	inp.keys[0] = niello.Key_Event{scancode = niello.SCANCODE_ESCAPE, down = true}
+	inp.keys[0] = niello.Key_Event{key = .Escape, down = true}
 	inp.key_count = 1
 	pp_frame(inp)
 	testing.expect(t, pp_dismiss_seen, "Esc requested dismissal")
@@ -294,7 +294,7 @@ test_popup_modal_focus_scope_grab_restore :: proc(t: ^testing.T) {
 	pp_frame(pp_idle())
 	testing.expect(t, niello.focused(pp_ok_i), "opening the modal grabs its first focusable")
 	tab := pp_idle()
-	tab.keys[0] = niello.Key_Event{scancode = niello.SCANCODE_TAB, down = true}
+	tab.keys[0] = niello.Key_Event{key = .Tab, down = true}
 	tab.key_count = 1
 	pp_frame(tab)
 	testing.expect(t, niello.focused(pp_cancel_i), "Tab moves within the dialog")
@@ -506,13 +506,13 @@ test_modal_without_candidates_contains_keyboard :: proc(t: ^testing.T) {
 	// Keys and text typed now reach nothing behind the modal.
 	inp := idle()
 	inp.text = "x"
-	inp.keys[0] = niello.Key_Event{scancode = niello.SCANCODE_SPACE, down = true}
+	inp.keys[0] = niello.Key_Event{key = .Space, down = true}
 	inp.key_count = 1
 	frame_mk(root, field, dialog, label, &field_i, &anchor_i, true, inp)
 	testing.expect(t, niello.input_text(field_i) == "", "text does not leak behind the modal")
 	testing.expect(t, len(niello.input_keys(field_i)) == 0, "keys do not leak behind the modal")
 	inp2 := idle()
-	inp2.keys[0] = niello.Key_Event{scancode = niello.SCANCODE_SPACE, down = false}
+	inp2.keys[0] = niello.Key_Event{key = .Space, down = false}
 	inp2.key_count = 1
 	frame_mk(root, field, dialog, label, &field_i, &anchor_i, true, inp2)
 	testing.expect(t, !niello.clicked(field_i), "no activation completes behind the modal")

@@ -26,6 +26,13 @@
 //       niello_sdl.run(ctx, {title = "My App", width = 800, height = 600}, declare)
 //   }
 //
+//   // Or keep the app's state in a struct instead of globals: a
+//   // typed declare proc receives a pointer to it every frame.
+//   //   App :: struct { count: int }
+//   //   declare_app :: proc(app: ^App) { ... }
+//   //   app: App
+//   //   niello_sdl.run(ctx, {title = "My App"}, declare_app, &app)
+//
 //   // More windows, from inside any declare proc or anywhere else:
 //   //   inspector := niello_sdl.open_window(ctx2, {title = "Inspector"}, declare2)
 //   //   niello_sdl.close_window(inspector)
@@ -47,8 +54,29 @@ App_Config :: struct {
 }
 
 // Declare_Proc is a window's UI: it runs between frame_begin and
-// frame_end, with that window's context bound.
+// frame_end, with that window's context bound. Apps that keep their
+// state in a struct instead of package globals pass a typed
+// declare proc plus a pointer to the state — see run / open_window.
 Declare_Proc :: #type proc()
+
+// Declare is a window's declare proc as the glue stores it: either a
+// plain proc, or a typed proc erased to rawptr together with its
+// state pointer.
+@(private)
+Declare :: struct {
+	plain: Declare_Proc,
+	with:  proc(state: rawptr),
+	state: rawptr,
+}
+
+@(private)
+call_declare :: proc(d: Declare) {
+	if d.with != nil {
+		d.with(d.state)
+	} else if d.plain != nil {
+		d.plain()
+	}
+}
 
 // Window_Id identifies a glue window: the main window from run() and
 // every open_window() result. Glue-issued, stable for the window's
@@ -65,7 +93,7 @@ Glue_Window :: struct {
 	ctx:      ^niello.Context,
 	title:    string, // the config title (window_list's label)
 	nui:      Window, // backend handle (ffi.odin)
-	declare:  Declare_Proc,
+	declare:  Declare,
 	// input accumulators, consumed by this window's next frame
 	mouse:         niello.Vec2,
 	mouse_valid:   bool, // cursor over the window; set by motion/button/wheel, cleared on leave
@@ -133,7 +161,7 @@ Pending_Open :: struct {
 	id:      Window_Id,
 	ctx:     ^niello.Context,
 	config:  App_Config,
-	declare: Declare_Proc,
+	declare: Declare,
 }
 @(private)
 g_pending_open: [dynamic]Pending_Open
@@ -211,7 +239,7 @@ find_id :: proc(id: Window_Id) -> ^Glue_Window {
 // create_window_now builds one window end to end (SDL window, backend
 // surface, text input) and adds it to the table.
 @(private)
-create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> bool {
+create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Config, declare: Declare) -> bool {
 	title := config.title if config.title != "" else "Niello App"
 	ctitle := strings.clone_to_cstring(title, context.temp_allocator)
 	w := config.width if config.width > 0 else 800
@@ -324,7 +352,22 @@ apply_pending :: proc() {
 // proc. The window is created at the next loop pass — calling this
 // from inside a declare proc is the intended use (a button that
 // opens an inspector). The returned id is valid immediately.
-open_window :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> Window_Id {
+//
+// Two forms, like run: a plain proc(), or a typed proc(^T) with the
+// state pointer it receives every frame. The state must outlive the
+// window.
+open_window :: proc{open_window_plain, open_window_with}
+
+open_window_plain :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> Window_Id {
+	return queue_open(ctx, config, Declare{plain = declare})
+}
+
+open_window_with :: proc(ctx: ^niello.Context, config: App_Config, declare: proc(state: ^$T), state: ^T) -> Window_Id {
+	return queue_open(ctx, config, Declare{with = transmute(proc(state: rawptr))declare, state = state})
+}
+
+@(private)
+queue_open :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> Window_Id {
 	id := g_next_id
 	g_next_id += 1
 	append(&g_pending_open, Pending_Open{id = id, ctx = ctx, config = config, declare = declare})
@@ -536,7 +579,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	// frame_begin copied the committed text into the core's own
 	// buffer; the accumulation starts over.
 	clear(&win.text_buf)
-	win.declare()
+	call_declare(win.declare)
 	result := niello.frame_end()
 	atspi_sync_window(win)
 
@@ -763,13 +806,7 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 		// the ring is dropped: 16 key events in one frame is a flood, and
 		// the oldest are the ones that matter.
 		if !summoned && win.key_count < len(win.keys) {
-			win.keys[win.key_count] = niello.Key_Event{
-				scancode = u32(event.key.scancode),
-				keycode  = u32(event.key.key),
-				mods     = transmute(u16)(event.key.mod),
-				down     = event.key.down,
-				repeat   = event.key.repeat,
-			}
+			win.keys[win.key_count] = key_event(event.key)
 			win.key_count += 1
 		}
 	case .WINDOW_MOUSE_ENTER:
@@ -1014,7 +1051,31 @@ g_run_error: Run_Error
 // event, including the wake user event, cuts the wait short. Desktop
 // targets only: platforms where SDL must own main() (web, consoles)
 // are not NielloUI targets.
-run :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> Run_Error {
+//
+// Two forms. The plain form takes a proc() and the app keeps its
+// state in package globals:
+//
+//   run(ctx, config, declare)
+//
+// The typed form hands a pointer to the app's state to the declare
+// proc every frame:
+//
+//   App :: struct { count: int }
+//   declare :: proc(app: ^App) { ... }
+//   app: App
+//   run(ctx, config, declare, &app)
+run :: proc{run_plain, run_with}
+
+run_plain :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> Run_Error {
+	return run_impl(ctx, config, Declare{plain = declare})
+}
+
+run_with :: proc(ctx: ^niello.Context, config: App_Config, declare: proc(state: ^$T), state: ^T) -> Run_Error {
+	return run_impl(ctx, config, Declare{with = transmute(proc(state: rawptr))declare, state = state})
+}
+
+@(private)
+run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> Run_Error {
 	g_run_error = .None
 	if sdl_init() != .CONTINUE {
 		sdl.Quit()

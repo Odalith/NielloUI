@@ -24,14 +24,6 @@ BTN :: niello.Color{52, 56, 72, 255}
 BTN_HOVER :: niello.Color{66, 71, 90, 255}
 BTN_PRESS :: niello.Color{40, 43, 56, 255}
 
-// SDL scancodes for the editing keys (Key_Event space is SDL's).
-SC_BACKSPACE :: 42
-SC_DELETE :: 76
-SC_HOME :: 74
-SC_END :: 77
-SC_RIGHT :: 79
-SC_LEFT :: 80
-
 window_u, title_u, hint_u, caption_u, status_u: niello.Unit
 field_u, field_focus_u, field_text_u, caret_u, placeholder_u: niello.Unit
 btn_u, btn_hover_u, btn_press_u, btn_focus_u, btn_label_u: niello.Unit
@@ -42,10 +34,15 @@ Field :: struct {
 	inst:  niello.Instance,
 }
 
-name_f, quest_f: Field
-clear_i, submit_i: niello.Instance
-status_buf: [512]u8
-status: string = "Tab into a field and type."
+// The app's state lives in one struct, handed to declare every frame
+// by niello_sdl.run's typed form — no package globals for it.
+Form :: struct {
+	name, quest:       Field,
+	clear_i, submit_i: niello.Instance,
+	status:            string,
+	status_buf:        [512]u8,
+	focus_buf:         [128]u8,
+}
 
 // ---------------------------------------------------------------------------
 // The text-field component (demo-side; a #12 component would own this)
@@ -89,26 +86,26 @@ edit_field :: proc(f: ^Field) {
 		if !ev.down {
 			continue
 		}
-		switch ev.scancode {
-		case SC_BACKSPACE:
+		#partial switch ev.key {
+		case .Backspace:
 			if f.caret > 0 {
 				lo := rune_before(f.buf[:], f.caret)
 				remove_range(&f.buf, lo, f.caret)
 				f.caret = lo
 			}
-		case SC_DELETE:
+		case .Delete:
 			if f.caret < len(f.buf) {
 				remove_range(&f.buf, f.caret, rune_after(f.buf[:], f.caret))
 			}
-		case SC_LEFT:
+		case .Left:
 			f.caret = rune_before(f.buf[:], f.caret)
-		case SC_RIGHT:
+		case .Right:
 			f.caret = rune_after(f.buf[:], f.caret)
-		case SC_HOME:
+		case .Home:
 			f.caret = 0
-		case SC_END:
+		case .End:
 			f.caret = len(f.buf)
-		case niello.SCANCODE_RETURN, niello.SCANCODE_KP_ENTER:
+		case .Enter, .Kp_Enter:
 			niello.focus_next() // Enter commits and moves on
 		}
 	}
@@ -189,10 +186,10 @@ mint :: proc() {
 	})
 }
 
-declare :: proc() {
+declare :: proc(app: ^Form) {
 	// Input first, against last frame's instances; display after.
-	edit_field(&name_f)
-	edit_field(&quest_f)
+	edit_field(&app.name)
+	edit_field(&app.quest)
 
 	root_i, open := niello.begin(window_u)
 	_ = root_i
@@ -203,55 +200,53 @@ declare :: proc() {
 	niello.show(hint_u, 0, {text = "Tab / Shift+Tab to move · click a field to focus · Enter jumps on · Space/Enter pushes a focused button"})
 
 	niello.show(caption_u, 0, {text = "NAME"})
-	show_field(&name_f, niello.key_int(1), "e.g. Ada")
+	show_field(&app.name, niello.key_int(1), "e.g. Ada")
 	niello.show(caption_u, 0, {text = "QUEST"})
-	show_field(&quest_f, niello.key_int(2), "e.g. To seek the grail")
+	show_field(&app.quest, niello.key_int(2), "e.g. To seek the grail")
 
-	declare_buttons()
+	declare_buttons(app)
 
 	focus_name := "nothing"
-	if niello.focused(name_f.inst) {
+	if niello.focused(app.name.inst) {
 		focus_name = "Name"
-	} else if niello.focused(quest_f.inst) {
+	} else if niello.focused(app.quest.inst) {
 		focus_name = "Quest"
-	} else if niello.focused(clear_i) {
+	} else if niello.focused(app.clear_i) {
 		focus_name = "Clear"
-	} else if niello.focused(submit_i) {
+	} else if niello.focused(app.submit_i) {
 		focus_name = "Submit"
 	}
-	niello.show(status_u, 0, {text = fmt.bprintf(focus_buf[:], "focused: %s", focus_name)})
-	niello.show(status_u, 0, {text = status})
+	niello.show(status_u, 0, {text = fmt.bprintf(app.focus_buf[:], "focused: %s", focus_name)})
+	niello.show(status_u, 0, {text = app.status})
 }
 
 buttons_row_u: niello.Unit
-focus_buf: [128]u8
-
-declare_buttons :: proc() {
+declare_buttons :: proc(app: ^Form) {
 	if _, ok := niello.begin(buttons_row_u); !ok {
 		return
 	}
 	if i, ok := niello.begin(btn_u, niello.key_int(1)); ok {
-		clear_i = i
+		app.clear_i = i
 		niello.show(btn_label_u, 0, {text = "Clear"})
 		if niello.clicked(i) {
-			clear(&name_f.buf)
-			clear(&quest_f.buf)
-			name_f.caret, quest_f.caret = 0, 0
-			status = "Cleared."
+			clear(&app.name.buf)
+			clear(&app.quest.buf)
+			app.name.caret, app.quest.caret = 0, 0
+			app.status = "Cleared."
 		}
 	}
 	if i, ok := niello.begin(btn_u, niello.key_int(2)); ok {
-		submit_i = i
+		app.submit_i = i
 		niello.show(btn_label_u, 0, {text = "Submit"})
 		if niello.clicked(i) {
-			if len(name_f.buf) == 0 {
-				status = "The name field is empty — Tab over and type something."
+			if len(app.name.buf) == 0 {
+				app.status = "The name field is empty — Tab over and type something."
 			} else {
-				status = fmt.bprintf(
-					status_buf[:],
+				app.status = fmt.bprintf(
+					app.status_buf[:],
 					"Submitted — name: %s · quest: %s",
-					string(name_f.buf[:]),
-					string(quest_f.buf[:]),
+					string(app.name.buf[:]),
+					string(app.quest.buf[:]),
 				)
 			}
 		}
@@ -262,5 +257,10 @@ main :: proc() {
 	mint()
 	ctx := niello.context_create()
 	defer niello.context_destroy(ctx)
-	niello_sdl.run(ctx, {title = "NielloUI — form", width = 680, height = 520}, declare)
+	app := Form{status = "Tab into a field and type."}
+	defer {
+		delete(app.name.buf)
+		delete(app.quest.buf)
+	}
+	niello_sdl.run(ctx, {title = "NielloUI — form", width = 680, height = 520}, declare, &app)
 }
