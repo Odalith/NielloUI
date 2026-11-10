@@ -18,3 +18,36 @@ third_party/native/**
 .idea/
 .vscode/
 .DS_Store
+
+# Local planning docs — kept out of the public repo
+/TODO.md
+/Todo.md
+/UI_API_Design.md
+
+# Build output: `odin run niello/examples/<name>` drops an
+# extensionless binary named after the example at the repo root
+/a11y
+/animate
+/buttons
+/debugger
+/drag
+/form
+/groups
+/hello
+/image_soak
+/images
+/inbox
+/layouts
+/multiwindow
+/popups
+/scroll
+/scrollbars
+/text
+/text-main
+/twowin_smoke
+/build/
+/dist/
+
+# Local logs and traces
+/debug-*.out
+/neat.txt
