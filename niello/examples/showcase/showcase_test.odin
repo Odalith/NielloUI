@@ -1,0 +1,224 @@
+// showcase_test.odin — a headless smoke test of the whole showcase:
+// the real declare procs, driven through synthetic input frames with
+// mock text metrics and a fake image decoder (no window, no GPU).
+//
+//	odin test niello/examples/showcase -define:ODIN_TEST_THREADS=1
+//	odin test niello/examples/showcase -define:ODIN_TEST_THREADS=1 -define:NIELLO_DEBUG=true
+//
+// Every page must settle: after a few idle frames nothing may still be
+// changing (a page that changes every frame keeps the loop awake).
+// Debug builds also check that no child draws outside its parent,
+// except in the two boxes that demonstrate exactly that.
+package main
+
+import "core:testing"
+import "core:time"
+import niello "../.."
+
+@(private = "file")
+VIEW :: niello.Vec2{1180, 780}
+
+@(private = "file")
+fake_decode :: proc(data: []byte, max_w, max_h: int) -> (backend: u32, w, h: f32, ok: bool) {
+	if max_w > 0 {
+		return 2, f32(max_w), f32(max_w) * 2 / 3, true
+	}
+	return 1, 480, 320, true
+}
+
+@(private = "file")
+fake_release :: proc(backend: u32) {}
+
+@(private = "file")
+frame :: proc(app: ^App, inp: niello.Input = {}) -> niello.Frame_Result {
+	inp := inp
+	inp.viewport = VIEW
+	inp.window_focused = true
+	niello.frame_begin(app.ctx, inp, 0.016)
+	declare(app)
+	return niello.frame_end()
+}
+
+@(private = "file")
+idle :: proc(app: ^App, n: int) -> niello.Frame_Result {
+	res: niello.Frame_Result
+	for _ in 0 ..< n {
+		res = frame(app)
+	}
+	return res
+}
+
+@(private = "file")
+center :: proc(i: niello.Instance) -> (niello.Vec2, bool) {
+	r, ok := niello.rect(i)
+	return r.pos + r.size / 2, ok
+}
+
+@(private = "file")
+click :: proc(app: ^App, i: niello.Instance) -> bool {
+	p, ok := center(i)
+	if !ok {
+		return false
+	}
+	frame(app, {mouse = p, mouse_valid = true})
+	frame(app, {mouse = p, mouse_valid = true, buttons_down = {.Left}, buttons_pressed = {.Left}})
+	frame(app, {mouse = p, mouse_valid = true, buttons_released = {.Left}})
+	return true
+}
+
+@(private = "file")
+key :: proc(app: ^App, k: niello.Key_Code) {
+	inp: niello.Input
+	inp.keys[0] = niello.Key_Event{key = k, physical = k, down = true}
+	inp.key_count = 1
+	frame(app, inp)
+}
+
+// settles checks the current screen goes quiet, and (debug builds)
+// that nothing draws outside its parent except the overflow demo.
+@(private = "file")
+settles :: proc(t: ^testing.T, app: ^App, label: string) {
+	res := idle(app, 30)
+	testing.expectf(t, !res.changed, "%s: still changing after 30 idle frames", label)
+	testing.expectf(t, res.next_wake_ms == max(u32), "%s: a deadline is pending while idle", label)
+	when niello.NIELLO_DEBUG {
+		for n in niello.debug_tree(app.ctx) {
+			if n.unit == layout_units.spill_box || n.unit == layout_units.clip_box {
+				continue
+			}
+			ox := n.overfl.x > 0.5 && .Scroll_X not_in n.flags
+			oy := n.overfl.y > 0.5 && .Scroll_Y not_in n.flags
+			testing.expectf(t, !ox && !oy, "%s: children draw outside %s by %v",
+				label, niello.debug_unit_name(n.unit), n.overfl)
+		}
+	}
+}
+
+@(test)
+showcase_smoke :: proc(t: ^testing.T) {
+	niello.measure_word_hook = nil // mock metrics
+	niello.line_height_hook = nil
+	niello.decode_image_hook = fake_decode
+	niello.release_image_hook = fake_release
+
+	// Units and groups live in the engine's global store, which has no
+	// public teardown; the test harness's frees it so the run ends with
+	// nothing allocated. Deferred first, so it runs last.
+	defer niello.test_teardown()
+	app: App
+	app_init(&app)
+	defer app_destroy(&app)
+	testing.expect(t, app.images.loaded, "images load")
+	idle(&app, 3)
+
+	// Every page, both themes.
+	for dark in ([]bool{true, false}) {
+		if !dark {
+			app.dark = false
+			apply_theme(LIGHT_THEME, 0)
+		}
+		for p in Page {
+			testing.expectf(t, click(&app, app.nav_i[p]), "nav item %v has a rect", p)
+			testing.expectf(t, app.page == p, "clicking nav %v selects it", p)
+			settles(t, &app, PAGE_NAMES[p])
+		}
+	}
+	when niello.NIELLO_DEBUG {
+		for n in niello.debug_tree(app.ctx) {
+			if n.unit == shell.sidebar {
+				st, _ := niello.debug_style_in(app.ctx, n.instance)
+				testing.expect(t, st.color == LIGHT_THEME.panel, "the theme broadcast reaches the sidebar")
+			}
+		}
+	}
+
+	// Controls: the counter button.
+	click(&app, app.nav_i[.Controls])
+	before := app.controls.clicks
+	click(&app, app.controls.count_i)
+	testing.expect_value(t, app.controls.clicks, before + 1)
+
+	// Keyboard: focus by click, type, edit, Tab onward.
+	click(&app, app.nav_i[.Input])
+	click(&app, app.input.name.inst)
+	testing.expect(t, niello.focused(app.input.name.inst), "a click focuses the field")
+	frame(&app, {text = "Ada"})
+	key(&app, .Backspace)
+	testing.expect_value(t, string(app.input.name.buf[:]), "Ad")
+	key(&app, .Tab)
+	testing.expect(t, niello.focused(app.input.email.inst), "Tab moves to the next field")
+	settles(t, &app, "input after typing")
+
+	// Popups: menu + light dismiss, modal + Esc, toast + wake_in.
+	click(&app, app.nav_i[.Popups])
+	click(&app, app.popups.menu_btn_i)
+	idle(&app, 2)
+	testing.expect(t, app.popups.menu_open, "the menu opens")
+	_, menu_ok := niello.rect(app.popups.menu_i)
+	testing.expect(t, menu_ok, "the menu popup lays out")
+	settles(t, &app, "menu open")
+	click(&app, app.content_i)
+	testing.expect(t, !app.popups.menu_open, "a click outside dismisses the menu")
+	app.popups.dlg_open = true
+	idle(&app, 2)
+	_, dlg_ok := niello.rect(app.popups.dlg_i)
+	testing.expect(t, dlg_ok, "the dialog lays out")
+	settles(t, &app, "dialog open")
+	key(&app, .Escape)
+	idle(&app, 2)
+	testing.expect(t, !app.popups.dlg_open, "Esc dismisses the dialog")
+	app.popups.toast = "t"
+	app.popups.toast_until = time.tick_add(time.tick_now(), 300 * time.Millisecond)
+	res := frame(&app)
+	testing.expect(t, res.next_wake_ms > 0 && res.next_wake_ms <= 301, "a toast schedules the frame that hides it")
+	time.sleep(320 * time.Millisecond)
+	idle(&app, 2)
+	testing.expect(t, app.popups.toast == "", "the toast hides itself")
+
+	// Scrolling: wheel the nested scroller to its end, then chain out.
+	click(&app, app.nav_i[.Scrolling])
+	niello.scroll_to(app.scrolling.list_i, {0, 150}) // bring the nested scroller into view
+	idle(&app, 2)
+	ir, _ := niello.rect(app.scrolling.inner_i)
+	lr, _ := niello.rect(app.scrolling.list_i)
+	at := niello.Vec2{ir.pos.x + 40, max(ir.pos.y, lr.pos.y) + 20}
+	list_before := niello.scroll_offset(app.scrolling.list_i).y
+	inner_range := niello.scroll_range(app.scrolling.inner_i).y
+	inner_peak := f32(0)
+	frame(&app, {mouse = at, mouse_valid = true})
+	for _ in 0 ..< 12 {
+		frame(&app, {mouse = at, mouse_valid = true, wheel = {0, -1}})
+		inner_peak = max(inner_peak, niello.scroll_offset(app.scrolling.inner_i).y)
+	}
+	testing.expect(t, inner_range > 0 && inner_peak == inner_range, "the nested scroller scrolls to its end")
+	testing.expect(t, niello.scroll_offset(app.scrolling.list_i).y > list_before, "leftover wheel chains to the list")
+	_, thumb_ok := niello.rect(app.scrolling.list_bar.thumb_i)
+	testing.expect(t, thumb_ok, "the list's scrollbar is declared")
+
+	// Drag: move the chip.
+	click(&app, app.nav_i[.Drag])
+	p0, chip_ok := center(app.drag.chip_i)
+	testing.expect(t, chip_ok, "the chip lays out")
+	start := app.drag.chip_pos
+	frame(&app, {mouse = p0, mouse_valid = true})
+	frame(&app, {mouse = p0, mouse_valid = true, buttons_down = {.Left}, buttons_pressed = {.Left}})
+	for k in 1 ..= 10 {
+		frame(&app, {mouse = p0 + {f32(k) * 8, f32(k) * 3}, mouse_valid = true, buttons_down = {.Left}})
+	}
+	frame(&app, {mouse = p0 + {80, 30}, mouse_valid = true, buttons_released = {.Left}})
+	testing.expect(t, app.drag.chip_pos.x >= start.x + 60, "dragging moves the chip")
+	settles(t, &app, "after a drag")
+
+	// Async: a worker's progress arrives through the inbox.
+	click(&app, app.nav_i[.Async_Windows])
+	async_start(&app.async)
+	for _ in 0 ..< 300 {
+		frame(&app)
+		if !app.async.running {
+			break
+		}
+		time.sleep(20 * time.Millisecond)
+	}
+	testing.expect(t, app.async.pct == 100 && app.async.last == "finished", "the job completes through the inbox")
+	settles(t, &app, "async done")
+}
