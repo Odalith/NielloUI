@@ -59,6 +59,12 @@ together: `yourapp.exe` + `SDL3.dll` in one folder.
 
 ## Examples
 
+- `examples/showcase` — the whole framework in one app, for testing
+  everything in one run: a sidebar of pages (controls, layout, text,
+  keyboard & focus, scrolling, animation, popups, drag, images, async
+  and windows) under a live theme switch. `showcase_test.odin` drives
+  the same app headlessly through every page:
+  `odin test niello/examples/showcase -define:ODIN_TEST_THREADS=1`.
 - `examples/hello` — the first window: a colored rect and a line of text,
   the full declare → draw → Skia path.
 - `examples/buttons` — input: clickable buttons with hover/press overlays,
@@ -75,7 +81,9 @@ together: `yourapp.exe` + `SDL3.dll` in one folder.
 - `examples/text` — rich text: styled spans (weight, slant, color) inside
   a single string, measured and drawn as one flow.
 - `examples/form` — focus and text input: two editable fields with
-  traversal, a layout-positioned caret, Clear/Submit.
+  traversal, a layout-positioned caret, Clear/Submit. Editing keys come
+  in as `Key_Code`s, and the app's state is a struct handed to declare
+  through `run`'s typed form.
 - `examples/popups` — the popup layer: dropdown menus, a canvas context
   menu, and a modal dialog — dismiss is reported, never automatic.
 - `examples/scrollbars` — scrollbar chrome as a component: drag the

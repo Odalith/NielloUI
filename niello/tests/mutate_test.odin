@@ -483,7 +483,7 @@ test_set_many_noop_and_focusable_and_clear_overlay :: proc(t: ^testing.T) {
 	}
 	declare_box(box, &inst)
 	inp := niello.Input{viewport = {400, 300}, window_focused = true}
-	inp.keys[0] = niello.Key_Event{scancode = niello.SCANCODE_TAB, down = true}
+	inp.keys[0] = niello.Key_Event{key = .Tab, down = true}
 	inp.key_count = 1
 	niello.frame_begin(niello.test_context(), inp, 0)
 	niello.show(box)

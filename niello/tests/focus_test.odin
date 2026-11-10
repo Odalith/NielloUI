@@ -56,8 +56,8 @@ fo_declare :: proc() {
 	}
 }
 
-kev :: proc(scan: u32, down: bool, mods: u16 = 0, repeat: bool = false) -> niello.Key_Event {
-	return niello.Key_Event{scancode = scan, down = down, mods = mods, repeat = repeat}
+kev :: proc(key: niello.Key_Code, down: bool, mods: niello.Modifiers = {}, repeat: bool = false) -> niello.Key_Event {
+	return niello.Key_Event{key = key, physical = key, down = down, mods = mods, repeat = repeat}
 }
 
 fo_frame :: proc(keys: []niello.Key_Event = nil, text: string = "") {
@@ -71,8 +71,8 @@ fo_frame :: proc(keys: []niello.Key_Event = nil, text: string = "") {
 	finish(fo_declare)
 }
 
-TAB_EV :: niello.SCANCODE_TAB
-SHIFT :: u16(0x0003)
+TAB_EV :: niello.Key_Code.Tab
+SHIFT :: niello.Modifiers{.Shift}
 
 @(test)
 test_tab_traversal_order_and_wrap :: proc(t: ^testing.T) {
@@ -96,6 +96,26 @@ test_tab_traversal_order_and_wrap :: proc(t: ^testing.T) {
 	testing.expect(t, niello.focused(fo_b), "and keeps reversing")
 }
 
+// The core matches its own keys on the logical `key`, never on
+// `physical`: a key the layout (or an OS remap) turns into Tab
+// traverses, and the physical Tab position producing another key
+// does not.
+@(test)
+test_core_keys_match_logical_key :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	fo_mint()
+	fo_hide_c, fo_disable_b = false, false
+	fo_frame()
+	remapped_tab := niello.Key_Event{key = .Tab, physical = .Caps_Lock, down = true}
+	fo_frame({remapped_tab})
+	testing.expect(t, niello.focused(fo_a), "a logical Tab traverses whatever its position")
+	moved_tab := niello.Key_Event{key = .Q, physical = .Tab, down = true}
+	fo_frame({moved_tab})
+	testing.expect(t, niello.focused(fo_a), "the physical Tab position producing Q does not")
+	testing.expect(t, fo_cap_keys_a == 1, "and it reaches the focused instance instead")
+}
+
 @(test)
 test_input_routing_to_focused :: proc(t: ^testing.T) {
 	niello.test_reset()
@@ -104,7 +124,7 @@ test_input_routing_to_focused :: proc(t: ^testing.T) {
 	fo_frame()
 	fo_frame({kev(TAB_EV, true)}) // focus A
 	fo_frame({kev(TAB_EV, true)}) // focus B
-	letter := kev(u32('A'), true) // scancode space is opaque for letters
+	letter := kev(.A, true)
 	fo_frame({letter}, "x")
 	testing.expect(t, fo_cap_text_b == "x", "committed text routes to the focused instance")
 	testing.expect(t, fo_cap_text_a == "", "and nowhere else")
@@ -168,7 +188,7 @@ test_key_activation :: proc(t: ^testing.T) {
 	fo_mint()
 	fo_frame()
 	fo_frame({kev(TAB_EV, true)}) // focus A
-	SPACE :: niello.SCANCODE_SPACE
+	SPACE :: niello.Key_Code.Space
 	fo_frame({kev(SPACE, true)})
 	testing.expect(t, fo_cap_pressed_a, "Space down presses the focused instance")
 	r, _ := niello.rect(fo_a)
@@ -177,8 +197,8 @@ test_key_activation :: proc(t: ^testing.T) {
 	fo_frame({kev(SPACE, false)})
 	testing.expect(t, fo_cap_clicked_a, "Space up completes the click")
 	// Enter activates too.
-	fo_frame({kev(niello.SCANCODE_RETURN, true)})
-	fo_frame({kev(niello.SCANCODE_RETURN, false)})
+	fo_frame({kev(.Enter, true)})
+	fo_frame({kev(.Enter, false)})
 	testing.expect(t, fo_cap_clicked_a, "Enter activates as well")
 	// Moving focus mid-press cancels: down, Tab away, up -> no click.
 	fo_cap_clicked_a = false
@@ -356,9 +376,9 @@ test_core_keys_are_consumed :: proc(t: ^testing.T) {
 
 	// Space drives a capture: neither its down nor its up arrives
 	// via input_keys, and the activation still lands as clicked().
-	fo_frame({kev(niello.SCANCODE_SPACE, true)})
+	fo_frame({kev(.Space, true)})
 	testing.expect(t, len(niello.input_keys(fo_a)) == 0, "Space down is consumed when it begins a capture")
-	fo_frame({kev(niello.SCANCODE_SPACE, false)})
+	fo_frame({kev(.Space, false)})
 	testing.expect(t, len(niello.input_keys(fo_a)) == 0, "Space up is consumed when it ends the capture")
 	testing.expect(t, niello.clicked(fo_a), "the activation itself still fires as a click")
 }

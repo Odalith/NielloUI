@@ -474,31 +474,69 @@ Mouse_Button :: enum u8 {
 
 Buttons :: bit_set[Mouse_Button]
 
-// One keyboard event, in the host's native code spaces. The core
-// interprets only the keys its own semantics need (traversal and
-// activation, below); the rest pass through to the focused instance
-// via input_keys, uninterpreted.
+// Key_Code names a keyboard key. It is the core's own vocabulary:
+// hosts translate their native codes into it, so neither app code nor
+// the core ever handles a platform's numbers. Unknown covers any key
+// without a name here.
+Key_Code :: enum u16 {
+	Unknown,
+
+	A, B, C, D, E, F, G, H, I, J, K, L, M,
+	N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+
+	Digit_0, Digit_1, Digit_2, Digit_3, Digit_4,
+	Digit_5, Digit_6, Digit_7, Digit_8, Digit_9,
+
+	F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+	F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24,
+
+	Escape, Enter, Tab, Backspace, Space,
+	Insert, Delete, Home, End, Page_Up, Page_Down,
+	Left, Right, Up, Down,
+
+	Minus, Equals, Left_Bracket, Right_Bracket, Backslash,
+	Semicolon, Apostrophe, Grave, Comma, Period, Slash,
+
+	Caps_Lock, Scroll_Lock, Num_Lock, Print_Screen, Pause, Menu,
+
+	Kp_0, Kp_1, Kp_2, Kp_3, Kp_4, Kp_5, Kp_6, Kp_7, Kp_8, Kp_9,
+	Kp_Divide, Kp_Multiply, Kp_Minus, Kp_Plus, Kp_Enter, Kp_Period, Kp_Equals,
+
+	Left_Shift, Right_Shift, Left_Ctrl, Right_Ctrl,
+	Left_Alt, Right_Alt, Left_Super, Right_Super,
+}
+
+// Modifier is a held modifier, either side. Super is the Windows /
+// Command / Meta key.
+Modifier :: enum u8 {
+	Shift,
+	Ctrl,
+	Alt,
+	Super,
+}
+Modifiers :: bit_set[Modifier; u8]
+
+// One keyboard event. A key has two names:
+//
+//   key       what the active keyboard layout produces: the key to
+//             match for shortcuts and editing (Ctrl+Z is .Z on QWERTY
+//             and AZERTY alike). Not affected by the modifiers —
+//             Shift+1 is .Digit_1, not '!' (read typed characters
+//             with input_text).
+//   physical  the key at that position on a US QWERTY board, whatever
+//             the layout: for position-based bindings (WASD).
+//
+// The core consumes only the keys its own semantics need — Tab
+// (traversal; Shift reverses), Escape (popup dismiss) and
+// Space/Enter/Kp_Enter (activation), all matched on `key` — and
+// passes the rest to the focused instance via input_keys.
 Key_Event :: struct {
-	scancode: u32, // physical key position (SDL scancode values from niello/sdl)
-	keycode:  u32, // logical key (SDL keycode values from niello/sdl)
-	mods:     u16, // modifier bitmask in host space, opaque to the core in v1
+	key:      Key_Code,
+	physical: Key_Code,
+	mods:     Modifiers, // modifiers held when the event fired
 	down:     bool,
 	repeat:   bool, // key-repeat event (down only)
 }
-
-// Scancodes the core itself consumes, in the SDL space Key_Event uses:
-// traversal (Tab; Shift reverses) and activation (Space/Enter press
-// the focused instance). Every other key passes through to the
-// focused instance untouched.
-SCANCODE_ESCAPE   :: 41
-SCANCODE_TAB      :: 43
-SCANCODE_RETURN   :: 40
-SCANCODE_KP_ENTER :: 88
-SCANCODE_SPACE    :: 44
-
-// Modifier bits the core reads, in the host (SDL KMOD) space of
-// Key_Event.mods.
-MOD_SHIFT :: 0x0003 // KMOD_LSHIFT | KMOD_RSHIFT
 
 Input :: struct {
 	viewport: Vec2, // window size in DIP; roots fill it unless FIXED/PERCENT.

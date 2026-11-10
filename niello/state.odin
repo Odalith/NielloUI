@@ -257,7 +257,7 @@ Context :: struct {
 	                         // route to it
 	key_press_id:    Instance, // Space/Enter capture on the focused
 	                         // instance between key-down and key-up
-	key_press_code:  u32,
+	key_press_code:  Key_Code,
 	key_press_chain: [dynamic]Instance, // root-first chain snapshot,
 	                         // like the pointer press chains
 	frame_keys:      [16]Key_Event, // this frame's key events,

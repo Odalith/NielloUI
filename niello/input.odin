@@ -359,7 +359,7 @@ key_press_target :: proc(idx: int) -> bool {
 // instance: its press overlay shows (the chain snapshot feeds
 // resolve_styles and pressed()) until the key comes up.
 @(private)
-key_press_begin :: proc(code: u32) {
+key_press_begin :: proc(code: Key_Code) {
 	if g.focus_id == 0 || g.key_press_id != 0 {
 		return
 	}
@@ -391,7 +391,7 @@ key_press_begin :: proc(code: u32) {
 // one declare, like a pointer click) only if focus never moved and
 // the target is still a live candidate.
 @(private)
-key_press_end :: proc(code: u32) {
+key_press_end :: proc(code: Key_Code) {
 	if g.key_press_id == 0 || code != g.key_press_code {
 		return
 	}
@@ -460,7 +460,7 @@ dispatch_keys :: proc(input: Input) {
 
 	for k in 0 ..< g.frame_key_count {
 		ev := g.frame_keys[k]
-		if ev.scancode == SCANCODE_ESCAPE && ev.down && !ev.repeat {
+		if ev.key == .Escape && ev.down && !ev.repeat {
 			// Esc light-dismisses the topmost dismissible popup
 			// (§3.19) and is consumed, like Tab; with no popup to
 			// dismiss it routes to the focused instance normally.
@@ -477,19 +477,18 @@ dispatch_keys :: proc(input: Input) {
 				continue
 			}
 		}
-		if ev.scancode == SCANCODE_TAB {
+		if ev.key == .Tab {
 			// Traversal consumes Tab outright — the key-up too
 			// (audit int-11: the up used to leak to the newly
 			// focused instance). Repeats included: holding Tab
 			// keeps cycling, as everywhere else.
 			g.key_consumed[k] = true
 			if ev.down {
-				traverse_focus((ev.mods & MOD_SHIFT) != 0 ? -1 : 1)
+				traverse_focus(.Shift in ev.mods ? -1 : 1)
 			}
 			continue
 		}
-		if ev.scancode == SCANCODE_SPACE || ev.scancode == SCANCODE_RETURN ||
-		   ev.scancode == SCANCODE_KP_ENTER {
+		if ev.key == .Space || ev.key == .Enter || ev.key == .Kp_Enter {
 			// The core's own activation keys (audit int-11): when
 			// they drive a capture they are consumed, so an app
 			// never sees Space twice — once via input_keys and
@@ -500,13 +499,13 @@ dispatch_keys :: proc(input: Input) {
 				if ev.down {
 					g.key_consumed[k] = true
 					if !ev.repeat {
-						key_press_begin(ev.scancode)
+						key_press_begin(ev.key)
 					}
 				} else {
-					if g.key_press_id != 0 && ev.scancode == g.key_press_code {
+					if g.key_press_id != 0 && ev.key == g.key_press_code {
 						g.key_consumed[k] = true
 					}
-					key_press_end(ev.scancode)
+					key_press_end(ev.key)
 				}
 			}
 		}
