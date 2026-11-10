@@ -893,8 +893,8 @@ last_rect_for :: proc(inst: Instance) -> (Rect, bool) {
 	if rec, ok := g.instances[inst]; ok {
 		return rec.rect, true
 	}
-	r, ok := g.cull_rects[inst]
-	return r, ok
+	rec, ok := g.cull_rects[inst]
+	return rec.rect, ok
 }
 
 @(private)
@@ -1064,6 +1064,28 @@ dismiss_requested :: proc(i: Instance) -> bool {
 // context_create makes a context with no tree yet.
 context_create :: proc() -> ^Context {
 	ctx := new(Context)
+	// Every map the engine owns is created here, once (audit X-4):
+	// no lazy makes scattered through hot paths — four of them sat
+	// inside pass F — and no read site needs a nil-map guard for
+	// a live context ever again.
+	ctx.instances = make(map[Instance]Inst_Rec)
+	ctx.cull_rects = make(map[Instance]Cull_Rec)
+	ctx.a11y_entries = make(map[Instance]A11y_Entry)
+	ctx.scroll_off = make(map[Instance]Vec2)
+	ctx.scroll_max = make(map[Instance]Vec2)
+	ctx.scroll_glides = make(map[Instance]Scroll_Glide)
+	ctx.hover_since = make(map[Instance]f32)
+	ctx.dismiss_flags = make(map[Instance]bool)
+	ctx.transients = make(map[Instance]Transient_Rec)
+	ctx.edits = make(map[Unit]^Edit_State)
+	// The store's two caches are shared by all contexts: the
+	// first context created after a store reset makes them.
+	if store.text_cache == nil {
+		store.text_cache = make(map[u64]Text_Entry)
+	}
+	if store.ellipsis_widths == nil {
+		store.ellipsis_widths = make(map[u64]f32)
+	}
 	append(&store.contexts, ctx)
 	return ctx
 }
@@ -1567,9 +1589,6 @@ scroll_offset :: proc(i: Instance) -> Vec2 {
 // scroll_offset, read from the same committed state; scrollbar
 // chrome (§3.20) sizes and positions its thumb from the pair.
 scroll_range :: proc(i: Instance) -> Vec2 {
-	if g.scroll_max == nil {
-		return Vec2{0, 0}
-	}
 	return g.scroll_max[i] or_else Vec2{0, 0}
 }
 
@@ -1581,14 +1600,9 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 	if i == 0 {
 		return
 	}
-	if g.scroll_off == nil {
-		g.scroll_off = make(map[Instance]Vec2)
-	}
 	// A programmatic jump is instant by definition: it cancels any
 	// wheel glide in flight on this scroller (§3.21).
-	if g.scroll_glides != nil {
-		delete_key(&g.scroll_glides, i)
-	}
+	delete_key(&g.scroll_glides, i)
 	// And it lands on a legal position: clamped to the known range.
 	// (Overscroll is a gesture state owned by its spring, §3.22 —
 	// never a parked programmatic position.)
@@ -1874,9 +1888,6 @@ group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) 
 // violation.
 edit :: proc(u: Unit) -> ^Style {
 	assert(int(u) >= 1 && int(u) < len(store.units), "niello.edit: unit is not minted")
-	if g.edits == nil {
-		g.edits = make(map[Unit]^Edit_State)
-	}
 	if es, ok := g.edits[u]; ok {
 		return &es.shadow
 	}
@@ -1972,9 +1983,6 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 	fields := src.explicit & TRANSIENT_FIELDS
 	if fields == {} {
 		return
-	}
-	if g.transients == nil {
-		g.transients = make(map[Instance]Transient_Rec)
 	}
 	g.transients[i] = Transient_Rec{
 		fields   = fields,

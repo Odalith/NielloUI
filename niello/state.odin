@@ -159,8 +159,11 @@ Context :: struct {
 	// node, keyed by identity. The culler tests last-frame rects,
 	// but a culled node's instance is deleted (rect() must report
 	// ok=false), so its rect lives here until it commits again or
-	// leaves the tree. Pass F maintains it.
-	cull_rects: map[Instance]Rect,
+	// leaves the tree. Pass F maintains it. The record carries
+	// the same last_seen epoch stamp as Inst_Rec, so the recycle
+	// sweep retires stale entries by stamp comparison — the job
+	// the seen_ids hash-of-bools used to do (audit X-4/F1).
+	cull_rects: map[Instance]Cull_Rec,
 	damage:     [dynamic]Rect,
 
 	// Debug snapshot (TODO #18, debug.odin): this context's last
@@ -266,9 +269,6 @@ Context :: struct {
 	                           // the queries answer for it only
 	frame_text:      [dynamic]u8, // this frame's committed text (owned)
 	keys_scratch:    [dynamic]Key_Event, // input_keys result assembly
-	seen_ids:        map[Instance]bool, // recycle sweep's live set
-	                         // (pass F); built only on frames where
-	                         // something died
 	dead_ids:        [dynamic]Instance, // recycle sweep scratch
 	// Popups (§3.19): the frame's popup roots in begin_popup call
 	// order (later = higher). Dispatch at frame_begin reads LAST
@@ -465,7 +465,6 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.drag_started_chain)
 	delete(ctx.frame_text)
 	delete(ctx.keys_scratch)
-	delete(ctx.seen_ids)
 	delete(ctx.dead_ids)
 	delete(ctx.clicked_chain)
 	delete(ctx.pick_clip)
@@ -622,6 +621,15 @@ Scroll_Glide :: struct {
 // per-instance content hash 2026-10-23: styles are versioned by
 // their write funnel, so re-mixing every resolved value every
 // frame re-proved what the generations already knew.)
+// Cull_Rec is a culled node's cull-memory entry (BL-3): its last
+// layout rect plus the frame it was last written, in the same
+// last_seen epoch as Inst_Rec.last_seen — the recycle sweep
+// retires entries whose stamp went stale (audit X-4/F1).
+Cull_Rec :: struct {
+	rect:      Rect,
+	last_seen: u64,
+}
+
 Inst_Rec :: struct {
 	rect:  Rect,
 	gen:   u64,

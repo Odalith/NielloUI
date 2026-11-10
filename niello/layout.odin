@@ -782,9 +782,6 @@ position_and_damage :: proc() {
 		// set before the first frame survives to be rendered once a
 		// range exists. Pass F never creates an offset entry.
 		if scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
-			if g.scroll_max == nil {
-				g.scroll_max = make(map[Instance]Vec2)
-			}
 			g.scroll_max[nd.identity] = g.lay[i].overfl
 		}
 		stored_off, has_off := g.scroll_off[nd.identity]
@@ -838,9 +835,6 @@ position_and_damage :: proc() {
 	// state stamp from resolve_styles. A live transient damages
 	// unconditionally: its blend factor moves every frame without
 	// any stamp moving.
-	if g.instances == nil {
-		g.instances = make(map[Instance]Inst_Rec)
-	}
 	commits := 0     // pass-F commits this frame (non-culled nodes)
 	cull_writes := 0 // cull_rects writes this frame (culled nodes)
 	for i in 0 ..< n {
@@ -858,10 +852,7 @@ position_and_damage :: proc() {
 			// cull_rects: the culler tests last-frame rects, and
 			// deleting the instance must not erase the evidence
 			// that keeps the node culled next frame.
-			if g.cull_rects == nil {
-				g.cull_rects = make(map[Instance]Rect)
-			}
-			g.cull_rects[id] = Rect{g.lay[i].pos, g.lay[i].size}
+			g.cull_rects[id] = Cull_Rec{rect = Rect{g.lay[i].pos, g.lay[i].size}, last_seen = g.frame_index}
 			cull_writes += 1
 			if old, ok := g.instances[id]; ok {
 				append(&g.damage, Rect{old.rect.pos, old.rect.size + old.overfl})
@@ -925,13 +916,6 @@ position_and_damage :: proc() {
 	// the same way against this frame's cull writes. A steady-state
 	// frame pays two size comparisons.
 	if len(g.instances) > commits || len(g.cull_rects) > cull_writes {
-		if g.seen_ids == nil {
-			g.seen_ids = make(map[Instance]bool)
-		}
-		clear(&g.seen_ids)
-		for i in 0 ..< n {
-			g.seen_ids[g.nodes[i].identity] = true
-		}
 		clear(&g.dead_ids)
 		for id, rec in g.instances {
 			if rec.last_seen != g.frame_index {
@@ -946,8 +930,8 @@ position_and_damage :: proc() {
 		// Cull memory for identities no longer declared is dead
 		// too (no damage: they were never visible).
 		clear(&g.dead_ids)
-		for id in g.cull_rects {
-			if id not_in g.seen_ids {
+		for id, rec in g.cull_rects {
+			if rec.last_seen != g.frame_index {
 				append(&g.dead_ids, id)
 			}
 		}

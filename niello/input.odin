@@ -264,9 +264,6 @@ topmost_modal :: proc() -> int {
 // app reads it back with dismiss_requested during this declare.
 @(private)
 flag_dismiss :: proc(rec_idx: int) {
-	if g.dismiss_flags == nil {
-		g.dismiss_flags = make(map[Instance]bool)
-	}
 	g.dismiss_flags[g.popups[rec_idx].id] = true
 }
 
@@ -660,9 +657,6 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	// label (each with its own start), and hover_duration answers for
 	// any member of the chain.
 	g.hover_clock += dt
-	if g.hover_since == nil {
-		g.hover_since = make(map[Instance]f32)
-	}
 	for id in g.hover_chain {
 		stays := false
 		for k in 0 ..< hover_len {
@@ -803,9 +797,6 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 	if blocked || len(chain) == 0 || (wheel.x == 0 && wheel.y == 0) {
 		return
 	}
-	if g.scroll_off == nil {
-		g.scroll_off = make(map[Instance]Vec2)
-	}
 	for axis in 0 ..< 2 {
 		// Sign: the host reports the scroll-UP direction as positive
 		// (the SDL convention), so a positive delta DECREASES the
@@ -874,9 +865,6 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 				used := clamped - target
 				if used != 0 {
 					if s.smooth_scroll && s.smooth_ms > 0 {
-						if g.scroll_glides == nil {
-							g.scroll_glides = make(map[Instance]Scroll_Glide)
-						}
 						// Only this axis is (re)based and
 						// re-timed (audit int-8): the other
 						// axis's glide, if any, flies on.
@@ -891,14 +879,12 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 						// A direct landing kills this axis's
 						// glide (a spring included); the other
 						// axis is not this landing's business.
-						if g.scroll_glides != nil {
-							if gl, ok := g.scroll_glides[id]; ok {
-								gl.active[axis] = false
-								if gl.active[1 - axis] {
-									g.scroll_glides[id] = gl
-								} else {
-									delete_key(&g.scroll_glides, id)
-								}
+						if gl, ok := g.scroll_glides[id]; ok {
+							gl.active[axis] = false
+							if gl.active[1 - axis] {
+								g.scroll_glides[id] = gl
+							} else {
+								delete_key(&g.scroll_glides, id)
 							}
 						}
 						off[axis] = clamped
@@ -1128,9 +1114,6 @@ step_scroll_glides :: proc() {
 	if len(g.scroll_glides) == 0 {
 		return
 	}
-	if g.scroll_off == nil {
-		g.scroll_off = make(map[Instance]Vec2)
-	}
 	done: [dynamic]Instance
 	defer delete(done)
 	for id, &gl in g.scroll_glides {
@@ -1218,9 +1201,6 @@ OVERSCROLL_QUIET_MS :: f32(250)
 // re-arms it). The other axis keeps any wheel-glide target it had.
 @(private)
 apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Style) {
-	if g.scroll_glides == nil {
-		g.scroll_glides = make(map[Instance]Scroll_Glide)
-	}
 	// The spring owns its axis only (audit int-8): any glide in
 	// flight on the other axis keeps its own from/to and clock.
 	gl := g.scroll_glides[id]
