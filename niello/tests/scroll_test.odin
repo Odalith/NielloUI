@@ -671,3 +671,35 @@ test_smooth_glides_are_per_axis :: proc(t: ^testing.T) {
 	testing.expect(t, off.x == 48, "X still lands on its own target (the Y tick did not corrupt it)")
 	testing.expect(t, off.y == 48, "Y lands on its target too")
 }
+
+// A clipping child's own overflow must not leak into its parent's
+// extent: an inner scroller's hidden content is the INNER range, not
+// extra scroll range for the outer. The inner scroller is the outer's
+// last child here, so a leak cannot hide behind later flow rows.
+// outer 200x100 > [row 30, inner 200x60 with 4 rows of 30]:
+// outer content 30 + 60 = 90 -> fits, range 0; inner range 120 - 60 = 60.
+// (Before the fix the outer read 30 + 60 + 60 = 150 -> range 50.)
+@(test)
+test_clipping_child_overflow_does_not_leak :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	mint_nested_tree(true)
+	declare :: proc() {
+		if _, ok := niello.begin(sc_root); ok {
+			if oi, ok2 := niello.begin(sc_outer); ok2 {
+				sc_outer_i = oi
+				niello.show(sc_row, niello.key_int(99))
+				if ii, ok3 := niello.begin(sc_inner); ok3 {
+					sc_inner_i = ii
+					for k in 0 ..< 4 {
+						niello.show(sc_row, niello.key_int(k))
+					}
+				}
+			}
+		}
+	}
+	plain_frame(declare, OUTER_PT)
+	plain_frame(declare, OUTER_PT)
+	testing.expect_value(t, niello.scroll_range(sc_inner_i), niello.Vec2{0, 60})
+	testing.expect_value(t, niello.scroll_range(sc_outer_i), niello.Vec2{0, 0})
+}

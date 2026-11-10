@@ -93,12 +93,17 @@ test_inbox_multithread :: proc(t: ^testing.T) {
 
 	wg: sync.Wait_Group
 	jobs: [4]Ib_Job
+	workers: [4]^thread.Thread
 	sync.wait_group_add(&wg, 4)
 	for i in 0 ..< 4 {
 		jobs[i] = Ib_Job{box = &ib, base = i, wg = &wg}
-		thread.create_and_start_with_data(&jobs[i], ib_worker)
+		workers[i] = thread.create_and_start_with_data(&jobs[i], ib_worker)
 	}
 	sync.wait_group_wait(&wg)
+	for w in workers {
+		thread.join(w)
+		thread.destroy(w)
+	}
 
 	testing.expect(t, inbox.pending(&ib) == 1000, "no message lost across four producers")
 	n := inbox.drain(&ib, &out)

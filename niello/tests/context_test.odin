@@ -45,8 +45,8 @@ cx_frame_res :: proc(ctx: ^niello.Context, input: niello.Input) -> niello.Frame_
 
 @(private)
 cx_mint :: proc() {
-	niello.mint(&cx_root, niello.NO_UNIT, {size = {niello.fixed(200), niello.fixed(100)}, layout = niello.Layout.Left_To_Right})
-	niello.mint(&cx_box, niello.NO_UNIT, {size = {niello.fixed(50), niello.fixed(50)}, color = niello.Color{10, 20, 30, 255}, focusable = true})
+	niello.mint(&cx_root, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = niello.Layout.Left_To_Right})
+	niello.mint(&cx_box, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(50)}, color = niello.Color{10, 20, 30, 255}, focusable = true})
 }
 
 @(test)
