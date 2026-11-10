@@ -766,7 +766,15 @@ position_and_damage :: proc() {
 			if g.nodes[c].anchored {
 				continue // overlays take no flow slot (§3.20)
 			}
-			ce := g.lay[c].pos + g.lay[i].scroll + g.lay[c].size + g.lay[c].overfl
+			ce := g.lay[c].pos + g.lay[i].scroll + g.lay[c].size
+			// A clipping child (Overflow.Clip or any scrolling — the
+			// Push_Clip predicate) paints nothing past its rect, so its
+			// own overflow stays inside it; only a non-clipping child's
+			// spill extends this container's extent.
+			cs := node_style(c)
+			if !(cs.overflow == .Clip || scrollable_axis(cs, X_AXIS) || scrollable_axis(cs, Y_AXIS)) {
+				ce += g.lay[c].overfl
+			}
 			max_end.x = max(max_end.x, ce.x)
 			max_end.y = max(max_end.y, ce.y)
 		}
