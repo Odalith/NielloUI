@@ -9,12 +9,12 @@ package niello
 // stamp pass F compares (§3.26). It advances on writes touching
 // a VISUAL_FIELDS field, and only then.
 test_visual_gen :: proc(u: Unit) -> u64 {
-	return store.units[int(u)].gen
+	return store.units[unit_index(u)].gen
 }
 
 // test_proto returns the unit's prototype (NO_UNIT if none).
 test_proto :: proc(u: Unit) -> Unit {
-	return store.units[int(u)].proto
+	return store.units[unit_index(u)].proto
 }
 
 // test_force_cull_next makes the next begin() report open = false.
@@ -58,7 +58,7 @@ test_overflow :: proc(i: Instance) -> Vec2 {
 // test_style returns a copy of a unit's live style (post any tween
 // steps / edit applies of the last frame_end).
 test_style :: proc(u: Unit) -> Style {
-	return store.units[int(u)].style
+	return store.units[unit_index(u)].style
 }
 
 // test_context returns the harness's context (test_reset creates and

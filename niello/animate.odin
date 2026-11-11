@@ -216,7 +216,7 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 // ordinary write tail (explicit + visual generation).
 @(private)
 write_field :: proc(u: Unit, f: Field, src: ^Style) {
-	rec := &store.units[int(u)]
+	rec := &store.units[unit_index(u)]
 	copy_field_owned(&rec.style, src, f)
 	touch(u, Fields{f})
 }
@@ -238,7 +238,7 @@ start_glide :: proc(u: Unit, fields: Fields, to: ^Style, ms: u32) {
 	// ani-1). set/apply_edits already cancel first; the tween
 	// engine's own writes were the exception.
 	cancel_glide_fields(u, fields)
-	rec := &store.units[int(u)]
+	rec := &store.units[unit_index(u)]
 	if ms == 0 {
 		for f in fields {
 			write_field(u, f, to)
@@ -314,7 +314,7 @@ step_tweens :: proc() {
 		if tw.dur_ms > 0 {
 			t = clamp(f32(now - tw.start_ms) / f32(tw.dur_ms), 0, 1)
 		}
-		rec := &store.units[int(tw.unit)]
+		rec := &store.units[unit_index(tw.unit)]
 		if t >= 1 {
 			for f in tw.fields {
 				copy_field(&rec.style, &tw.to, f)
@@ -342,7 +342,7 @@ step_tweens :: proc() {
 @(private)
 apply_edits :: proc() {
 	for u, es in g.edits {
-		rec := &store.units[int(u)]
+		rec := &store.units[unit_index(u)]
 		for f in Field {
 			if field_equal(&es.base, &es.shadow, f) {
 				continue

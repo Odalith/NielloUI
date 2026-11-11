@@ -223,7 +223,7 @@ app_destroy :: proc(app: ^App) {
 	inspector_shutdown(app)
 	destroy_pages(app)
 	inbox.destroy(&app.async.box)
-	niello.context_destroy(app.ctx)
+	niello.shutdown() // the main context, every unit and group, the caches
 }
 
 main :: proc() {

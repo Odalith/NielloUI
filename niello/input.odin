@@ -976,12 +976,12 @@ resolve_styles :: proc() {
 		// is a bit of its own — its blend factor moves every frame,
 		// which pass F handles by damaging live-transient instances
 		// unconditionally.
-		rec := &store.units[int(nd.unit)]
+		rec := &store.units[unit_index(nd.unit)]
 		stamp := u64(0)
 		if nd.variant != NO_UNIT {
 			stamp = hash_mix(stamp, 1)
 			stamp = hash_mix(stamp, u64(nd.variant))
-			stamp = hash_mix(stamp, store.units[int(nd.variant)].gen)
+			stamp = hash_mix(stamp, store.units[unit_index(nd.variant)].gen)
 		}
 		// A layer folds in only when it HAS an overlay unit: with
 		// NO_UNIT the merge is a no-op, the resolved style cannot
@@ -990,22 +990,22 @@ resolve_styles :: proc() {
 		if foc && rec.focus != NO_UNIT {
 			stamp = hash_mix(stamp, 2)
 			stamp = hash_mix(stamp, u64(rec.focus))
-			stamp = hash_mix(stamp, store.units[int(rec.focus)].gen)
+			stamp = hash_mix(stamp, store.units[unit_index(rec.focus)].gen)
 		}
 		if hov && rec.hover != NO_UNIT {
 			stamp = hash_mix(stamp, 3)
 			stamp = hash_mix(stamp, u64(rec.hover))
-			stamp = hash_mix(stamp, store.units[int(rec.hover)].gen)
+			stamp = hash_mix(stamp, store.units[unit_index(rec.hover)].gen)
 		}
 		if prs && rec.press != NO_UNIT {
 			stamp = hash_mix(stamp, 4)
 			stamp = hash_mix(stamp, u64(rec.press))
-			stamp = hash_mix(stamp, store.units[int(rec.press)].gen)
+			stamp = hash_mix(stamp, store.units[unit_index(rec.press)].gen)
 		}
 		if dis && rec.disabled != NO_UNIT {
 			stamp = hash_mix(stamp, 5)
 			stamp = hash_mix(stamp, u64(rec.disabled))
-			stamp = hash_mix(stamp, store.units[int(rec.disabled)].gen)
+			stamp = hash_mix(stamp, store.units[unit_index(rec.disabled)].gen)
 		}
 		if has_tr {
 			stamp = hash_mix(stamp, 6)
@@ -1032,7 +1032,7 @@ apply_overlay :: proc(dst: ^Style, overlay: Unit) {
 	if overlay == NO_UNIT {
 		return
 	}
-	rec := &store.units[int(overlay)]
+	rec := &store.units[unit_index(overlay)]
 	for f in rec.explicit {
 		copy_field(dst, &rec.style, f)
 	}
@@ -1097,9 +1097,9 @@ current_cursor :: proc() -> Cursor_Kind {
 	for i in 0 ..< len(g.nodes) {
 		if g.nodes[i].identity == hover_id {
 			if i < len(g.disabled_flags) && g.disabled_flags[i] {
-				rec := &store.units[int(g.nodes[i].unit)]
+				rec := &store.units[unit_index(g.nodes[i].unit)]
 				if rec.disabled != NO_UNIT {
-					drec := &store.units[int(rec.disabled)]
+					drec := &store.units[unit_index(rec.disabled)]
 					if .Cursor in drec.explicit {
 						return node_style(i).cursor
 					}

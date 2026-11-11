@@ -179,6 +179,9 @@ close_site_region :: proc() {
 // declare appends one node; parents always precede children in the array.
 @(private)
 declare :: proc(unit: Unit, key: Key, with: With, is_container: bool, site: u64) -> (Instance, int) {
+	// A dead handle would otherwise read whichever unit reuses its slot.
+	assert(unit_live(unit), "niello: declared a unit that is not minted (or was unmint-ed)")
+	assert(with.variant == NO_UNIT || unit_live(with.variant), "niello: With.variant is not a minted unit (or was unmint-ed)")
 	parent := -1
 	parent_culled := false
 	parent_id := u64(0)
@@ -296,7 +299,7 @@ declare_as :: proc(
 			spans_hash = spans_hash,
 			has_text = has_text,
 			image = img,
-			focusable = with.focusable.? or_else store.units[int(unit)].focusable,
+			focusable = with.focusable.? or_else store.units[unit_index(unit)].focusable,
 			anchored = with.anchored,
 			is_container = is_container,
 			culled = culled,

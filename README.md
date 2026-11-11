@@ -32,7 +32,9 @@ notifications to wire up. Interaction is polled during declare (`clicked`,
 state styles (hover/press/focus/disabled) are overlay Units. Groups are
 address books of Units so a caller higher up can change components everywhere
 with one `group_set` — joining a group applies nothing; a Unit's birth values
-come from its base at mint.
+come from its base at mint. A Unit lives until `unmint(u)`, which frees it and every
+reference the engine holds to it; `shutdown()` releases the whole engine
+(contexts, units, groups, caches) after the last frame.
 
 ## Building
 

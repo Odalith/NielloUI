@@ -380,6 +380,7 @@ test_damage_on_style_change :: proc(t: ^testing.T) {
 		niello.NO_UNIT,
 		{size = niello.Size{niello.fixed(100), niello.fixed(50)}, color = [4]u8{200, 0, 0, 255}},
 	)
+	niello.mint(&dmg_lbl, niello.NO_UNIT, {size = niello.Size{niello.fit(), niello.fit()}})
 	dmg_text = ""
 
 	dmg_frame()

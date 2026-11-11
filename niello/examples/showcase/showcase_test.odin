@@ -109,10 +109,6 @@ showcase_smoke :: proc(t: ^testing.T) {
 	niello.decode_image_hook = fake_decode
 	niello.release_image_hook = fake_release
 
-	// Units and groups live in the engine's global store, which has no
-	// public teardown; the test harness's frees it so the run ends with
-	// nothing allocated. Deferred first, so it runs last.
-	defer niello.test_teardown()
 	app: App
 	app_init(&app)
 	defer app_destroy(&app)
