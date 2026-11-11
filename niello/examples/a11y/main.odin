@@ -115,13 +115,13 @@ mint_units :: proc() {
 // label, description, value, flags. Nodes without semantics never
 // enter the mirror.
 declare :: proc() {
-	if _, ok := niello.begin(window); ok {
+	if niello.begin(window) {
 		niello.show(heading, niello.key("heading"), {
 			text = "Accessibility Demo",
 			role = .Text,
 			label = "Accessibility Demo",
 		})
-		if _, ok := niello.begin(row); ok {
+		if niello.begin(row) {
 			play_i := niello.show(play_btn, niello.key("play"), {
 				text = "Pause" if playing else "Play",
 				role = .Button,
@@ -160,19 +160,21 @@ declare :: proc() {
 				volume = min(130, volume + 5)
 			}
 		}
-		if _, ok := niello.begin(list_box, niello.key("songs")); ok {
+		if niello.begin(list_box, niello.key("songs")) {
 			for song, i in songs {
 				// One declare per row: begin carries the ListItem
 				// semantics, the text child names it for the
 				// mirror's fallback (the label wins when set).
 				// begin goes in the if initializer: its deferred
 				// end pops at the if's scope exit.
-				if row_i, row_open := niello.begin(song_row, niello.key(i), {
+				w := niello.With{
 					role = .ListItem,
 					label = song,
 					a11y_flags = {.Selected} if i == selected else {},
 					focusable = true,
-				}); row_open {
+				}
+				row_i: niello.Instance
+				if niello.begin(song_row, niello.key(i), w, out = &row_i) {
 					niello.show(song_label, niello.key("name"), {text = song})
 					if niello.clicked(row_i) {
 						selected = i

@@ -58,7 +58,7 @@ test_a11y_role_label_description :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	a11y_mint()
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(
 				a11y_btn,
 				0,
@@ -94,7 +94,7 @@ test_a11y_name_falls_back_to_text :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	a11y_mint()
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(a11y_btn, 0, {role = .Button, text = "Stop"})
 		}
 	})
@@ -111,9 +111,9 @@ test_a11y_name_falls_back_to_subtree_text :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	a11y_mint()
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			// Button is a container; its name lives on the label child.
-			if _, ok2 := niello.begin(a11y_btn, 0, {role = .Button}); ok2 {
+			if niello.begin(a11y_btn, 0, {role = .Button}) {
 				niello.show(a11y_lbl, 0, {text = "Next"})
 			}
 		}
@@ -131,11 +131,11 @@ test_a11y_undeclared_nodes_absent :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	a11y_mint()
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			// Neither the wrap nor the plain child declares semantics;
 			// only the button inside the wrap is mirrored, and its
 			// mirror parent skips the undeclared wrap.
-			if _, ok2 := niello.begin(a11y_wrap); ok2 {
+			if niello.begin(a11y_wrap) {
 				niello.show(a11y_btn, 0, {role = .Button, label = "In wrap"})
 			}
 			niello.show(a11y_lbl, 0, {text = "plain"})
@@ -155,7 +155,7 @@ test_a11y_value_and_flags :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	a11y_mint()
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(
 				a11y_slider,
 				0,
@@ -188,7 +188,7 @@ test_a11y_incremental_stability :: proc(t: ^testing.T) {
 	a11y_mint()
 	// Frame 1: button "Alpha", slider "X".
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(a11y_btn, 0, {role = .Button, label = "Alpha"})
 			niello.show(a11y_slider, 0, {role = .Slider, label = "X"})
 		}
@@ -203,7 +203,7 @@ test_a11y_incremental_stability :: proc(t: ^testing.T) {
 	// The button's payload must not be rebuilt (F4): its name
 	// storage pointer is stable across the frame.
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(a11y_btn, 0, {role = .Button, label = "Alpha"})
 			niello.show(a11y_slider, 0, {role = .Slider, label = "Yankee"})
 		}
@@ -227,7 +227,7 @@ test_a11y_states :: proc(t: ^testing.T) {
 	a11y_mint()
 	// Frame 1: plain declared button — no engine state.
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(a11y_btn, 0, {role = .Button, label = "A"})
 		}
 	})
@@ -237,7 +237,7 @@ test_a11y_states :: proc(t: ^testing.T) {
 	}
 	// Frame 2: disabled — the Disabled state appears.
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(a11y_btn, 0, {role = .Button, label = "A", disabled = true})
 		}
 	})
@@ -247,7 +247,7 @@ test_a11y_states :: proc(t: ^testing.T) {
 	}
 	// Frame 3: the node leaves the tree — the mirror empties.
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 		}
 	})
 	tree = niello.a11y_tree(niello.test_context())
@@ -260,13 +260,13 @@ test_a11y_focused_state :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	a11y_mint()
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			a11y_btn_i = niello.show(a11y_btn, 0, {role = .Button, label = "A", focusable = true})
 		}
 	})
 	niello.focus(a11y_btn_i)
 	a11y_frame(proc() {
-		if _, ok := niello.begin(a11y_root); ok {
+		if niello.begin(a11y_root) {
 			niello.show(a11y_btn, 0, {role = .Button, label = "A", focusable = true})
 		}
 	})
@@ -284,8 +284,8 @@ test_a11y_parent_links :: proc(t: ^testing.T) {
 	a11y_mint()
 	a11y_frame(proc() {
 		// Group > Group > Button, all declared: parents chain.
-		if _, ok := niello.begin(a11y_root, 0, {role = .Group, label = "outer"}); ok {
-			if _, ok2 := niello.begin(a11y_wrap, 0, {role = .Group, label = "inner"}); ok2 {
+		if niello.begin(a11y_root, 0, {role = .Group, label = "outer"}) {
+			if niello.begin(a11y_wrap, 0, {role = .Group, label = "inner"}) {
 				niello.show(a11y_btn, 0, {role = .Button, label = "Go"})
 			}
 		}

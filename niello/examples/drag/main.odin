@@ -126,28 +126,27 @@ mint :: proc() {
 	})
 }
 
-button :: proc(key: string, text: string) -> niello.Instance {
-	i, open := niello.begin(btn_u, niello.key(key))
-	if open {
+button :: proc(key: string, text: string) -> (i: niello.Instance) {
+	if niello.begin(btn_u, niello.key(key), out = &i) {
 		niello.show(btn_label_u, 0, {text = text})
 	}
-	return i
+	return
 }
 
 declare :: proc() {
-	if _, ok := niello.begin(root_u); ok {
+	if niello.begin(root_u) {
 		niello.show(title_u, 0, {text = "Drag"})
 		niello.show(hint_u, 0, {text = "Press the slider to seek, drag to scrub. Drag the divider. Open the dialog and drag it by its header — the X button still just closes."})
 
 		// --- slider ---
 		niello.show(caption_u, niello.key("cap1"), {text = "Slider"})
-		// NOTE: begin goes in the if initializer — a plain-statement
-		// begin defers its end to the end of the root block, which
-		// silently reparents everything below into the track.
-		if ti, tok := niello.begin(track_u, niello.key("slider")); tok {
-			slider_i = ti
+		// begin goes in the if condition: its end runs when the if
+		// ends. As a plain statement it would run at the end of the
+		// root block, silently reparenting everything below into the
+		// track.
+		if niello.begin(track_u, niello.key("slider"), out = &slider_i) {
 			niello.set(fill_u, .Size, niello.Size{niello.percent(slider_value), niello.percent(1)})
-			if _, fok := niello.begin(fill_u, niello.key("fill")); fok {}
+			if niello.begin(fill_u, niello.key("fill")) {}
 		}
 		if niello.pressed(slider_i) || niello.dragging(slider_i) {
 			if r, rok := niello.rect(slider_i); rok && r.size.x > 0 {
@@ -158,18 +157,17 @@ declare :: proc() {
 
 		// --- splitter ---
 		niello.show(caption_u, niello.key("cap2"), {text = "Splitter"})
-		if _, ok2 := niello.begin(split_row_u, niello.key("split")); ok2 {
+		if niello.begin(split_row_u, niello.key("split")) {
 			niello.set(left_pane_u, .Size, niello.Size{niello.fixed(split_w), niello.percent(1)})
-			if _, okl := niello.begin(left_pane_u, niello.key("left")); okl {
+			if niello.begin(left_pane_u, niello.key("left")) {
 				niello.show(pane_text_u, 0, {text = fmt.tprintf("left pane, %.0f DIP wide", split_w)})
 			}
 			// Same rule as the track: the divider's end must pop at
 			// the end of this statement's scope, not the row's,
 			// or the right pane becomes a child of the divider.
-			if di, dok := niello.begin(divider_u, niello.key("divider")); dok {
-				divider_i = di
+			if niello.begin(divider_u, niello.key("divider"), out = &divider_i) {
 			}
-			if _, okr := niello.begin(right_pane_u, niello.key("right")); okr {
+			if niello.begin(right_pane_u, niello.key("right")) {
 				niello.show(pane_text_u, 0, {text = "right pane (grow)"})
 			}
 		}
@@ -189,11 +187,8 @@ declare :: proc() {
 	}
 
 	if dlg_open {
-		pi, open := niello.begin_popup(dlg_u, 0, .At, {at = dlg_pos, modal = true}, key = niello.key("dlg"))
-		dlg_i = pi
-		if open {
-			if hi, hok := niello.begin(dlg_header_u, niello.key("hdr")); hok {
-				header_i = hi
+		if niello.begin_popup(dlg_u, 0, .At, key = niello.key("dlg"), opts = {at = dlg_pos, modal = true}, out = &dlg_i) {
+			if niello.begin(dlg_header_u, niello.key("hdr"), out = &header_i) {
 				niello.show(dlg_title_u, 0, {text = "Drag me"})
 				close_i = button("close", "X")
 			}
@@ -207,7 +202,7 @@ declare :: proc() {
 		if niello.dragging(header_i) && !niello.dragging(close_i) {
 			dlg_pos = dlg_grab + niello.drag_total()
 		}
-		if niello.clicked(close_i) || niello.dismiss_requested(pi) {
+		if niello.clicked(close_i) || niello.dismiss_requested(dlg_i) {
 			dlg_open = false
 		}
 	}

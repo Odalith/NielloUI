@@ -172,8 +172,7 @@ scrollbar_declare :: proc(sb: ^Scrollbar, scroller: niello.Instance) {
 		niello.set_many(sb.spacer_u, {size = niello.Size{niello.fixed(thumb_pos), niello.fixed(0)}})
 		niello.set_many(sb.thumb_u, {size = niello.Size{niello.fixed(thumb_len), niello.grow(1)}})
 	}
-	if si, ok := niello.begin(sb.strip_u, 0, {anchored = true}); ok {
-		sb.strip_i = si
+	if niello.begin(sb.strip_u, 0, {anchored = true}, out = &sb.strip_i) {
 		niello.show(sb.spacer_u)
 		sb.thumb_i = niello.show(sb.thumb_u)
 	} else {
@@ -269,45 +268,42 @@ mint :: proc() {
 row_text_buf: [32]u8
 
 declare :: proc() {
-	if _, ok := niello.begin(root_u); ok {
+	if niello.begin(root_u) {
 		// Left: the reading list with the default bar.
-		if _, ok2 := niello.begin(col_u, niello.key_int(1)); ok2 {
+		if niello.begin(col_u, niello.key_int(1)) {
 			niello.show(label_u, niello.key_int(1), {text = "Reading list"})
-			if si, ok3 := niello.begin(list_scroll_u, niello.key_int(2)); ok3 {
-				list_i = si
+			if niello.begin(list_scroll_u, niello.key_int(2), out = &list_i) {
 				for k in 0 ..< 30 {
 					n := len(fmt.bprintf(row_text_buf[:], "Chapter %d", k + 1))
 					niello.show(row_u, niello.key_int(k + 1), {
 						text = string(row_text_buf[:n]),
 					})
 				}
-				scrollbar_declare(&list_bar, si)
+				scrollbar_declare(&list_bar, list_i)
 			}
 		}
 		// Right: a both-axes pane and a restyled bar.
-		if _, ok2 := niello.begin(col_u, niello.key_int(2)); ok2 {
+		if niello.begin(col_u, niello.key_int(2)) {
 			niello.show(label_u, niello.key_int(1), {text = "Both axes (wide rows)"})
-			if si, ok3 := niello.begin(both_scroll_u, niello.key_int(2)); ok3 {
-				both_i = si
+			if niello.begin(both_scroll_u, niello.key_int(2), out = &both_i) {
 				for k in 0 ..< 8 {
 					n := len(fmt.bprintf(row_text_buf[:], "Wide row %d — lorem ipsum dolor sit amet", k + 1))
 					niello.show(wide_row_u, niello.key_int(k + 1), {
 						text = string(row_text_buf[:n]),
 					})
 				}
-				scrollbar_declare(&both_vbar, si)
-				scrollbar_declare(&both_hbar, si)
+				scrollbar_declare(&both_vbar, both_i)
+				scrollbar_declare(&both_hbar, both_i)
 			}
 			niello.show(label_u, niello.key_int(3), {text = "Same component, custom mint (18px, accent, smooth + overscroll)"})
-			if si, ok3 := niello.begin(cust_scroll_u, niello.key_int(4)); ok3 {
-				cust_i = si
+			if niello.begin(cust_scroll_u, niello.key_int(4), out = &cust_i) {
 				for k in 0 ..< 30 {
 					n := len(fmt.bprintf(row_text_buf[:], "Entry %d", k + 1))
 					niello.show(row_u, niello.key_int(k + 1), {
 						text = string(row_text_buf[:n]),
 					})
 				}
-				scrollbar_declare(&cust_bar, si)
+				scrollbar_declare(&cust_bar, cust_i)
 			}
 			off := niello.scroll_offset(list_i)
 			rng := niello.scroll_range(list_i)

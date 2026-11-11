@@ -37,11 +37,9 @@ ch_mint :: proc() {
 }
 
 ch_declare :: proc() {
-	if _, ok := niello.begin(ch_root_u); ok {
-		if si, ok2 := niello.begin(ch_stack_u); ok2 {
-			ch_scroll_i = si
-			if ci, ok3 := niello.begin(ch_content_u); ok3 {
-				ch_content_i = ci
+	if niello.begin(ch_root_u) {
+		if niello.begin(ch_stack_u, out = &ch_scroll_i) {
+			if niello.begin(ch_content_u, out = &ch_content_i) {
 				for k in 0 ..< 10 {
 					ch_row_i[k] = niello.show(ch_row_u, niello.key_int(k + 1))
 				}
@@ -118,9 +116,8 @@ test_anchored_child_is_not_content_for_fit :: proc(t: ^testing.T) {
 	})
 	scroll_i: niello.Instance
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
-	if _, ok := niello.begin(ch_root_u); ok {
-		if si, ok2 := niello.begin(fit_stack); ok2 {
-			scroll_i = si
+	if niello.begin(ch_root_u) {
+		if niello.begin(fit_stack, out = &scroll_i) {
 			niello.show(content, niello.key_int(1))
 			niello.show(big_chip, niello.key_int(2), {anchored = true})
 		}
@@ -143,9 +140,8 @@ fl_scroll_i, fl_strip_i: niello.Instance
 fl_row_i: [10]niello.Instance
 
 fl_declare :: proc() {
-	if _, ok := niello.begin(ch_root_u); ok {
-		if si, ok2 := niello.begin(fl_scroll_u); ok2 {
-			fl_scroll_i = si
+	if niello.begin(ch_root_u) {
+		if niello.begin(fl_scroll_u, out = &fl_scroll_i) {
 			for k in 0 ..< 10 {
 				fl_row_i[k] = niello.show(fl_row_u, niello.key_int(k + 1))
 			}

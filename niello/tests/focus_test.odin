@@ -39,7 +39,7 @@ fo_declare :: proc() {
 	fo_cap_text_b = niello.input_text(fo_b)
 	fo_cap_keys_a = len(niello.input_keys(fo_a))
 	fo_cap_keys_b = len(niello.input_keys(fo_b))
-	if _, ok := niello.begin(fo_root); ok {
+	if niello.begin(fo_root) {
 		fo_a = niello.show(fo_btn, niello.key_int(1))
 		fo_b = niello.show(fo_btn, niello.key_int(2), {disabled = fo_disable_b})
 		if !fo_hide_c {
@@ -255,7 +255,7 @@ fw_root, fw_row, fw_bar: niello.Unit
 fw_r1, fw_r2, fw_r3, fw_b1, fw_b2: niello.Instance
 
 fw_declare :: proc() {
-	if _, ok := niello.begin(fw_root); ok {
+	if niello.begin(fw_root) {
 		fw_r1 = niello.show(fw_row, niello.key_int(1))
 		fw_r2 = niello.show(fw_row, niello.key_int(2), {focusable = true})
 		fw_r3 = niello.show(fw_row, niello.key_int(3))
@@ -312,7 +312,7 @@ dd_show_a: bool
 dd_a_rect: niello.Rect
 
 dd_declare :: proc() {
-	if _, ok := niello.begin(dd_root); ok {
+	if niello.begin(dd_root) {
 		if dd_show_a {
 			i := niello.show(dd_a, niello.key_int(1), {text = "aaaaaaaaaaaaaaaaaaaa"})
 			if r, ok2 := niello.rect(i); ok2 {

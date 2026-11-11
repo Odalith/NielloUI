@@ -23,7 +23,7 @@ cx_cap_hovered: bool
 @(private)
 cx_declare :: proc() {
 	niello.show(cx_root)
-	if _, open := niello.begin(cx_root); open {
+	if niello.begin(cx_root) {
 		cx_box_inst = niello.show(cx_box)
 		cx_cap_focused = niello.focused(cx_box_inst)
 		cx_cap_hovered = niello.hovered(cx_box_inst)
@@ -131,11 +131,10 @@ px_cap_dismiss: bool
 
 @(private)
 px_declare :: proc() {
-	if _, open := niello.begin(cx_root); open {
+	if niello.begin(cx_root) {
 		box := niello.show(cx_box)
-		if pi, ok := niello.begin_popup(px_menu, box, .Below, key = niello.key_int(7)); ok {
-			px_popup_inst = pi
-			px_cap_dismiss = niello.dismiss_requested(pi)
+		if niello.begin_popup(px_menu, box, .Below, key = niello.key_int(7), out = &px_popup_inst) {
+			px_cap_dismiss = niello.dismiss_requested(px_popup_inst)
 		}
 	}
 }
@@ -245,7 +244,7 @@ rd_box_inst: niello.Instance
 
 @(private)
 rd_declare :: proc() {
-	if _, open := niello.begin(rd_root); open {
+	if niello.begin(rd_root) {
 		rd_box_inst = niello.show(rd_box)
 	}
 }
@@ -299,7 +298,7 @@ test_frame_begin_sanitizes_host_numbers :: proc(t: ^testing.T) {
 	})
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {nan, -50}}, nan)
 	inst: niello.Instance
-	if i, open := niello.begin(root); open { inst = i }
+	if niello.begin(root, out = &inst) {}
 	niello.frame_end()
 	r, ok := niello.rect(inst)
 	testing.expect(t, ok, "root committed through a NaN host frame")
@@ -316,7 +315,7 @@ test_frame_begin_sanitizes_host_numbers :: proc(t: ^testing.T) {
 	})
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {320, 200}}, 1.0 / 60.0)
 	inst2: niello.Instance
-	if i, open := niello.begin(root2); open { inst2 = i }
+	if niello.begin(root2, out = &inst2) {}
 	niello.frame_end()
 	r2, ok2 := niello.rect(inst2)
 	testing.expect(t, ok2 && r2.size == niello.Vec2{320, 200}, "normal frame fills the viewport")

@@ -108,17 +108,16 @@ mint_units :: proc() {
 }
 
 declare :: proc() {
-	if _, ok := niello.begin(window_u); ok {
+	if niello.begin(window_u) {
 		niello.show(title_u, niello.key("title"), {text = "Buttons — polled input, no callbacks"})
 		niello.show(hint_u, niello.key("hint"), {
 			text = "Hover, press, drag off mid-press. The disabled button absorbs its clicks.",
 		})
 
-		if ci, ok := niello.begin(counter_u); ok {
-			counter_i = ci
+		if niello.begin(counter_u, out = &counter_i) {
 			// The handler is ordinary code next to the declaration: the
 			// click completed at this frame's dispatch (frame_begin).
-			if niello.clicked(ci) {
+			if niello.clicked(counter_i) {
 				count += 1
 			}
 			niello.show(label_u, niello.key("counter"), {
@@ -126,10 +125,9 @@ declare :: proc() {
 			})
 		}
 
-		if _, ok := niello.begin(row_u); ok {
-			if ti, ok := niello.begin(toggle_u); ok {
-				toggle_i = ti
-				if niello.clicked(ti) {
+		if niello.begin(row_u) {
+			if niello.begin(toggle_u, out = &toggle_i) {
+				if niello.clicked(toggle_i) {
 					sound_on = !sound_on
 					niello.set(swatch_u, .Color, GREEN if sound_on else GREY)
 				}
@@ -138,8 +136,7 @@ declare :: proc() {
 				})
 			}
 			niello.show(swatch_u)
-			if di, ok := niello.begin(disabled_u, 0, {disabled = true}); ok {
-				disabled_i = di
+			if niello.begin(disabled_u, 0, {disabled = true}, out = &disabled_i) {
 				niello.show(label_u, niello.key("disabled"), {
 					text = "Disabled — clicks stop here",
 				})

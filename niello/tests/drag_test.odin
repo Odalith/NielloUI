@@ -205,16 +205,13 @@ frame_with :: proc(input: niello.Input, declare: proc()) {
 }
 
 declare_root_only :: proc() {
-	if ri, ok := niello.begin(input_root); ok {
-		input_root_i = ri
+	if niello.begin(input_root, out = &input_root_i) {
 	}
 }
 
 declare_btn_disabled :: proc() {
-	if ri, ok := niello.begin(input_root); ok {
-		input_root_i = ri
-		if bi, ok2 := niello.begin(input_btn, 0, niello.With{disabled = true}); ok2 {
-			input_btn_i = bi
+	if niello.begin(input_root, out = &input_root_i) {
+		if niello.begin(input_btn, 0, niello.With{disabled = true}, out = &input_btn_i) {
 			input_lbl_i = niello.show(input_lbl, 0, niello.With{text = "OK"})
 		}
 	}
@@ -265,11 +262,9 @@ test_capture_dies_when_target_culled :: proc(t: ^testing.T) {
 
 	clip_i, row2_i: niello.Instance
 	declare_clip :: proc(clip, row: niello.Unit, clip_i, row2_i: ^niello.Instance) {
-		if ci, ok := niello.begin(clip); ok {
-			clip_i^ = ci
+		if niello.begin(clip, out = clip_i) {
 			niello.show(row, niello.key_int(1))
-			if ri, ok2 := niello.begin(row, niello.key_int(2)); ok2 {
-				row2_i^ = ri
+			if niello.begin(row, niello.key_int(2), out = row2_i) {
 			}
 		}
 	}
@@ -346,12 +341,12 @@ test_capture_dies_when_modal_opens :: proc(t: ^testing.T) {
 
 	bg_i, anchor_i: niello.Instance
 	declare_modal :: proc(root, bg, dialog: niello.Unit, bg_i, anchor_i: ^niello.Instance, modal: bool) {
-		if _, ok := niello.begin(root); ok {
+		if niello.begin(root) {
 			anchor_i^ = niello.show(bg, niello.key_int(1))
 			bg_i^ = anchor_i^
 		}
 		if modal {
-			niello.begin_popup(dialog, anchor_i^, .At, {modal = true, at = niello.Vec2{150, 120}}, niello.key_int(9))
+			niello.begin_popup(dialog, anchor_i^, .At, key = niello.key_int(9), opts = {modal = true, at = niello.Vec2{150, 120}})
 		}
 	}
 	frame_modal :: proc(root, bg, dialog: niello.Unit, bg_i, anchor_i: ^niello.Instance, modal: bool, input: niello.Input) {

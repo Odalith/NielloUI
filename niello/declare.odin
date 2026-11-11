@@ -2,9 +2,9 @@
 //
 // The public declare API (show/begin/end) lives in public.odin; this file
 // holds the node append, identity hashing, key fallback, and text resolution.
-// begin uses @(deferred_out=end): `if i, ok := begin(u); ok { ... }` closes the
-// container when the if-scope exits, LIFO for nesting, and end() still runs when
-// open == false or on early return.
+// begin uses @(deferred_out=end): `if begin(u) { ... }` closes the container
+// when the if statement ends, LIFO for nesting, and end() still runs when the
+// container is culled or on early return.
 package niello
 
 import "core:unicode/utf8"

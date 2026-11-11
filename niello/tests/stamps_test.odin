@@ -17,7 +17,7 @@ st_static: bool
 st_box_i: niello.Instance
 
 declare_st_tree :: proc() {
-	if _, ok := niello.begin(st_root); ok {
+	if niello.begin(st_root) {
 		st_box_i = niello.show(st_box)
 		niello.show(st_lbl, 0, niello.With{text = st_text, static_values = st_static})
 	}
@@ -122,7 +122,7 @@ test_stamp_static_values_trusted :: proc(t: ^testing.T) {
 st2_root, st2_btn, st2_hov: niello.Unit
 
 declare_st2_tree :: proc() {
-	if _, ok := niello.begin(st2_root); ok {
+	if niello.begin(st2_root) {
 		niello.show(st2_btn)
 	}
 }
@@ -261,7 +261,7 @@ test_stamp_tween_window :: proc(t: ^testing.T) {
 xc_root, xc_box: niello.Unit
 
 declare_xc_tree :: proc() {
-	if _, ok := niello.begin(xc_root); ok {
+	if niello.begin(xc_root) {
 		niello.show(xc_box)
 	}
 }

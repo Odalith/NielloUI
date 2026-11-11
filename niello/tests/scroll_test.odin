@@ -39,9 +39,8 @@ mint_flat_tree :: proc() {
 }
 
 declare_flat_tree :: proc() {
-	if _, ok := niello.begin(sc_root); ok {
-		if oi, ok2 := niello.begin(sc_outer); ok2 {
-			sc_outer_i = oi
+	if niello.begin(sc_root) {
+		if niello.begin(sc_outer, out = &sc_outer_i) {
 			for k in 0 ..< 6 {
 				ri := niello.show(sc_row, niello.key_int(k))
 				if k == 0 {
@@ -66,15 +65,13 @@ mint_nested_tree :: proc(inner_chains: bool) {
 }
 
 declare_nested_tree :: proc() {
-	if _, ok := niello.begin(sc_root); ok {
-		if oi, ok2 := niello.begin(sc_outer); ok2 {
-			sc_outer_i = oi
+	if niello.begin(sc_root) {
+		if niello.begin(sc_outer, out = &sc_outer_i) {
 			w := niello.With{}
 			if sc_inner_disabled {
 				w.disabled = true
 			}
-			if ii, ok3 := niello.begin(sc_inner, 0, w); ok3 {
-				sc_inner_i = ii
+			if niello.begin(sc_inner, 0, w, out = &sc_inner_i) {
 				for k in 0 ..< 4 {
 					ri := niello.show(sc_row, niello.key_int(k))
 					if k == 0 {
@@ -327,10 +324,9 @@ test_grow_scroller_takes_leftover_not_content :: proc(t: ^testing.T) {
 }
 
 declare_bound_tree :: proc() {
-	if _, ok := niello.begin(sc_bound_root); ok {
+	if niello.begin(sc_bound_root) {
 		sc_bound_head_i = niello.show(sc_bound_head)
-		if oi, ok2 := niello.begin(sc_outer); ok2 {
-			sc_outer_i = oi
+		if niello.begin(sc_outer, out = &sc_outer_i) {
 			for k in 0 ..< 10 {
 				niello.show(sc_row, niello.key_int(k))
 			}
@@ -340,9 +336,8 @@ declare_bound_tree :: proc() {
 }
 
 declare_strip_tree :: proc() {
-	if _, ok := niello.begin(sc_root); ok {
-		if si, ok2 := niello.begin(sc_strip); ok2 {
-			sc_strip_i = si
+	if niello.begin(sc_root) {
+		if niello.begin(sc_strip, out = &sc_strip_i) {
 			for k in 0 ..< 6 {
 				ci := niello.show(sc_cell, niello.key_int(k))
 				if k == 0 {
@@ -395,10 +390,9 @@ test_text_leaf_not_crushed_by_deficit :: proc(t: ^testing.T) {
 }
 
 declare_crush_tree :: proc() {
-	if _, ok := niello.begin(sc_crush_root); ok {
+	if niello.begin(sc_crush_root) {
 		sc_crush_title_i = niello.show(sc_crush_title, 0, {text = "Header"})
-		if oi, ok2 := niello.begin(sc_outer); ok2 {
-			sc_outer_i = oi
+		if niello.begin(sc_outer, out = &sc_outer_i) {
 			for k in 0 ..< 6 {
 				niello.show(sc_row, niello.key_int(k))
 			}
@@ -605,8 +599,7 @@ test_scroll_state_dies_with_instance :: proc(t: ^testing.T) {
 	declare :: proc(scroller, content: niello.Unit, inst: ^niello.Instance, show_tree: bool) {
 		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
 		if show_tree {
-			if i, ok := niello.begin(scroller); ok {
-				inst^ = i
+			if niello.begin(scroller, out = inst) {
 				niello.show(content)
 			}
 		}
@@ -643,8 +636,7 @@ test_smooth_glides_are_per_axis :: proc(t: ^testing.T) {
 
 	bi_i: niello.Instance
 	declare_bi :: proc(bi, big: niello.Unit, bi_i: ^niello.Instance) {
-		if i, ok := niello.begin(bi); ok {
-			bi_i^ = i
+		if niello.begin(bi, out = bi_i) {
 			niello.show(big)
 		}
 	}
@@ -685,12 +677,10 @@ test_clipping_child_overflow_does_not_leak :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	mint_nested_tree(true)
 	declare :: proc() {
-		if _, ok := niello.begin(sc_root); ok {
-			if oi, ok2 := niello.begin(sc_outer); ok2 {
-				sc_outer_i = oi
+		if niello.begin(sc_root) {
+			if niello.begin(sc_outer, out = &sc_outer_i) {
 				niello.show(sc_row, niello.key_int(99))
-				if ii, ok3 := niello.begin(sc_inner); ok3 {
-					sc_inner_i = ii
+				if niello.begin(sc_inner, out = &sc_inner_i) {
 					for k in 0 ..< 4 {
 						niello.show(sc_row, niello.key_int(k))
 					}

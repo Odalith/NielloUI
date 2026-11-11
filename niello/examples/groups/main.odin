@@ -165,16 +165,15 @@ mint_units :: proc() {
 }
 
 declare :: proc() {
-	if _, ok := niello.begin(window_u); ok {
+	if niello.begin(window_u) {
 		niello.show(title_u, niello.key("title"), {text = "Groups — one broadcast, many components"})
 		niello.show(hint_u, niello.key("hint"), {
 			text = "Switch the theme, then add a card: it is born in the base palette, because joining a group applies nothing.",
 		})
 
-		if _, ok := niello.begin(row_u); ok {
-			if ti, ok := niello.begin(theme_btn_u); ok {
-				theme_i = ti
-				if niello.clicked(ti) {
+		if niello.begin(row_u) {
+			if niello.begin(theme_btn_u, out = &theme_i) {
+				if niello.clicked(theme_i) {
 					dark = !dark
 					apply_theme()
 				}
@@ -182,9 +181,8 @@ declare :: proc() {
 					text = "Switch to light theme" if dark else "Switch to dark theme",
 				})
 			}
-			if ai, ok := niello.begin(add_btn_u); ok {
-				add_i = ai
-				if niello.clicked(ai) && len(cards) < 6 {
+			if niello.begin(add_btn_u, out = &add_i) {
+				if niello.clicked(add_i) && len(cards) < 6 {
 					// Minted right now, from the base: light palette,
 					// whatever the current theme is. It joins the group
 					// for FUTURE broadcasts only.
@@ -196,9 +194,8 @@ declare :: proc() {
 				}
 				niello.show(btn_label_u, niello.key("add"), {text = "Add a card"})
 			}
-			if di, ok := niello.begin(danger_u); ok {
-				danger_i = di
-				if niello.clicked(di) {
+			if niello.begin(danger_u, out = &danger_i) {
+				if niello.clicked(danger_i) {
 					danger_clicks += 1
 				}
 				niello.show(btn_label_u, niello.key("danger"), {
@@ -208,7 +205,7 @@ declare :: proc() {
 		}
 
 		for i in 0 ..< len(cards) {
-			if _, ok := niello.begin(cards[i], niello.key_int(i)); ok {
+			if niello.begin(cards[i], niello.key_int(i)) {
 				niello.show(card_title_u, 0, {text = fmt.tprintf("Card %d", i + 1)})
 				niello.show(card_body_u, 0, {text = card_notes[i]})
 			}

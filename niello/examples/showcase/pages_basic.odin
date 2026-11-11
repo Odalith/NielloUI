@@ -27,9 +27,9 @@ page_controls :: proc(app: ^App) {
 	niello.show(ui.title, niello.key("t"), {text = "Controls"})
 	note("n", "Every control is polled during declare — clicked(), hovered(), pressed() — against last frame's hit test. No callbacks anywhere. Hover, press and focus states are overlay units merged over the base style.")
 
-	if _, ok := niello.begin(ui.card, niello.key("buttons")); ok {
+	if niello.begin(ui.card, niello.key("buttons")) {
 		heading("Buttons")
-		if _, rok := niello.begin(ui.row, niello.key("r1")); rok {
+		if niello.begin(ui.row, niello.key("r1")) {
 			s.count_i = button(niello.key("count"), fmt.tprintf("Clicked %d times", s.clicks))
 			if niello.clicked(s.count_i) {
 				s.clicks += 1
@@ -57,9 +57,9 @@ page_controls :: proc(app: ^App) {
 		}
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("toggles")); ok {
+	if niello.begin(ui.card, niello.key("toggles")) {
 		heading("Toggles and checkboxes")
-		if _, rok := niello.begin(ui.row, niello.key("r1")); rok {
+		if niello.begin(ui.row, niello.key("r1")) {
 			if toggle(niello.key("notify"), "Notifications", &s.notify) {
 				status_set(&app.status, "Notifications %s (a variant overlay)", s.notify ? "on" : "off")
 			}
@@ -72,13 +72,13 @@ page_controls :: proc(app: ^App) {
 		}
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("hover")); ok {
+	if niello.begin(ui.card, niello.key("hover")) {
 		heading("Hover, tooltips and cursors")
 		s.hover_i = button(niello.key("hoverme"), "Hover me")
 		tooltip(s.hover_i, "Tooltips are popups shown once hover_duration passes 0.5 s.")
 		d := niello.hover_duration(s.hover_i)
 		note("dur", d > 0 ? fmt.tprintf("hovered for %.1f s", d) : "not hovered")
-		if _, rok := niello.begin(ui.row, niello.key("cursors")); rok {
+		if niello.begin(ui.row, niello.key("cursors")) {
 			for k in niello.Cursor_Kind {
 				s.cursor_i[k] = niello.show(cursor_units[k], niello.key_int(int(k)), {text = fmt.tprintf("%v", k)})
 			}
@@ -108,15 +108,15 @@ page_layout :: proc(app: ^App) {
 	niello.show(ui.title, niello.key("t"), {text = "Layout"})
 	note("n", "Row, column and stack containers. Each axis sizes as Fixed, Fit (content), Grow (share the leftover) or Percent (of the parent), with min/max clamps. Resize the window to watch Grow and Percent react.")
 
-	if _, ok := niello.begin(ui.card, niello.key("sizing")); ok {
+	if niello.begin(ui.card, niello.key("sizing")) {
 		heading("Sizing kinds")
-		if _, rok := niello.begin(L.box_row, niello.key("r1")); rok {
+		if niello.begin(L.box_row, niello.key("r1")) {
 			niello.show(L.fixed_b, 0, {text = "fixed(140)"})
 			niello.show(L.fit_b, 0, {text = "fit() — sized to this label"})
 			niello.show(L.grow_b, 0, {text = "grow()"})
 			niello.show(L.percent_b, 0, {text = "percent(0.2)"})
 		}
-		if _, rok := niello.begin(L.box_row, niello.key("r2")); rok {
+		if niello.begin(L.box_row, niello.key("r2")) {
 			niello.show(L.grow_max_b, 0, {text = "grow(max = 160)"})
 			niello.show(L.grow_b, 0, {text = "grow()"})
 			niello.show(L.grow_b, 0, {text = "grow()"})
@@ -124,24 +124,24 @@ page_layout :: proc(app: ^App) {
 		note("g", "Growers split the leftover fairly; one clamped by its max gives the rest away.")
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("align")); ok {
+	if niello.begin(ui.card, niello.key("align")) {
 		heading("Alignment (stack layout, align = [x, y])")
-		if _, rok := niello.begin(ui.row, niello.key("cells")); rok {
+		if niello.begin(ui.row, niello.key("cells")) {
 			for k in 0 ..< 9 {
-				if _, cok := niello.begin(L.align_cells[k], niello.key_int(k)); cok {
+				if niello.begin(L.align_cells[k], niello.key_int(k)) {
 					niello.show(L.align_dot)
 				}
 			}
 		}
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("squeeze")); ok {
+	if niello.begin(ui.card, niello.key("squeeze")) {
 		heading("Shrinking and ellipsis")
 		note("n", "Drag the slider to squeeze the row. Fit children shrink fairly toward their floors; text past its box is trimmed with an ellipsis at paint time.")
 		slider(&s.squeeze, niello.key("sl"), "Row width")
 		w := 120 + s.squeeze.value * 520
 		niello.set(L.squeeze_row, .Size, sz(fixed(w), fixed(34)))
-		if _, rok := niello.begin(L.squeeze_row, niello.key("row")); rok {
+		if niello.begin(L.squeeze_row, niello.key("row")) {
 			niello.show(L.squeeze_label, 0, {text = "The first label is fairly long"})
 			niello.show(L.squeeze_label, 0, {text = "Second label"})
 			niello.show(L.squeeze_label, 0, {text = "Third, also somewhat long"})
@@ -149,13 +149,13 @@ page_layout :: proc(app: ^App) {
 		note("w", fmt.tprintf("row width %.0f DIP", w))
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("overflow")); ok {
+	if niello.begin(ui.card, niello.key("overflow")) {
 		heading("Overflow: spill vs clip")
-		if _, rok := niello.begin(ui.row, niello.key("r")); rok {
-			if _, bok := niello.begin(L.spill_box, niello.key("spill")); bok {
+		if niello.begin(ui.row, niello.key("r")) {
+			if niello.begin(L.spill_box, niello.key("spill")) {
 				niello.show(L.wide, 0, {text = "Spill (default): I draw past my parent"})
 			}
-			if _, bok := niello.begin(L.clip_box, niello.key("clip")); bok {
+			if niello.begin(L.clip_box, niello.key("clip")) {
 				niello.show(L.wide, 0, {text = "Clip: I am cut at my parent's edge"})
 			}
 		}
@@ -188,21 +188,21 @@ page_text :: proc(app: ^App) {
 	T := &text_units
 	niello.show(ui.title, niello.key("t"), {text = "Text"})
 
-	if _, ok := niello.begin(ui.card, niello.key("fonts")); ok {
+	if niello.begin(ui.card, niello.key("fonts")) {
 		heading("Size, weight, slant")
-		if _, rok := niello.begin(ui.row, niello.key("sizes")); rok {
+		if niello.begin(ui.row, niello.key("sizes")) {
 			for u, k in T.sizes {
 				niello.show(u, niello.key_int(k), {text = fmt.tprintf("%.0f px", TEXT_SIZES[k])})
 			}
 		}
-		if _, rok := niello.begin(ui.row, niello.key("weights")); rok {
+		if niello.begin(ui.row, niello.key("weights")) {
 			k := 0
 			for w in niello.Font_Weight {
 				niello.show(T.weights[k], niello.key_int(k), {text = fmt.tprintf("%v", w)})
 				k += 1
 			}
 		}
-		if _, rok := niello.begin(ui.row, niello.key("slants")); rok {
+		if niello.begin(ui.row, niello.key("slants")) {
 			k := 0
 			for sl in niello.Font_Slant {
 				niello.show(T.slants[k], niello.key_int(k), {text = fmt.tprintf("%v slant", sl)})
@@ -213,12 +213,12 @@ page_text :: proc(app: ^App) {
 		niello.show(ui.body, niello.key("nl"), {text = "Explicit newlines\nalways break,\neven without wrap."})
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("spans")); ok {
+	if niello.begin(ui.card, niello.key("spans")) {
 		heading("Rich text spans")
 		niello.show(T.spans, 0, {text = SPAN_TEXT})
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("wrap")); ok {
+	if niello.begin(ui.card, niello.key("wrap")) {
 		heading("Wrapping")
 		slider(&s.width, niello.key("sl"), "Paragraph width")
 		w := 160 + s.width.value * 500
@@ -227,21 +227,21 @@ page_text :: proc(app: ^App) {
 		note("w", fmt.tprintf("width %.0f DIP", w))
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("ws")); ok {
+	if niello.begin(ui.card, niello.key("ws")) {
 		heading("Whitespace and trimming")
-		if _, rok := niello.begin(ui.row, niello.key("r")); rok {
-			if _, bok := niello.begin(T.ws_box, niello.key("c")); bok {
+		if niello.begin(ui.row, niello.key("r")) {
+			if niello.begin(T.ws_box, niello.key("c")) {
 				niello.show(T.collapse, 0, {text = "  Collapse:   runs   fold  "})
 			}
-			if _, bok := niello.begin(T.ws_box, niello.key("p")); bok {
+			if niello.begin(T.ws_box, niello.key("p")) {
 				niello.show(T.preserve, 0, {text = "  Preserve:   runs   stay  "})
 			}
 		}
-		if _, rok := niello.begin(ui.row, niello.key("trim")); rok {
-			if _, bok := niello.begin(T.trim_box, niello.key("e")); bok {
+		if niello.begin(ui.row, niello.key("trim")) {
+			if niello.begin(T.trim_box, niello.key("e")) {
 				niello.show(T.ellipsis, 0, {text = "ellipsis on: this sentence is too long for the box"})
 			}
-			if _, bok := niello.begin(T.trim_box, niello.key("n")); bok {
+			if niello.begin(T.trim_box, niello.key("n")) {
 				niello.show(T.no_ellipsis, 0, {text = "ellipsis off: this sentence is too long for the box"})
 			}
 		}
@@ -273,7 +273,7 @@ page_input :: proc(app: ^App) {
 	niello.show(ui.title, niello.key("t"), {text = "Keyboard & focus"})
 	note("n", "Tab / Shift+Tab walk the focusable instances in declaration order; clicking focuses. Text and keys route to the focused instance only: input_text for typed characters, input_keys for key events as Key_Codes.")
 
-	if _, ok := niello.begin(ui.card, niello.key("form")); ok {
+	if niello.begin(ui.card, niello.key("form")) {
 		heading("Text fields")
 		if text_field_input(&s.name) {
 			niello.focus_next()
@@ -286,7 +286,7 @@ page_input :: proc(app: ^App) {
 		niello.show(ui.small, niello.key("l2"), {text = "EMAIL"})
 		text_field(&s.email, niello.key("email"), "ada@example.com")
 		note("keys", "Backspace, Delete, Left/Right, Home/End; Ctrl+Backspace and Ctrl+Left jump by word; Enter moves on.")
-		if _, rok := niello.begin(ui.row, niello.key("btns")); rok {
+		if niello.begin(ui.row, niello.key("btns")) {
 			if niello.clicked(button(niello.key("submit"), "Submit", .Primary)) {
 				delete(s.submitted)
 				s.submitted = fmt.aprintf("Submitted: %q <%s>", string(s.name.buf[:]), string(s.email.buf[:]))
@@ -303,7 +303,7 @@ page_input :: proc(app: ^App) {
 		}
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("keys")); ok {
+	if niello.begin(ui.card, niello.key("keys")) {
 		heading("Key tester")
 		note("n", "Click the box (or Tab to it) and press keys. Each event shows its logical key (what the layout produces), its physical key (the US-QWERTY position) and the held modifiers.")
 		for ev in niello.input_keys(s.key_box_i) {
@@ -322,9 +322,7 @@ page_input :: proc(app: ^App) {
 			}
 		}
 		focused := niello.focused(s.key_box_i)
-		i, bok := niello.begin(input_units.key_box, niello.key("box"), {role = .Pane, label = "Key tester"})
-		s.key_box_i = i
-		if bok {
+		if niello.begin(input_units.key_box, niello.key("box"), {role = .Pane, label = "Key tester"}, out = &s.key_box_i) {
 			niello.show(ui.small, niello.key("hint"), {
 				text = focused ? "focused — press keys (Tab leaves)" : "click to focus",
 			})

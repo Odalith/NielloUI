@@ -25,7 +25,7 @@ mint_group_tree :: proc() {
 }
 
 declare_group_tree :: proc() {
-	if _, ok := niello.begin(grp_root); ok {
+	if niello.begin(grp_root) {
 		grp_a_i = niello.show(grp_a)
 		grp_b_i = niello.show(grp_b)
 		grp_lbl_i = niello.show(grp_lbl, 0, {text = "AAAA"})

@@ -282,7 +282,7 @@ when niello.NIELLO_DEBUG {
 			hl_inst = 0
 			niello.debug_highlight(nil, 0)
 			niello.debug_show_overflows(nil, false)
-			if _, open0 := niello.begin(root_u); open0 {
+			if niello.begin(root_u) {
 			}
 			return
 		}
@@ -298,11 +298,11 @@ when niello.NIELLO_DEBUG {
 
 		hovered_any := false
 
-		if _, open0 := niello.begin(root_u); open0 {
+		if niello.begin(root_u) {
 			// Windows section: targets only. Toggles live with
 			// the panels they affect (the tint is in Overflows).
 			niello.show(section_u, 0, {text = "WINDOWS"})
-			if _, open1 := niello.begin(bar_u); open1 {
+			if niello.begin(bar_u) {
 				for w, wi in wins {
 					if w.ctx == own_ctx {
 						continue // the debugger never targets itself
@@ -312,8 +312,7 @@ when niello.NIELLO_DEBUG {
 					txt := fmt.bprintf(buf[:], "%s · %d nodes", name, len(niello.debug_tree(w.ctx)))
 					on := w.ctx == target
 					chip: niello.Instance
-					if c, openC := niello.begin(chip_on_u if on else chip_u, niello.key_int(wi + 1)); openC {
-						chip = c
+					if niello.begin(chip_on_u if on else chip_u, niello.key_int(wi + 1), out = &chip) {
 						niello.show(chip_label_on_u if on else chip_label_u, 0, {text = txt})
 					}
 					if niello.clicked(chip) && w.ctx != target {
@@ -337,20 +336,19 @@ when niello.NIELLO_DEBUG {
 				depths[i] = 0 if dn.parent < 0 else depths[dn.parent] + 1
 			}
 
-			if _, open2 := niello.begin(mid_u); open2 {
+			if niello.begin(mid_u) {
 				// Units panel.
-				if _, open3 := niello.begin(panel_u); open3 {
+				if niello.begin(panel_u) {
 					niello.show(section_u, 0, {text = "UNITS"})
-					if _, open4 := niello.begin(tree_scroll_u); open4 {
-						if _, open5 := niello.begin(tree_col_u); open5 {
+					if niello.begin(tree_scroll_u) {
+						if niello.begin(tree_col_u) {
 							if len(tree) == 0 {
 								niello.show(val_u, 0, {text = "no target — F12 in any window"})
 							}
 							for dn, i in tree {
 								row: niello.Instance
 								row_style := row_sel_u if dn.instance == selected else row_u
-								if r, open6 := niello.begin(row_style, niello.key_int(i + 1)); open6 {
-									row = r
+								if niello.begin(row_style, niello.key_int(i + 1), out = &row) {
 									buf: [128]u8
 									off := 0
 									for _ in 0 ..< depths[i] * 2 {
@@ -390,7 +388,7 @@ when niello.NIELLO_DEBUG {
 				}
 
 				// Details panel.
-				if _, open7 := niello.begin(info_u); open7 {
+				if niello.begin(info_u) {
 					niello.show(section_u, 0, {text = "DETAILS"})
 					declare_info(tree)
 				}
@@ -398,12 +396,11 @@ when niello.NIELLO_DEBUG {
 
 			// Overflows panel: the §3.13 report, presented. The
 			// tint toggle lives here — it is this panel's switch.
-			if _, open8 := niello.begin(ovf_u); open8 {
-				if _, open9 := niello.begin(ovf_head_u); open9 {
+			if niello.begin(ovf_u) {
+				if niello.begin(ovf_head_u) {
 					niello.show(section_u, 0, {text = "OVERFLOWS"})
 					tog: niello.Instance
-					if c, openT := niello.begin(chip_on_u if show_ovf else chip_u, niello.key_int(900)); openT {
-						tog = c
+					if niello.begin(chip_on_u if show_ovf else chip_u, niello.key_int(900), out = &tog) {
 						niello.show(chip_label_on_u if show_ovf else chip_label_u, 0, {text = "tint: on" if show_ovf else "tint"})
 					}
 					if niello.clicked(tog) {
@@ -426,8 +423,7 @@ when niello.NIELLO_DEBUG {
 					}
 					shown += 1
 					row: niello.Instance
-					if r, open10 := niello.begin(row_u, niello.key_int(10000 + shown)); open10 {
-						row = r
+					if niello.begin(row_u, niello.key_int(10000 + shown), out = &row) {
 						buf: [96]u8
 						niello.show(alert_u, 0, {text = fmt.bprintf(buf[:], "%s · %v · %.0f px", rec.name, rec.axis, rec.px)})
 					}
@@ -450,7 +446,7 @@ when niello.NIELLO_DEBUG {
 
 	// kv declares one label/value row in the Details panel.
 	kv :: proc(key: string, val: string) {
-		if _, open := niello.begin(krow_u); open {
+		if niello.begin(krow_u) {
 			niello.show(key_u, 0, {text = key})
 			niello.show(val_u, 0, {text = val})
 		}

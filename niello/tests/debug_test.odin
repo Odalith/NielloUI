@@ -17,11 +17,10 @@ when niello.NIELLO_DEBUG {
 
 	@(private)
 	dbg_declare :: proc() {
-		if r, open := niello.begin(dbg_root); open {
-			dbg_root_inst = r
+		if niello.begin(dbg_root, out = &dbg_root_inst) {
 			niello.show(dbg_wide)
 			dbg_leaf_inst = niello.show(dbg_leaf)
-			if _, open2 := niello.begin(dbg_scroll); open2 {
+			if niello.begin(dbg_scroll) {
 				niello.show(dbg_tall)
 			}
 		}
@@ -165,7 +164,7 @@ when niello.NIELLO_DEBUG {
 		niello.mint(&dbg_wleaf, niello.NO_UNIT, {size = niello.Size{niello.fixed(30), niello.fixed(20)}})
 
 		niello.frame_begin(ctx1, niello.Input{viewport = {400, 300}}, 0.016)
-		if _, open := niello.begin(dbg_root); open {
+		if niello.begin(dbg_root) {
 			niello.show(dbg_wleaf, 0, {
 				text = "override",
 				disabled = true,
@@ -268,7 +267,7 @@ when niello.NIELLO_DEBUG {
 
 		niello.frame_begin(ctx1, niello.Input{viewport = {400, 300}}, 0.016)
 		niello.show(dbg_pad_box)
-		if _, open := niello.begin(dbg_crush_root); open {
+		if niello.begin(dbg_crush_root) {
 			niello.show(dbg_crush_child)
 		}
 		niello.frame_end()

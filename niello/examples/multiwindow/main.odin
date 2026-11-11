@@ -88,14 +88,13 @@ declare_main :: proc() {
 		}
 	}
 	// Declare pattern: every container's begin goes in an if
-	// initializer, so its deferred end() pops at that statement's
-	// scope exit. A begin written as a plain statement inside a
-	// parent's block keeps the container open — and the parent —
-	// until the BLOCK ends, silently reparenting later siblings.
-	if _, open := niello.begin(root_u); open {
+	// condition, so its deferred end() pops when that if ends. A
+	// begin written as a plain statement inside a parent's block
+	// keeps the container open until the BLOCK ends, silently
+	// reparenting later siblings.
+	if niello.begin(root_u) {
 		niello.show(title_u, 0, {text = "Main window"})
-		if panel_inst, open2 := niello.begin(panel_u); open2 {
-			trk_panel = panel_inst
+		if niello.begin(panel_u, out = &trk_panel) {
 			trk_chip = niello.show(chip_u)
 			pulse := niello.show(pulse_u)
 			hov := niello.hovered(pulse)
@@ -106,8 +105,7 @@ declare_main :: proc() {
 			niello.show(title_u, 0, {text = "hover the square"})
 		}
 		btn: niello.Instance
-		if b, bopen := niello.begin(open_btn_u); bopen {
-			btn = b
+		if niello.begin(open_btn_u, out = &btn) {
 			niello.show(open_btn_label_u)
 		}
 		if niello.clicked(btn) {
@@ -120,7 +118,7 @@ declare_main :: proc() {
 
 declare_inspector :: proc() {
 	me := niello.current_context()
-	if _, open := niello.begin(insp_root_u); open {
+	if niello.begin(insp_root_u) {
 		niello.show(insp_title_u, 0, {text = "Inspector"})
 		buf: [128]u8
 		niello.show(line_u, 0, {text = fmt.bprintf(buf[:], "main window: %d instances", niello.instance_count(main_ctx))})
@@ -138,8 +136,7 @@ declare_inspector :: proc() {
 		}
 		niello.show(line_u, 0, {text = "watch the counter's width grow as it counts"})
 		btn: niello.Instance
-		if b, copen := niello.begin(close_btn_u); copen {
-			btn = b
+		if niello.begin(close_btn_u, out = &btn) {
 			niello.show(close_btn_label_u)
 		}
 		if niello.clicked(btn) {

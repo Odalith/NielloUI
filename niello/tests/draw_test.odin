@@ -31,7 +31,7 @@ test_draw_list_rect_and_text :: proc(t: ^testing.T) {
 	niello.mint(&label, niello.NO_UNIT, {size = niello.Size{niello.fit(), niello.fit()}})
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
+	if niello.begin(root) {
 		niello.show(box)
 		niello.show(label, 0, niello.With{text = "Hi"})
 	}
@@ -75,7 +75,7 @@ test_draw_list_truncation :: proc(t: ^testing.T) {
 	niello.mint(&lbl, niello.NO_UNIT, {size = niello.Size{niello.fixed(40), niello.fit()}})
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
+	if niello.begin(root) {
 		niello.show(lbl, 0, niello.With{text = "Hello world"})
 	}
 	niello.frame_end()
@@ -126,8 +126,8 @@ test_draw_list_clip_and_opacity :: proc(t: ^testing.T) {
 	)
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
-		if _, ok2 := niello.begin(clipbox); ok2 {
+	if niello.begin(root) {
+		if niello.begin(clipbox) {
 			niello.show(inner)
 		}
 		niello.show(fade)
@@ -204,7 +204,7 @@ test_draw_list_overlay :: proc(t: ^testing.T) {
 	)
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
+	if niello.begin(root) {
 		niello.show(dbg)
 	}
 	niello.frame_end()
@@ -261,7 +261,7 @@ test_draw_list_truncation_in_column :: proc(t: ^testing.T) {
 	niello.mint(&lbl, niello.NO_UNIT, {}) // FIT text, wrap .None, ellipsis on
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
+	if niello.begin(root) {
 		niello.show(lbl, 0, niello.With{text = "Hello world"}) // 88px intrinsic
 	}
 	niello.frame_end()
@@ -295,8 +295,8 @@ test_draw_list_truncation_nested_fit :: proc(t: ^testing.T) {
 	niello.mint(&lbl, niello.NO_UNIT, {})
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
-		if _, ok := niello.begin(card); ok {
+	if niello.begin(root) {
+		if niello.begin(card) {
 			niello.show(lbl, 0, niello.With{text = "Hello world"})
 		}
 	}
@@ -330,7 +330,7 @@ test_cross_fit_not_clamped_when_scrollable :: proc(t: ^testing.T) {
 	niello.mint(&lbl, niello.NO_UNIT, {})
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
+	if niello.begin(root) {
 		niello.show(lbl, 0, niello.With{text = "Hello world"})
 	}
 	niello.frame_end()
@@ -354,7 +354,7 @@ dmg_root, dmg_box, dmg_lbl: niello.Unit
 dmg_text: string
 
 declare_dmg_tree :: proc() {
-	if _, ok := niello.begin(dmg_root); ok {
+	if niello.begin(dmg_root) {
 		niello.show(dmg_box)
 		niello.show(dmg_lbl, 0, niello.With{text = dmg_text})
 	}
@@ -468,9 +468,9 @@ test_draw_list_rounded_clip :: proc(t: ^testing.T) {
 	)
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
-		if _, ok2 := niello.begin(outer); ok2 {
-			if _, ok3 := niello.begin(inner_clip); ok3 {
+	if niello.begin(root) {
+		if niello.begin(outer) {
+			if niello.begin(inner_clip) {
 				niello.show(leaf)
 			}
 		}
@@ -535,8 +535,8 @@ test_draw_list_scroll_clip_radius :: proc(t: ^testing.T) {
 	)
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
-	if _, ok := niello.begin(root); ok {
-		if _, ok2 := niello.begin(scroller); ok2 {
+	if niello.begin(root) {
+		if niello.begin(scroller) {
 			niello.show(content)
 		}
 	}
@@ -568,9 +568,9 @@ test_emit_skips_offscreen_leaves :: proc(t: ^testing.T) {
 	niello.mint(&row, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(30)}, text = "row"})
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
-	if _, ok := niello.begin(scroller); ok {
+	if niello.begin(scroller) {
 		for k in 0 ..< 10 {
-			if _, open := niello.begin(row, niello.key_int(k + 1)); open {
+			if niello.begin(row, niello.key_int(k + 1)) {
 			}
 		}
 	}
