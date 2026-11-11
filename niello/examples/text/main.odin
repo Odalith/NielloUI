@@ -46,22 +46,22 @@ override_spans: []niello.Text_Span
 mint :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		color = BG, padding = [4]u16{24, 24, 24, 24}, gap = 16,
+		color = BG, padding = niello.pad(24), gap = 16,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {font_size = 22, font_color = INK})
 	niello.mint(&head_u, niello.NO_UNIT, {font_size = 13, font_color = DIM})
 	niello.mint(&card_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		color = CARD, corner_radius = 8, padding = [4]u16{14, 12, 14, 12}, gap = 8,
+		color = CARD, corner_radius = 8, padding = niello.pad_xy(14, 12), gap = 8,
 	})
 	niello.mint(&body_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
 	niello.mint(&narrow_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.fixed(440), niello.fit()},
+		size = niello.size(niello.fixed(440), niello.fit()),
 	})
 	niello.mint(&clipbox_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.fixed(300), niello.fit()},
+		size = niello.size(niello.fixed(300), niello.fit()),
 	})
 
 	// The per-instance override for the WITH.TEXT_SPANS section:

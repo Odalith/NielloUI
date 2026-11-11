@@ -48,100 +48,100 @@ when niello.NIELLO_DEBUG {
 	mint_units :: proc() {
 		niello.mint(&root_u, niello.NO_UNIT, {
 			layout = .Top_To_Bottom,
-			size = niello.Size{niello.percent(1), niello.percent(1)},
-			color = niello.Color{23, 23, 27, 255},
-			padding = [4]u16{10, 10, 10, 10}, gap = 6,
+			size = niello.size(niello.percent(1), niello.percent(1)),
+			color = niello.rgb(0x17171b),
+			padding = niello.pad(10), gap = 6,
 		})
 		niello.mint(&section_u, niello.NO_UNIT, {
 			font_size = 11, font_weight = .Bold,
-			font_color = niello.Color{148, 152, 168, 255},
+			font_color = niello.rgb(0x9498a8),
 		})
 		niello.mint(&bar_u, niello.NO_UNIT, {
 			layout = .Left_To_Right,
-			size = niello.Size{niello.percent(1), niello.fixed(28)},
+			size = niello.size(niello.percent(1), niello.fixed(28)),
 			gap = 6,
 		})
 		niello.mint(&mid_u, niello.NO_UNIT, {
 			layout = .Left_To_Right,
-			size = niello.Size{niello.percent(1), niello.grow(1)},
+			size = niello.size(niello.percent(1), niello.grow()),
 			gap = 8,
 		})
-		niello.mint(&title_u, niello.NO_UNIT, {font_size = 14, font_color = niello.Color{232, 230, 224, 255}})
+		niello.mint(&title_u, niello.NO_UNIT, {font_size = 14, font_color = niello.rgb(0xe8e6e0)})
 		// Chips are containers with a centered label child:
 		// leaf text has no vertical centering, so a text-leaf
 		// chip can never center its caption. Padding is
 		// {left, top, right, bottom}.
 		niello.mint(&chip_u, niello.NO_UNIT, {
-			size = niello.Size{niello.fit(), niello.fixed(26)},
-			color = niello.Color{44, 44, 54, 255}, corner_radius = 5,
-			padding = [4]u16{8, 3, 8, 3},
-			align = [2]niello.Align_Kind{.Center, .Center},
+			size = niello.size(niello.fit(), niello.fixed(26)),
+			color = niello.rgb(0x2c2c36), corner_radius = 5,
+			padding = niello.pad_xy(8, 3),
+			align = niello.CENTER,
 		})
 		niello.mint(&chip_on_u, niello.NO_UNIT, {
-			size = niello.Size{niello.fit(), niello.fixed(26)},
-			color = niello.Color{70, 92, 140, 255}, corner_radius = 5,
-			padding = [4]u16{8, 3, 8, 3},
-			align = [2]niello.Align_Kind{.Center, .Center},
+			size = niello.size(niello.fit(), niello.fixed(26)),
+			color = niello.rgb(0x465c8c), corner_radius = 5,
+			padding = niello.pad_xy(8, 3),
+			align = niello.CENTER,
 		})
-		niello.mint(&chip_label_u, niello.NO_UNIT, {font_size = 12, font_color = niello.Color{200, 200, 208, 255}})
-		niello.mint(&chip_label_on_u, niello.NO_UNIT, {font_size = 12, font_color = niello.Color{238, 240, 246, 255}})
+		niello.mint(&chip_label_u, niello.NO_UNIT, {font_size = 12, font_color = niello.rgb(0xc8c8d0)})
+		niello.mint(&chip_label_on_u, niello.NO_UNIT, {font_size = 12, font_color = niello.rgb(0xeef0f6)})
 		niello.mint(&panel_u, niello.NO_UNIT, {
 			layout = .Top_To_Bottom,
-			size = niello.Size{niello.percent(0.52), niello.grow(1)},
-			color = niello.Color{29, 29, 34, 255}, corner_radius = 6,
-			padding = [4]u16{8, 7, 8, 7}, gap = 4,
+			size = niello.size(niello.percent(0.52), niello.grow()),
+			color = niello.rgb(0x1d1d22), corner_radius = 6,
+			padding = niello.pad_xy(8, 7), gap = 4,
 		})
 		niello.mint(&tree_scroll_u, niello.NO_UNIT, {
-			size = niello.Size{niello.percent(1), niello.grow(1)},
+			size = niello.size(niello.percent(1), niello.grow()),
 			scroll = niello.Scroll.Vertical,
 		})
 		niello.mint(&tree_col_u, niello.NO_UNIT, {
 			layout = .Top_To_Bottom,
-			size = niello.Size{niello.percent(1), niello.fit()},
+			size = niello.size(niello.percent(1), niello.fit()),
 			gap = 1,
 		})
-		niello.mint(&row_hover_u, niello.NO_UNIT, {color = niello.Color{52, 52, 64, 255}})
+		niello.mint(&row_hover_u, niello.NO_UNIT, {color = niello.rgb(0x343440)})
 		niello.mint(&row_u, niello.NO_UNIT, {
 			layout = .Left_To_Right,
-			size = niello.Size{niello.percent(1), niello.fixed(20)},
+			size = niello.size(niello.percent(1), niello.fixed(20)),
 			gap = 8, corner_radius = 3,
 			hover = row_hover_u,
 		})
-		niello.mint(&row_sel_hover_u, niello.NO_UNIT, {color = niello.Color{84, 106, 150, 255}})
+		niello.mint(&row_sel_hover_u, niello.NO_UNIT, {color = niello.rgb(0x546a96)})
 		niello.mint(&row_sel_u, niello.NO_UNIT, {
 			layout = .Left_To_Right,
-			size = niello.Size{niello.percent(1), niello.fixed(20)},
+			size = niello.size(niello.percent(1), niello.fixed(20)),
 			gap = 8, corner_radius = 3,
-			color = niello.Color{62, 80, 122, 255},
+			color = niello.rgb(0x3e507a),
 			hover = row_sel_hover_u,
 		})
-		niello.mint(&label_u, niello.NO_UNIT, {font_size = 13, font_color = niello.Color{206, 204, 198, 255}})
-		niello.mint(&alert_u, niello.NO_UNIT, {font_size = 12, font_color = niello.Color{255, 110, 100, 255}})
+		niello.mint(&label_u, niello.NO_UNIT, {font_size = 13, font_color = niello.rgb(0xceccc6)})
+		niello.mint(&alert_u, niello.NO_UNIT, {font_size = 12, font_color = niello.rgb(0xff6e64)})
 		niello.mint(&info_u, niello.NO_UNIT, {
 			layout = .Top_To_Bottom,
-			size = niello.Size{niello.grow(1), niello.grow(1)},
-			color = niello.Color{29, 29, 34, 255}, corner_radius = 6,
-			padding = [4]u16{8, 8, 8, 8}, gap = 3,
+			size = niello.size(niello.grow(), niello.grow()),
+			color = niello.rgb(0x1d1d22), corner_radius = 6,
+			padding = niello.pad(8), gap = 3,
 		})
 		niello.mint(&krow_u, niello.NO_UNIT, {
 			layout = .Left_To_Right,
-			size = niello.Size{niello.percent(1), niello.fixed(18)},
+			size = niello.size(niello.percent(1), niello.fixed(18)),
 			gap = 8,
 		})
 		niello.mint(&key_u, niello.NO_UNIT, {
-			size = niello.Size{niello.fixed(78), niello.fixed(18)},
-			font_size = 12, font_color = niello.Color{138, 140, 152, 255},
+			size = niello.size(niello.fixed(78), niello.fixed(18)),
+			font_size = 12, font_color = niello.rgb(0x8a8c98),
 		})
-		niello.mint(&val_u, niello.NO_UNIT, {font_size = 12, font_color = niello.Color{208, 206, 200, 255}})
+		niello.mint(&val_u, niello.NO_UNIT, {font_size = 12, font_color = niello.rgb(0xd0cec8)})
 		niello.mint(&ovf_u, niello.NO_UNIT, {
 			layout = .Top_To_Bottom,
-			size = niello.Size{niello.percent(1), niello.fixed(132)},
-			color = niello.Color{29, 29, 34, 255}, corner_radius = 6,
-			padding = [4]u16{8, 7, 8, 7}, gap = 2,
+			size = niello.size(niello.percent(1), niello.fixed(132)),
+			color = niello.rgb(0x1d1d22), corner_radius = 6,
+			padding = niello.pad_xy(8, 7), gap = 2,
 		})
 		niello.mint(&ovf_head_u, niello.NO_UNIT, {
 			layout = .Left_To_Right,
-			size = niello.Size{niello.percent(1), niello.fixed(28)},
+			size = niello.size(niello.percent(1), niello.fixed(28)),
 			gap = 8,
 		})
 	}

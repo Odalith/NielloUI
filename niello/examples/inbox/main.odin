@@ -185,7 +185,7 @@ index_i, cancel_i, play_i: niello.Instance
 mint :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		color = BG, padding = [4]u16{22, 22, 22, 22}, gap = 10,
+		color = BG, padding = niello.pad(22), gap = 10,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {font_size = 22, font_color = TEXT, text = "One inbox"})
 	niello.mint(&hint_u, niello.NO_UNIT, {
@@ -194,14 +194,14 @@ mint :: proc() {
 	})
 	niello.mint(&row_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right, gap = 10,
-		size = niello.Size{niello.grow(), niello.fit()},
+		size = niello.size(niello.grow(), niello.fit()),
 	})
 	niello.mint(&btn_hover_u, niello.NO_UNIT, {color = BTN_HOVER})
 	niello.mint(&btn_press_u, niello.NO_UNIT, {color = BTN_PRESS})
 	niello.mint(&btn_u, niello.NO_UNIT, {
 		layout = niello.Layout.Stack,
-		align = [2]niello.Align_Kind{niello.Align_Kind.Center, niello.Align_Kind.Center},
-		size = niello.Size{niello.fixed(150), niello.fixed(36)},
+		align = niello.CENTER,
+		size = niello.size(niello.fixed(150), niello.fixed(36)),
 		color = BTN, corner_radius = 6,
 		hover = btn_hover_u, press = btn_press_u, focusable = true,
 	})

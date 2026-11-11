@@ -398,18 +398,28 @@ resolve_cross :: proc(c: int, axis: int, inner: f32, parent_scrolls: bool) {
 // Fair-share distribution. O(n^2) worst case here; sort candidates once for
 // O(n log n) — same result.
 waterfill_give :: proc(cands: []int, axis: int, amount: f32) {
+	weight :: proc(c, axis: int) -> f32 {
+		return node_style(c).size[axis].weight
+	}
 	active := cands
 	remaining := amount
 	for len(active) > 0 {
-		share := remaining / f32(len(active))
-		if share <= 1e-6 {
+		total := f32(0)
+		for c in active {
+			total += weight(c, axis)
+		}
+		if remaining <= 1e-6 || total <= 0 {
 			break
 		}
+		// Each grower's share is proportional to its weight. A grower
+		// whose share would carry it past its ceiling takes only up to
+		// the ceiling and leaves; the rest is shared again.
+		per := remaining / total
 		clamped := false
 		for j := len(active) - 1; j >= 0; j -= 1 {
 			c := active[j]
 			ceil := ceil_of(c, axis)
-			if g.lay[c].size[axis] + share >= ceil {
+			if g.lay[c].size[axis] + per * weight(c, axis) >= ceil {
 				remaining -= ceil - g.lay[c].size[axis]
 				g.lay[c].size[axis] = ceil
 				// swap-remove (order is irrelevant to the waterfill)
@@ -420,7 +430,7 @@ waterfill_give :: proc(cands: []int, axis: int, amount: f32) {
 		}
 		if !clamped {
 			for c in active {
-				g.lay[c].size[axis] += share
+				g.lay[c].size[axis] += per * weight(c, axis)
 			}
 			break
 		}

@@ -153,46 +153,46 @@ declare_inspector :: proc() {
 mint_units :: proc() {
 	niello.mint(&root_u, niello.NO_UNIT, {
 		layout = .Top_To_Bottom,
-		size = niello.Size{niello.percent(1), niello.percent(1)},
-		color = niello.Color{22, 22, 30, 255},
-		padding = [4]u16{16, 16, 16, 16}, gap = 12,
+		size = niello.size(niello.percent(1), niello.percent(1)),
+		color = niello.rgb(0x16161e),
+		padding = niello.pad(16), gap = 12,
 	})
-	niello.mint(&title_u, niello.NO_UNIT, {font_size = 15, font_color = niello.Color{225, 225, 235, 255}})
+	niello.mint(&title_u, niello.NO_UNIT, {font_size = 15, font_color = niello.rgb(0xe1e1eb)})
 	niello.mint(&panel_u, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size = niello.Size{niello.percent(1), niello.fixed(72)},
-		color = niello.Color{36, 36, 50, 255},
-		padding = [4]u16{12, 12, 12, 12}, gap = 12, corner_radius = 8,
+		size = niello.size(niello.percent(1), niello.fixed(72)),
+		color = niello.rgb(0x242432),
+		padding = niello.pad(12), gap = 12, corner_radius = 8,
 	})
-	niello.mint(&chip_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(48), niello.fixed(48)}, color = niello.Color{70, 170, 120, 255}, corner_radius = 8})
-	niello.mint(&pulse_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(48), niello.fixed(48)}, color = niello.Color{60, 60, 78, 255}, corner_radius = 8})
-	niello.mint(&pulse_on_u, niello.NO_UNIT, {color = niello.Color{250, 190, 60, 255}})
-	niello.mint(&open_btn_hover_u, niello.NO_UNIT, {color = niello.Color{64, 84, 130, 255}})
+	niello.mint(&chip_u, niello.NO_UNIT, {size = niello.size(niello.fixed(48), niello.fixed(48)), color = niello.rgb(0x46aa78), corner_radius = 8})
+	niello.mint(&pulse_u, niello.NO_UNIT, {size = niello.size(niello.fixed(48), niello.fixed(48)), color = niello.rgb(0x3c3c4e), corner_radius = 8})
+	niello.mint(&pulse_on_u, niello.NO_UNIT, {color = niello.rgb(0xfabe3c)})
+	niello.mint(&open_btn_hover_u, niello.NO_UNIT, {color = niello.rgb(0x405482)})
 	niello.mint(&open_btn_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(150), niello.fixed(36)},
-		color = niello.Color{48, 62, 100, 255}, corner_radius = 6,
-		align = [2]niello.Align_Kind{.Center, .Center},
+		size = niello.size(niello.fixed(150), niello.fixed(36)),
+		color = niello.rgb(0x303e64), corner_radius = 6,
+		align = niello.CENTER,
 		hover = open_btn_hover_u,
 	})
-	niello.mint(&open_btn_label_u, niello.NO_UNIT, {text = "Open inspector", font_size = 14, font_color = niello.Color{235, 238, 245, 255}})
-	niello.mint(&counter_u, niello.NO_UNIT, {font_size = 14, font_color = niello.Color{170, 175, 190, 255}})
+	niello.mint(&open_btn_label_u, niello.NO_UNIT, {text = "Open inspector", font_size = 14, font_color = niello.rgb(0xebeef5)})
+	niello.mint(&counter_u, niello.NO_UNIT, {font_size = 14, font_color = niello.rgb(0xaaafbe)})
 
 	niello.mint(&insp_root_u, niello.NO_UNIT, {
 		layout = .Top_To_Bottom,
-		size = niello.Size{niello.percent(1), niello.percent(1)},
-		color = niello.Color{26, 24, 20, 255},
-		padding = [4]u16{14, 14, 14, 14}, gap = 8,
+		size = niello.size(niello.percent(1), niello.percent(1)),
+		color = niello.rgb(0x1a1814),
+		padding = niello.pad(14), gap = 8,
 	})
-	niello.mint(&insp_title_u, niello.NO_UNIT, {font_size = 15, font_color = niello.Color{240, 226, 200, 255}})
-	niello.mint(&line_u, niello.NO_UNIT, {font_size = 13, font_color = niello.Color{205, 200, 190, 255}})
-	niello.mint(&close_btn_hover_u, niello.NO_UNIT, {color = niello.Color{120, 70, 55, 255}})
+	niello.mint(&insp_title_u, niello.NO_UNIT, {font_size = 15, font_color = niello.rgb(0xf0e2c8)})
+	niello.mint(&line_u, niello.NO_UNIT, {font_size = 13, font_color = niello.rgb(0xcdc8be)})
+	niello.mint(&close_btn_hover_u, niello.NO_UNIT, {color = niello.rgb(0x784637)})
 	niello.mint(&close_btn_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(110), niello.fixed(32)},
-		color = niello.Color{96, 56, 44, 255}, corner_radius = 6,
-		align = [2]niello.Align_Kind{.Center, .Center},
+		size = niello.size(niello.fixed(110), niello.fixed(32)),
+		color = niello.rgb(0x60382c), corner_radius = 6,
+		align = niello.CENTER,
 		hover = close_btn_hover_u,
 	})
-	niello.mint(&close_btn_label_u, niello.NO_UNIT, {text = "Close", font_size = 14, font_color = niello.Color{245, 238, 230, 255}})
+	niello.mint(&close_btn_label_u, niello.NO_UNIT, {text = "Close", font_size = 14, font_color = niello.rgb(0xf5eee6)})
 }
 
 main :: proc() {

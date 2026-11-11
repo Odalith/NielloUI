@@ -50,15 +50,15 @@ card_inst: [3]niello.Instance
 mint :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		color = BG, padding = [4]u16{24, 24, 24, 24}, gap = 14,
+		color = BG, padding = niello.pad(24), gap = 14,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {font_size = 24, font_color = DARK_TEXT})
-	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13.5, font_color = niello.Color{150, 154, 168, 255}})
+	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13.5, font_color = niello.rgb(0x969aa8)})
 	niello.mint(&label_u, niello.NO_UNIT, {font_size = 14})
-	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13.5, font_color = niello.Color{150, 154, 168, 255}})
+	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13.5, font_color = niello.rgb(0x969aa8)})
 	niello.mint(&row_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right, gap = 12,
-		size = niello.Size{niello.grow(), niello.fit()},
+		size = niello.size(niello.grow(), niello.fit()),
 	})
 
 	surfaces = niello.group_new("surfaces")
@@ -69,9 +69,9 @@ mint :: proc() {
 	niello.mint(&btn_press_u, niello.NO_UNIT, {color = BTN_PRESS})
 	niello.mint(&btn_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.fit(), niello.fixed(40)},
-		padding = [4]u16{16, 0, 16, 0},
-		align = [2]niello.Align_Kind{.Center, .Center},
+		size = niello.size(niello.fit(), niello.fixed(40)),
+		padding = niello.pad_xy(16, 0),
+		align = niello.CENTER,
 		color = BTN, corner_radius = 8,
 		hover = btn_hover_u, press = btn_press_u, cursor = niello.Cursor_Kind.Pointer,
 		groups = []niello.Group{surfaces},
@@ -88,8 +88,8 @@ mint :: proc() {
 	// Cards: minted from the proto, so propagate can restyle them.
 	niello.mint(&card_proto_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.grow(), niello.fixed(108)},
-		padding = [4]u16{14, 12, 14, 12}, gap = 6,
+		size = niello.size(niello.grow(), niello.fixed(108)),
+		padding = niello.pad_xy(14, 12), gap = 6,
 		color = ACCENTS[0], corner_radius = 10,
 	})
 	niello.mint(&card_title_u, niello.NO_UNIT, {font_size = 16, font_color = DARK_TEXT, groups = []niello.Group{texts}})
@@ -101,20 +101,20 @@ mint :: proc() {
 		niello.mint(&card_units[k], card_proto_u)
 	}
 	// The flash: a transient unit — only its color participates.
-	niello.mint(&flash_u, niello.NO_UNIT, {color = niello.Color{255, 255, 255, 255}})
+	niello.mint(&flash_u, niello.NO_UNIT, {color = niello.rgb(0xffffff)})
 
 	// The glide box and its two poses.
 	niello.mint(&box_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(120), niello.fixed(56)},
-		color = niello.Color{64, 130, 160, 255}, corner_radius = 10,
+		size = niello.size(niello.fixed(120), niello.fixed(56)),
+		color = niello.rgb(0x4082a0), corner_radius = 10,
 	})
 	niello.mint(&pose_a_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(120), niello.fixed(56)},
-		color = niello.Color{64, 130, 160, 255},
+		size = niello.size(niello.fixed(120), niello.fixed(56)),
+		color = niello.rgb(0x4082a0),
 	})
 	niello.mint(&pose_b_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(300), niello.fixed(56)},
-		color = niello.Color{200, 120, 60, 255},
+		size = niello.size(niello.fixed(300), niello.fixed(56)),
+		color = niello.rgb(0xc8783c),
 	})
 	// Cards and buttons are born dark-themed; the window/panel stay
 	// constant so the crossfade reads clearly. (Birth values come

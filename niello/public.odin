@@ -116,10 +116,12 @@ Sizing_Kind :: enum u8 {
 }
 
 Sizing :: struct {
-	kind:  Sizing_Kind,
-	value: f32, // Fixed: px; Percent: fraction of parent inner size
-	min:   f32, // clamp floor, default 0 (waterfill never goes below max(min, min_c))
-	max:   f32, // clamp ceiling, default INF
+	kind:   Sizing_Kind,
+	value:  f32, // Fixed: px; Percent: fraction of parent inner size
+	min:    f32, // clamp floor, default 0 (waterfill never goes below max(min, min_c))
+	max:    f32, // clamp ceiling, default INF
+	weight: f32, // Grow: share of the leftover relative to sibling growers
+	             // (grow() sets 1; 0 takes no share)
 }
 
 Size :: [2]Sizing // indexed by axis
@@ -142,11 +144,59 @@ fit :: proc(min: f32 = 0, max: f32 = INF) -> Sizing {
 	return Sizing{kind = .Fit, min = min, max = max}
 }
 
-grow :: proc(min: f32 = 0, max: f32 = INF) -> Sizing {
-	assert(min == min && max == max, "niello.grow: sizing values must not be NaN")
+// grow takes a share of the space its parent has left over on the main
+// axis, in proportion to weight: two children grow(2) and grow() split
+// it 2:1. The share comes on top of the child's content size, and stops
+// at max. Shrinking is not weighted: a deficit is taken fairly from
+// every shrinkable child. On the cross axis a grow child fills the
+// parent's inner box.
+grow :: proc(weight: f32 = 1, min: f32 = 0, max: f32 = INF) -> Sizing {
+	assert(weight == weight && min == min && max == max, "niello.grow: sizing values must not be NaN")
+	assert(weight >= 0, "niello.grow: weight must not be negative")
 	assert(min <= max, "niello.grow: min must not exceed max")
-	return Sizing{kind = .Grow, min = min, max = max}
+	return Sizing{kind = .Grow, min = min, max = max, weight = weight}
 }
+
+// ============ style shorthands ============
+
+// The shorthands are contextless, so they also work in global variable
+// initializers. Odin evaluates no procedure at compile time, though: a
+// constant (`BG :: …`) still spells its color as a Color{r, g, b, a}
+// literal.
+
+// size pairs a width and a height: size(grow(), fixed(40)).
+size :: proc "contextless" (w, h: Sizing) -> Size {
+	return Size{w, h}
+}
+
+// rgb builds a Color from a 0xRRGGBB literal: rgb(0x1e2028), or
+// rgb(0x000000, 120) for a translucent black.
+rgb :: proc "contextless" (hex: u32, alpha: u8 = 255) -> Color {
+	return Color{u8(hex >> 16), u8(hex >> 8), u8(hex), alpha}
+}
+
+// Padding is [left, top, right, bottom]. pad gives all four sides the
+// same value, pad_xy one value horizontally and one vertically, and
+// pad_each names every side.
+pad :: proc "contextless" (all: u16) -> [4]u16 {
+	return [4]u16{all, all, all, all}
+}
+
+pad_xy :: proc "contextless" (x, y: u16) -> [4]u16 {
+	return [4]u16{x, y, x, y}
+}
+
+pad_each :: proc "contextless" (left, top, right, bottom: u16) -> [4]u16 {
+	return [4]u16{left, top, right, bottom}
+}
+
+// align is Style.align, [x, y]: align(.Start, .Center) puts children at
+// the left, vertically centered.
+align :: proc "contextless" (x, y: Align_Kind) -> [2]Align_Kind {
+	return [2]Align_Kind{x, y}
+}
+
+CENTER :: [2]Align_Kind{.Center, .Center}
 
 Scroll :: enum u8 {
 	None,
@@ -274,7 +324,7 @@ Style :: struct {
 	font_weight:   Font_Weight,
 	font_slant:    Font_Slant,
 	text_spans:    []Text_Span, // rich-text overrides; nil = plain
-	padding:       [4]u16,
+	padding:       [4]u16, // [left, top, right, bottom]; see pad / pad_xy
 	gap:           u16,
 	border_width:  u16, // paint-only; drawn inset within the rect
 	corner_radius: u8,
@@ -282,7 +332,7 @@ Style :: struct {
 	layout:        Layout,
 	size:          Size,
 	scroll:        Scroll,
-	align:         [2]Align_Kind, // indexed by axis; caller resolves main vs cross
+	align:         [2]Align_Kind, // [x, y], for flow and anchored children alike
 	wrap:          Text_Wrap,     // default .None
 	whitespace:    Whitespace,    // default .Collapse (§3.18)
 	ellipsis:      bool,          // default true; paint-time trim when no-wrap text overflows

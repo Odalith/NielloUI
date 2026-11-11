@@ -98,7 +98,7 @@ Layout_State :: struct {
 layout_units: struct {
 	box_row, sized, demo_label, align_cell, align_dot, clip_box, spill_box, wide: niello.Unit,
 	squeeze_row, squeeze_label: niello.Unit,
-	fixed_b, fit_b, grow_b, grow_max_b, percent_b: niello.Unit,
+	fixed_b, fit_b, grow_b, grow2_b, grow_max_b, percent_b: niello.Unit,
 	align_cells: [9]niello.Unit,
 }
 
@@ -121,7 +121,11 @@ page_layout :: proc(app: ^App) {
 			niello.show(L.grow_b, {text = "grow()"})
 			niello.show(L.grow_b, {text = "grow()"})
 		}
-		note("Growers split the leftover fairly; one clamped by its max gives the rest away.")
+		if niello.begin(L.box_row) {
+			niello.show(L.grow2_b, {text = "grow(2)"})
+			niello.show(L.grow_b, {text = "grow()"})
+		}
+		note("Growers split the leftover by weight — grow(2) takes twice the share of grow() — and one clamped by its max gives the rest away.")
 	}
 
 	if niello.begin(ui.card) {
@@ -140,7 +144,7 @@ page_layout :: proc(app: ^App) {
 		note("Drag the slider to squeeze the row. Fit children shrink fairly toward their floors; text past its box is trimmed with an ellipsis at paint time.")
 		slider(&s.squeeze, "Row width")
 		w := 120 + s.squeeze.value * 520
-		niello.set(L.squeeze_row, .Size, sz(fixed(w), fixed(34)))
+		niello.set(L.squeeze_row, .Size, size(fixed(w), fixed(34)))
 		if niello.begin(L.squeeze_row) {
 			niello.show(L.squeeze_label, {text = "The first label is fairly long"})
 			niello.show(L.squeeze_label, {text = "Second label"})
@@ -222,7 +226,7 @@ page_text :: proc(app: ^App) {
 		heading("Wrapping")
 		slider(&s.width, "Paragraph width")
 		w := 160 + s.width.value * 500
-		niello.set(T.wrapped, .Size, sz(fixed(w), fit()))
+		niello.set(T.wrapped, .Size, size(fixed(w), fit()))
 		niello.show(T.wrapped, {text = WRAP_TEXT})
 		note(fmt.tprintf("width %.0f DIP", w))
 	}
@@ -347,7 +351,7 @@ mint_pages_basic :: proc(t: Theme) {
 
 	for k in niello.Cursor_Kind {
 		niello.mint(&cursor_units[k], niello.NO_UNIT, {
-			size = sz(fit(), fixed(28)), padding = pad_xy(10, 6), corner_radius = 6,
+			size = size(fit(), fixed(28)), padding = pad_xy(10, 6), corner_radius = 6,
 			color = t.raised, font_size = 12, font_color = t.ink, cursor = k,
 			hover = ui.btn_hover,
 			groups = []niello.Group{groups.raised, groups.ink},
@@ -355,55 +359,58 @@ mint_pages_basic :: proc(t: Theme) {
 	}
 
 	L := &layout_units
-	niello.mint(&L.box_row, niello.NO_UNIT, {layout = .Left_To_Right, size = sz(grow(), fixed(44)), gap = 8})
+	niello.mint(&L.box_row, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), fixed(44)), gap = 8})
 	box := niello.Style_Decl{
-		size = sz(fixed(140), grow()), padding = pad_xy(10, 13), corner_radius = 6,
+		size = size(fixed(140), grow()), padding = pad_xy(10, 13), corner_radius = 6,
 		color = t.raised, font_size = 13, font_color = t.ink,
 		groups = []niello.Group{groups.raised, groups.ink},
 	}
 	niello.mint(&L.fixed_b, niello.NO_UNIT, box)
-	box.size = sz(fit(), grow())
+	box.size = size(fit(), grow())
 	niello.mint(&L.fit_b, niello.NO_UNIT, box)
-	box.size = sz(percent(0.2), grow())
+	box.size = size(percent(0.2), grow())
 	niello.mint(&L.percent_b, niello.NO_UNIT, box)
 	box.groups = []niello.Group{groups.ink}
-	box.size = sz(grow(), grow())
+	box.size = size(grow(), grow())
 	box.color = rgb(0x3d5a8c)
 	niello.mint(&L.grow_b, niello.NO_UNIT, box)
-	box.size = sz(grow(max = 160), grow())
+	box.size = size(grow(2), grow())
+	box.color = rgb(0x3d7a8c)
+	niello.mint(&L.grow2_b, niello.NO_UNIT, box)
+	box.size = size(grow(max = 160), grow())
 	box.color = rgb(0x5a3d8c)
 	niello.mint(&L.grow_max_b, niello.NO_UNIT, box)
 
-	niello.mint(&L.align_dot, niello.NO_UNIT, {size = sz(fixed(16), fixed(16)), corner_radius = 8, color = t.accent})
+	niello.mint(&L.align_dot, niello.NO_UNIT, {size = size(fixed(16), fixed(16)), corner_radius = 8, color = t.accent})
 	kinds := [3]niello.Align_Kind{.Start, .Center, .End}
 	for k in 0 ..< 9 {
 		niello.mint(&L.align_cells[k], niello.NO_UNIT, {
-			layout = .Stack, size = sz(fixed(64), fixed(64)), padding = pad(6),
+			layout = .Stack, size = size(fixed(64), fixed(64)), padding = pad(6),
 			corner_radius = 6, color = t.raised,
-			align = [2]niello.Align_Kind{kinds[k % 3], kinds[k / 3]},
+			align = niello.align(kinds[k % 3], kinds[k / 3]),
 			groups = []niello.Group{groups.raised},
 		})
 	}
 	niello.mint(&L.squeeze_row, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(fixed(400), fixed(34)), gap = 6,
+		layout = .Left_To_Right, size = size(fixed(400), fixed(34)), gap = 6,
 		padding = pad(4), corner_radius = 6, color = t.bg,
 		groups = []niello.Group{groups.bg},
 	})
 	niello.mint(&L.squeeze_label, niello.NO_UNIT, {
-		size = sz(fit(), grow()), padding = pad_xy(8, 4), corner_radius = 4,
+		size = size(fit(), grow()), padding = pad_xy(8, 4), corner_radius = 4,
 		color = t.raised, font_size = 13, font_color = t.ink,
 		groups = []niello.Group{groups.raised, groups.ink},
 	})
 	niello.mint(&L.spill_box, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(fixed(200), fixed(50)), padding = pad(8),
+		layout = .Top_To_Bottom, size = size(fixed(200), fixed(50)), padding = pad(8),
 		corner_radius = 6, border_width = 1, border_color = t.dim,
 	})
 	niello.mint(&L.clip_box, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(fixed(200), fixed(50)), padding = pad(8),
+		layout = .Top_To_Bottom, size = size(fixed(200), fixed(50)), padding = pad(8),
 		corner_radius = 6, border_width = 1, border_color = t.dim, overflow = .Clip,
 	})
 	niello.mint(&L.wide, niello.NO_UNIT, {
-		size = sz(fixed(320), fixed(30)), padding = pad_xy(8, 7), corner_radius = 4,
+		size = size(fixed(320), fixed(30)), padding = pad_xy(8, 7), corner_radius = 4,
 		color = rgb(0x8c5a3d), font_size = 13, font_color = rgb(0xffffff), ellipsis = false,
 	})
 
@@ -448,13 +455,13 @@ mint_pages_basic :: proc(t: Theme) {
 		groups = []niello.Group{groups.ink, groups.raised},
 	})
 	niello.mint(&T.ws_box, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(fit(), fit()),
+		layout = .Left_To_Right, size = size(fit(), fit()),
 		color = t.bg, corner_radius = 4, groups = []niello.Group{groups.bg},
 	})
 	niello.mint(&T.collapse, niello.NO_UNIT, {font_size = 14, font_color = t.ink, color = rgb(0x3d5a8c, 160), groups = []niello.Group{groups.ink}})
 	niello.mint(&T.preserve, niello.NO_UNIT, {font_size = 14, font_color = t.ink, whitespace = .Preserve, color = rgb(0x3d5a8c, 160), groups = []niello.Group{groups.ink}})
 	niello.mint(&T.trim_box, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(fixed(240), fixed(30)), padding = pad_xy(8, 6),
+		layout = .Left_To_Right, size = size(fixed(240), fixed(30)), padding = pad_xy(8, 6),
 		overflow = .Clip, corner_radius = 4, color = t.raised, groups = []niello.Group{groups.raised},
 	})
 	niello.mint(&T.ellipsis, niello.NO_UNIT, {font_size = 13, font_color = t.ink, groups = []niello.Group{groups.ink}})
@@ -462,7 +469,7 @@ mint_pages_basic :: proc(t: Theme) {
 
 	niello.mint(&input_units.key_box_focus, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
 	niello.mint(&input_units.key_box, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(grow(), fixed(230)), padding = pad(12), gap = 2,
+		layout = .Top_To_Bottom, size = size(grow(), fixed(230)), padding = pad(12), gap = 2,
 		color = t.bg, corner_radius = 8, focusable = true, cursor = .Text,
 		focus = input_units.key_box_focus, overflow = .Clip,
 		groups = []niello.Group{groups.bg},

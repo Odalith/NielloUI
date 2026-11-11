@@ -36,12 +36,12 @@ backdrop_u, panel_u, msg_u: niello.Unit
 mint :: proc() {
 	niello.mint(&root_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.grow(1), niello.grow(1)},
-		color = BG, padding = [4]u16{16, 16, 16, 16}, gap = 12,
+		size = niello.size(niello.grow(), niello.grow()),
+		color = BG, padding = niello.pad(16), gap = 12,
 	})
 	niello.mint(&bar_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.grow(1), niello.fixed(40)},
+		size = niello.size(niello.grow(), niello.fixed(40)),
 		gap = 8,
 	})
 	niello.mint(&btn_hover_u, niello.NO_UNIT, {color = HOVER})
@@ -51,34 +51,34 @@ mint :: proc() {
 	})
 	niello.mint(&btn_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.fixed(110), niello.fixed(40)},
+		size = niello.size(niello.fixed(110), niello.fixed(40)),
 		color = PANEL, corner_radius = 6,
-		align = [2]niello.Align_Kind{.Center, .Center},
+		align = niello.CENTER,
 		focusable = true,
 		hover = btn_hover_u, press = btn_press_u, focus = btn_focus_u,
 	})
 	niello.mint(&btn_label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
 	niello.mint(&canvas_u, niello.NO_UNIT, {
-		size = niello.Size{niello.grow(1), niello.grow(1)},
+		size = niello.size(niello.grow(), niello.grow()),
 		color = CANVAS, corner_radius = 8,
 	})
 	niello.mint(&status_u, niello.NO_UNIT, {
-		size = niello.Size{niello.grow(1), niello.fixed(24)},
+		size = niello.size(niello.grow(), niello.fixed(24)),
 		font_size = 14, font_color = DIM,
 	})
 	niello.mint(&item_hover_u, niello.NO_UNIT, {color = HOVER})
 	niello.mint(&menu_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.fixed(190), niello.fit()},
+		size = niello.size(niello.fixed(190), niello.fit()),
 		color = PANEL, corner_radius = 8,
 		border_width = 1, border_color = HOVER,
-		padding = [4]u16{4, 4, 4, 4}, gap = 2,
+		padding = niello.pad(4), gap = 2,
 	})
 	niello.mint(&item_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.grow(1), niello.fixed(32)},
-		corner_radius = 4, padding = [4]u16{10, 0, 10, 0},
-		align = [2]niello.Align_Kind{.Start, .Center},
+		size = niello.size(niello.grow(), niello.fixed(32)),
+		corner_radius = 4, padding = niello.pad_xy(10, 0),
+		align = niello.align(.Start, .Center),
 		focusable = true,
 		hover = item_hover_u, focus = btn_focus_u,
 	})
@@ -87,14 +87,14 @@ mint :: proc() {
 	// it tracks the live viewport on resize (a Fixed root would
 	// freeze it at the mint-time window size).
 	niello.mint(&backdrop_u, niello.NO_UNIT, {
-		size = niello.Size{niello.percent(1), niello.percent(1)},
+		size = niello.size(niello.percent(1), niello.percent(1)),
 		color = SHADE,
 	})
 	niello.mint(&panel_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.fixed(320), niello.fit()},
+		size = niello.size(niello.fixed(320), niello.fit()),
 		color = PANEL, corner_radius = 10,
-		padding = [4]u16{18, 18, 18, 18}, gap = 12,
+		padding = niello.pad(18), gap = 12,
 	})
 	niello.mint(&msg_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
 }

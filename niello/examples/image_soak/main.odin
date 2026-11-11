@@ -86,28 +86,28 @@ mint_units :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout  = niello.Layout.Top_To_Bottom,
 		color   = DARK,
-		padding = [4]u16{18, 18, 18, 18},
+		padding = niello.pad(18),
 		gap     = 10,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {
 		font_size  = 20,
-		font_color = niello.Color{240, 240, 245, 255},
+		font_color = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&status_u, niello.NO_UNIT, {
 		font_size  = 13,
-		font_color = niello.Color{150, 156, 170, 255},
+		font_color = niello.rgb(0x969caa),
 	})
 	niello.mint(&verdict_u, niello.NO_UNIT, {
 		font_size  = 15,
-		font_color = niello.Color{232, 234, 240, 255},
+		font_color = niello.rgb(0xe8eaf0),
 	})
 	niello.mint(&row_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fit()},
+		size   = niello.size(niello.grow(), niello.fit()),
 		gap    = 10,
 	})
 	niello.mint(&cell_u, niello.NO_UNIT, {
-		size      = niello.Size{niello.fixed(150), niello.fixed(100)},
+		size      = niello.size(niello.fixed(150), niello.fixed(100)),
 		color     = BAND,
 		image_fit = niello.Image_Fit.Uniform,
 	})

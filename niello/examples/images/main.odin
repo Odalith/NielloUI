@@ -35,29 +35,29 @@ mint_units :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout  = niello.Layout.Top_To_Bottom,
 		color   = DARK,
-		padding = [4]u16{18, 18, 18, 18},
+		padding = niello.pad(18),
 		gap     = 10,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {
 		font_size  = 22,
-		font_color = niello.Color{240, 240, 245, 255},
+		font_color = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&hdr_u, niello.NO_UNIT, {
 		font_size  = 13,
-		font_color = niello.Color{150, 156, 170, 255},
+		font_color = niello.rgb(0x969caa),
 	})
 	niello.mint(&lbl_u, niello.NO_UNIT, {
 		font_size  = 13,
-		font_color = niello.Color{232, 234, 240, 255},
+		font_color = niello.rgb(0xe8eaf0),
 	})
 	niello.mint(&row_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fit()},
+		size   = niello.size(niello.grow(), niello.fit()),
 		gap    = 10,
 	})
 	niello.mint(&col_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size   = niello.Size{niello.fit(), niello.fit()},
+		size   = niello.size(niello.fit(), niello.fit()),
 		gap    = 6,
 	})
 	// The four fit-mode boxes: one shape, one fit each.
@@ -65,27 +65,27 @@ mint_units :: proc() {
 	for u, i in ([]^niello.Unit{&fit_uniform, &fit_fill, &fit_ufill, &fit_none}) {
 		fit := fits[i]
 		niello.mint(u, niello.NO_UNIT, {
-			size      = niello.Size{niello.fixed(196), niello.fixed(130)},
+			size      = niello.size(niello.fixed(196), niello.fixed(130)),
 			color     = BAND,
 			image_fit = fit,
 		})
 	}
 	niello.mint(&thumb_u, niello.NO_UNIT, {
-		size  = niello.Size{niello.grow(), niello.fixed(56)},
+		size  = niello.size(niello.grow(), niello.fixed(56)),
 		color = BAND,
 	})
 	niello.mint(&bg_u, niello.NO_UNIT, {
 		layout    = niello.Layout.Top_To_Bottom,
-		align     = [2]niello.Align_Kind{.Center, .Center},
-		size      = niello.Size{niello.grow(), niello.fixed(150)},
+		align     = niello.CENTER,
+		size      = niello.size(niello.grow(), niello.fixed(150)),
 		image_fit = niello.Image_Fit.Uniform_Fill,
 	})
 	niello.mint(&interp_hi, niello.NO_UNIT, {
-		size         = niello.Size{niello.fixed(150), niello.fixed(150)},
+		size         = niello.size(niello.fixed(150), niello.fixed(150)),
 		image_interp = niello.Image_Interp.High,
 	})
 	niello.mint(&interp_no, niello.NO_UNIT, {
-		size         = niello.Size{niello.fixed(150), niello.fixed(150)},
+		size         = niello.size(niello.fixed(150), niello.fixed(150)),
 		image_interp = niello.Image_Interp.None,
 	})
 }

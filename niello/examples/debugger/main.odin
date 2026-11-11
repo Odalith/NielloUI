@@ -67,44 +67,44 @@ declare_win2 :: proc() {
 mint_units :: proc() {
 	niello.mint(&root_u, niello.NO_UNIT, {
 		layout = .Top_To_Bottom,
-		size = niello.Size{niello.percent(1), niello.percent(1)},
-		color = niello.Color{26, 26, 34, 255},
-		padding = [4]u16{16, 16, 16, 16}, gap = 12,
+		size = niello.size(niello.percent(1), niello.percent(1)),
+		color = niello.rgb(0x1a1a22),
+		padding = niello.pad(16), gap = 12,
 	})
-	niello.mint(&title_u, niello.NO_UNIT, {font_size = 15, font_color = niello.Color{228, 228, 236, 255}})
+	niello.mint(&title_u, niello.NO_UNIT, {font_size = 15, font_color = niello.rgb(0xe4e4ec)})
 	niello.mint(&panel_u, niello.NO_UNIT, {
 		layout = .Top_To_Bottom,
-		size = niello.Size{niello.fixed(240), niello.fixed(110)},
-		color = niello.Color{38, 38, 52, 255}, corner_radius = 8,
-		padding = [4]u16{10, 10, 10, 10}, gap = 8,
+		size = niello.size(niello.fixed(240), niello.fixed(110)),
+		color = niello.rgb(0x262634), corner_radius = 8,
+		padding = niello.pad(10), gap = 8,
 	})
-	niello.mint(&wide_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(340), niello.fixed(36)}, color = niello.Color{196, 90, 70, 255}, corner_radius = 6})
+	niello.mint(&wide_u, niello.NO_UNIT, {size = niello.size(niello.fixed(340), niello.fixed(36)), color = niello.rgb(0xc45a46), corner_radius = 6})
 	niello.mint(&leaf_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(120), niello.fixed(24)},
+		size = niello.size(niello.fixed(120), niello.fixed(24)),
 		text = "a label far too wide for its box",
-		font_size = 14, font_color = niello.Color{230, 226, 210, 255},
+		font_size = 14, font_color = niello.rgb(0xe6e2d2),
 	})
 	niello.mint(&scroll_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(240), niello.fixed(90)},
+		size = niello.size(niello.fixed(240), niello.fixed(90)),
 		scroll = niello.Scroll.Vertical,
-		color = niello.Color{38, 44, 40, 255}, corner_radius = 8,
+		color = niello.rgb(0x262c28), corner_radius = 8,
 	})
-	niello.mint(&tall_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(300)}, color = niello.Color{80, 140, 100, 255}, corner_radius = 6})
-	niello.mint(&open_btn_hover_u, niello.NO_UNIT, {color = niello.Color{64, 84, 130, 255}})
+	niello.mint(&tall_u, niello.NO_UNIT, {size = niello.size(niello.fixed(200), niello.fixed(300)), color = niello.rgb(0x508c64), corner_radius = 6})
+	niello.mint(&open_btn_hover_u, niello.NO_UNIT, {color = niello.rgb(0x405482)})
 	niello.mint(&open_btn_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(170), niello.fixed(36)},
-		color = niello.Color{48, 62, 100, 255}, corner_radius = 6,
-		align = [2]niello.Align_Kind{.Center, .Center},
+		size = niello.size(niello.fixed(170), niello.fixed(36)),
+		color = niello.rgb(0x303e64), corner_radius = 6,
+		align = niello.CENTER,
 		hover = open_btn_hover_u,
 	})
-	niello.mint(&open_btn_label_u, niello.NO_UNIT, {text = "Open second window", font_size = 14, font_color = niello.Color{235, 238, 245, 255}})
+	niello.mint(&open_btn_label_u, niello.NO_UNIT, {text = "Open second window", font_size = 14, font_color = niello.rgb(0xebeef5)})
 	niello.mint(&win2_root_u, niello.NO_UNIT, {
 		layout = .Top_To_Bottom,
-		size = niello.Size{niello.percent(1), niello.percent(1)},
-		color = niello.Color{30, 34, 30, 255},
-		padding = [4]u16{14, 14, 14, 14}, gap = 10,
+		size = niello.size(niello.percent(1), niello.percent(1)),
+		color = niello.rgb(0x1e221e),
+		padding = niello.pad(14), gap = 10,
 	})
-	niello.mint(&win2_box_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(90), niello.fixed(60)}, color = niello.Color{90, 120, 190, 255}, corner_radius = 8})
+	niello.mint(&win2_box_u, niello.NO_UNIT, {size = niello.size(niello.fixed(90), niello.fixed(60)), color = niello.rgb(0x5a78be), corner_radius = 8})
 }
 
 main :: proc() {

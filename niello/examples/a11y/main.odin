@@ -46,68 +46,68 @@ songs := [3]string{"Night Drive", "Static Bloom", "Low Orbit"}
 mint_units :: proc() {
 	niello.mint(&window, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		color   = niello.Color{30, 32, 40, 255},
-		padding = [4]u16{24, 24, 24, 24},
+		color   = niello.rgb(0x1e2028),
+		padding = niello.pad(24),
 		gap     = 16,
 	})
 	niello.mint(&heading, niello.NO_UNIT, {
 		font_size  = 28,
-		font_color = niello.Color{240, 240, 245, 255},
+		font_color = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&row, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fixed(48)},
+		size   = niello.size(niello.grow(), niello.fixed(48)),
 		gap    = 12,
 	})
 	niello.mint(&play_btn, niello.NO_UNIT, {
 		layout        = .Left_To_Right,
-		size          = niello.Size{niello.fixed(140), niello.fixed(48)},
-		color         = niello.Color{46, 50, 62, 255},
+		size          = niello.size(niello.fixed(140), niello.fixed(48)),
+		color         = niello.rgb(0x2e323e),
 		corner_radius = 8,
 		font_size     = 16,
-		font_color    = niello.Color{240, 240, 245, 255},
+		font_color    = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&vol_down, niello.NO_UNIT, {
-		size          = niello.Size{niello.fixed(48), niello.fixed(48)},
-		color         = niello.Color{46, 50, 62, 255},
+		size          = niello.size(niello.fixed(48), niello.fixed(48)),
+		color         = niello.rgb(0x2e323e),
 		corner_radius = 8,
 		font_size     = 20,
-		font_color    = niello.Color{240, 240, 245, 255},
+		font_color    = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&vol_up, niello.NO_UNIT, {
-		size          = niello.Size{niello.fixed(48), niello.fixed(48)},
-		color         = niello.Color{46, 50, 62, 255},
+		size          = niello.size(niello.fixed(48), niello.fixed(48)),
+		color         = niello.rgb(0x2e323e),
 		corner_radius = 8,
 		font_size     = 20,
-		font_color    = niello.Color{240, 240, 245, 255},
+		font_color    = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&vol_track, niello.NO_UNIT, {
 		layout        = .Left_To_Right,
-		size          = niello.Size{niello.grow(), niello.fixed(48)},
-		color         = niello.Color{46, 50, 62, 255},
+		size          = niello.size(niello.grow(), niello.fixed(48)),
+		color         = niello.rgb(0x2e323e),
 		corner_radius = 8,
 		font_size     = 16,
-		font_color    = niello.Color{200, 200, 212, 255},
+		font_color    = niello.rgb(0xc8c8d4),
 	})
 	niello.mint(&list_box, niello.NO_UNIT, {
 		layout = .Top_To_Bottom,
-		size   = niello.Size{niello.grow(), niello.fixed(168)},
+		size   = niello.size(niello.grow(), niello.fixed(168)),
 		gap    = 8,
 	})
 	niello.mint(&song_row, niello.NO_UNIT, {
 		layout        = .Left_To_Right,
-		size          = niello.Size{niello.grow(), niello.fixed(48)},
-		color         = niello.Color{46, 50, 62, 255},
+		size          = niello.size(niello.grow(), niello.fixed(48)),
+		color         = niello.rgb(0x2e323e),
 		corner_radius = 8,
-		padding       = [4]u16{16, 16, 16, 16},
+		padding       = niello.pad(16),
 	})
 	niello.mint(&song_label, niello.NO_UNIT, {
 		font_size  = 16,
-		font_color = niello.Color{240, 240, 245, 255},
+		font_color = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&status, niello.NO_UNIT, {
 		font_size  = 14,
-		font_color = niello.Color{160, 160, 175, 255},
+		font_color = niello.rgb(0xa0a0af),
 	})
 }
 
