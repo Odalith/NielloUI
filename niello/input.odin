@@ -160,7 +160,7 @@ validate_captures :: proc() {
 		}
 		if !dead {
 			for c := idx; c != -1; c = g.nodes[c].parent {
-				if g.nodes[c].with.disabled {
+				if g.nodes[c].disabled {
 					dead = true
 					break
 				}
@@ -588,7 +588,7 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	blocked := false
 	hover_len := len(chain_idx)
 	for idx, k in chain_idx {
-		if g.nodes[idx].with.disabled {
+		if g.nodes[idx].disabled {
 			hover_len = k + 1
 			blocked = true
 			break
@@ -927,7 +927,7 @@ resolve_styles :: proc() {
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
 		p := nd.parent
-		dis := nd.with.disabled || (p >= 0 && g.disabled_flags[p])
+		dis := nd.disabled || (p >= 0 && g.disabled_flags[p])
 		g.disabled_flags[i] = dis
 		nd.has_eff = false
 
@@ -958,10 +958,10 @@ resolve_styles :: proc() {
 		// unconditionally.
 		rec := &store.units[int(nd.unit)]
 		stamp := u64(0)
-		if nd.with.variant != NO_UNIT {
+		if nd.variant != NO_UNIT {
 			stamp = hash_mix(stamp, 1)
-			stamp = hash_mix(stamp, u64(nd.with.variant))
-			stamp = hash_mix(stamp, store.units[int(nd.with.variant)].gen)
+			stamp = hash_mix(stamp, u64(nd.variant))
+			stamp = hash_mix(stamp, store.units[int(nd.variant)].gen)
 		}
 		// A layer folds in only when it HAS an overlay unit: with
 		// NO_UNIT the merge is a no-op, the resolved style cannot
@@ -991,11 +991,11 @@ resolve_styles :: proc() {
 			stamp = hash_mix(stamp, 6)
 		}
 		g.state_stamp[i] = stamp
-		if !hov && !prs && !foc && !dis && nd.with.variant == NO_UNIT && !has_tr {
+		if !hov && !prs && !foc && !dis && nd.variant == NO_UNIT && !has_tr {
 			continue
 		}
 		eff := rec.style
-		apply_overlay(&eff, nd.with.variant) // persistent per-instance overlay
+		apply_overlay(&eff, nd.variant) // persistent per-instance overlay
 		if foc { apply_overlay(&eff, rec.focus) }
 		if hov { apply_overlay(&eff, rec.hover) }
 		if prs { apply_overlay(&eff, rec.press) }

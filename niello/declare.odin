@@ -14,7 +14,17 @@ Frame_Node :: struct {
 	unit:            Unit,
 	identity:        Instance,
 	parent:          int, // -1 for roots
-	with:            With,
+	// The With fields the per-frame passes read. The full With is kept
+	// only where something reads it later — g.withs[with_idx] for nodes
+	// with accessibility semantics, and for every node in NIELLO_DEBUG
+	// builds (the debugger shows it); -1 otherwise. Most nodes carry
+	// only text, so storing all of it per node was the bulk of the
+	// node's size.
+	with_idx:        i32,
+	variant:         Unit, // With.variant
+	disabled:        bool, // With.disabled (this node's own flag)
+	static_values:   bool, // With.static_values
+	image_override:  bool, // With.image was set (image is that value)
 	text:            string, // resolved at declare time (see resolve_text)
 	text_hash:       u64,    // str_hash(text); the text cache keys on this
 	                        // instead of re-hashing every frame
@@ -239,6 +249,11 @@ declare_as :: proc(
 	if len(with.value.text) > 0 {
 		with.value.text = copy_frame_text(with.value.text)
 	}
+	with_idx := i32(-1)
+	if NIELLO_DEBUG || a11y_declared(&with) {
+		with_idx = i32(len(g.withs))
+		append(&g.withs, with)
+	}
 	has_text := len(text) > 0
 	text_hash := u64(0)
 	spans: []Text_Span
@@ -263,7 +278,11 @@ declare_as :: proc(
 			unit = unit,
 			identity = id,
 			parent = parent,
-			with = with,
+			with_idx = with_idx,
+			variant = with.variant,
+			disabled = with.disabled,
+			static_values = with.static_values,
+			image_override = with.image != nil,
 			text = text,
 			text_hash = text_hash,
 			digest = digest,
@@ -388,4 +407,14 @@ copy_frame_spans :: proc(src: []Text_Span) -> []Text_Span {
 	copy(dst, src)
 	g.spans_off += need
 	return dst
+}
+
+// node_with returns the node's full With, or nil when the node kept
+// none (no accessibility semantics, prod build).
+@(private)
+node_with :: proc(nd: ^Frame_Node) -> ^With {
+	if nd.with_idx < 0 {
+		return nil
+	}
+	return &g.withs[nd.with_idx]
 }

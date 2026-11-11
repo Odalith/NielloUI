@@ -875,7 +875,7 @@ position_and_damage :: proc() {
 		_, tr_now := g.transients[id]
 		old, ok := g.instances[id] // the one map op per node
 		when NIELLO_DEBUG {
-			if ok && nd.with.static_values {
+			if ok && nd.static_values {
 				assert(old.digest == nd.digest,
 					"niello: With.static_values promise broken — a static instance's presented values changed")
 			}
@@ -886,7 +886,7 @@ position_and_damage :: proc() {
 			r.size.y += g.lay[i].overfl.y
 			append(&g.damage, r)
 		} else if old.rect != new || old.gen != ugen || old.stamp != stamp ||
-		          tr_now || (!nd.with.static_values && old.digest != nd.digest) {
+		          tr_now || (!nd.static_values && old.digest != nd.digest) {
 			// Union of BOTH spill-expanded rects (audit core-H7):
 			// expanding only by the new overflow leaves a shrinking
 			// spill's old outermost pixels undamaged forever.
@@ -900,7 +900,7 @@ position_and_damage :: proc() {
 		// ever re-armed (the flag dropped), drift since birth is
 		// what it compares against.
 		committed_digest := nd.digest
-		if ok && nd.with.static_values {
+		if ok && nd.static_values {
 			committed_digest = old.digest
 		}
 		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit, overfl = g.lay[i].overfl, last_seen = g.frame_index}

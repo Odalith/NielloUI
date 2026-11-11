@@ -122,6 +122,7 @@ Context :: struct {
 
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
+	withs:        [dynamic]With, // full With per node that keeps one (Frame_Node.with_idx)
 	stack:        [dynamic]int, // open container node indices
 	// Call-site identity (declare.odin): how often each call site has
 	// declared so far, per open container. One flat array; each open
@@ -429,6 +430,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.emit_scopes)
 	delete(ctx.emit_clips)
 	delete(ctx.nodes)
+	delete(ctx.withs)
 	delete(ctx.stack)
 	delete(ctx.site_counts)
 	delete(ctx.site_base)
