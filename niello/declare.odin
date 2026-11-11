@@ -44,6 +44,8 @@ Frame_Node :: struct {
 	focusable:       bool, // resolved at declare: With.focusable wins
 	                       // over the unit's Style_Decl.focusable
 	anchored:        bool, // With.anchored, resolved at declare (§3.20)
+	has_anchored:    bool, // some child is anchored: the passes that
+	                       // treat overlays specially look only then
 	is_popup:        bool, // an overlay root (§3.19): parent is the
 	                       // layer (-1), positioned by placement in
 	                       // pass F, never by a parent's layout
@@ -300,6 +302,9 @@ declare_as :: proc(
 			culled = culled,
 		},
 	)
+	if with.anchored && parent >= 0 {
+		g.nodes[parent].has_anchored = true
+	}
 	return id, len(g.nodes) - 1
 }
 

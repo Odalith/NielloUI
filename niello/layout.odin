@@ -365,7 +365,9 @@ accumulate :: proc(axis: int) {
 // ---------------------------------------------------------------------------
 // Passes B/E: top-down distribution (forward walk)
 
-resolve_cross :: proc(c: int, axis: int, inner: f32) {
+// parent_scrolls: the parent scrolls on this axis (a Fit child then
+// keeps its natural size — it is the scroll extent).
+resolve_cross :: proc(c: int, axis: int, inner: f32, parent_scrolls: bool) {
 	sz := node_style(c).size[axis]
 	switch sz.kind {
 	case .Fixed:
@@ -383,7 +385,7 @@ resolve_cross :: proc(c: int, axis: int, inner: f32) {
 		// parent scrollable on this axis is exempt — the child's natural
 		// size IS the scroll extent there.
 		v := g.lay[c].content[axis]
-		if p := g.nodes[c].parent; p < 0 || !scrollable_axis(node_style(p), axis) {
+		if !parent_scrolls {
 			v = min(v, inner)
 		}
 		v = max(v, floor_of(c, axis))
@@ -561,12 +563,15 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 		if inner < 0 {
 			inner = 0
 		}
+		scrolls := scrollable_axis(s, axis)
 		// Anchored overlays (§3.20) resolve against the parent's FULL
 		// rect on every axis, whatever the layout: padding insets flow
 		// content, never overlays (a scrollbar hugs the panel edge).
-		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-			if g.nodes[c].anchored {
-				resolve_cross(c, axis, g.lay[i].size[axis])
+		if nd.has_anchored {
+			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+				if g.nodes[c].anchored {
+					resolve_cross(c, axis, g.lay[i].size[axis], scrolls)
+				}
 			}
 		}
 		if s.layout == .Stack {
@@ -574,7 +579,7 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 			// independently against the full content box.
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
 				if !g.nodes[c].anchored {
-					resolve_cross(c, axis, inner)
+					resolve_cross(c, axis, inner, scrolls)
 				}
 			}
 			continue
@@ -584,7 +589,7 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 		} else {
 			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
 				if !g.nodes[c].anchored {
-					resolve_cross(c, axis, inner)
+					resolve_cross(c, axis, inner, scrolls)
 				}
 			}
 		}
