@@ -57,6 +57,13 @@ Text_Entry :: struct {
 	segs:    [dynamic]Text_Seg, // per \n-segment
 	space_w: f32, // space advance in the base style
 	line_h:  f32, // max over fragments; layout and the emitter share it
+	// measure_text's answers, summarized once when the entry is built
+	// (they depend only on the entry and a node's whitespace / wrap /
+	// ellipsis flags, which select among them):
+	width_collapse: f32, // widest segment, runs counted as one gap
+	width_preserve: f32, // widest segment, every space counted
+	max_word:       f32, // widest word: the wrap-mode shrink floor
+	ellipsis_w:     f32, // "…" in the base style
 }
 
 // Mock metrics: proportional to size; bold is a touch wider. The real
@@ -177,6 +184,9 @@ get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64,
 		return e
 	}
 	e, mok := fill_entry(s, spans, text)
+	if mok {
+		summarize_entry(&e, s)
+	}
 	if !mok {
 		// Built on at least one failed hook measurement: serve
 		// a scalar-only entry for this frame and cache NOTHING,
@@ -368,40 +378,40 @@ fill_entry :: proc(s: ^Style, spans: []Text_Span, text: string) -> (Text_Entry, 
 // the cached measurement, so min_c is the true shrink floor at every level
 // of the tree (a container accumulating a text child's raw full-line floor
 // would make the text untruncatable inside any container).
+// summarize_entry computes measure_text's answers for a freshly built
+// entry: per segment, the width with spaces collapsed and preserved,
+// and the widest word.
+@(private)
+summarize_entry :: proc(e: ^Text_Entry, s: ^Style) {
+	for seg in e.segs {
+		collapse, preserve := f32(0), f32(0)
+		for w, k in seg.words {
+			// Preserve counts every measured space: the leading run
+			// (the first word's space_before), internal runs at
+			// their real widths, and the trailing run below.
+			preserve += w.space_before + w.width
+			if k > 0 {
+				collapse += e.space_w
+			}
+			collapse += w.width
+			e.max_word = max(e.max_word, w.width)
+		}
+		preserve += seg.trailing
+		e.width_collapse = max(e.width_collapse, collapse)
+		e.width_preserve = max(e.width_preserve, preserve)
+	}
+	e.ellipsis_w = ellipsis_width(s)
+}
+
 measure_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64, text: string, wrap: Text_Wrap) -> (unwrapped: Vec2, min_w: f32) {
 	e := get_text(s, spans, spans_hash, text_hash, text)
-	preserve := s.whitespace == .Preserve
-	unwrapped = Vec2{0, 0}
-	for seg in e.segs {
-		seg_w := f32(0)
-		seg_min := f32(0)
-		for w, k in seg.words {
-			if preserve {
-				// Every measured space counts: the leading run (the
-				// first word's space_before), internal runs at their
-				// real widths, and the trailing run below.
-				seg_w += w.space_before + w.width
-			} else {
-				if k > 0 {
-					seg_w += e.space_w
-				}
-				seg_w += w.width
-			}
-			seg_min = max(seg_min, w.width)
-		}
-		if preserve {
-			seg_w += seg.trailing
-		}
-		unwrapped.x = max(unwrapped.x, seg_w)
-		if wrap == .Word {
-			min_w = max(min_w, seg_min)
-		} else {
-			min_w = max(min_w, seg_w)
-		}
-	}
+	unwrapped.x = e.width_preserve if s.whitespace == .Preserve else e.width_collapse
 	unwrapped.y = f32(max(len(e.segs), 1)) * e.line_h
+	// The shrink floor: the widest word when wrapping, else the whole
+	// line — folded to the "…" width when ellipsis trims it at paint.
+	min_w = e.max_word if wrap == .Word else unwrapped.x
 	if wrap == .None && s.ellipsis {
-		min_w = min(min_w, ellipsis_width(s))
+		min_w = min(min_w, e.ellipsis_w)
 	}
 	return unwrapped, min_w
 }
