@@ -143,7 +143,7 @@ page_layout :: proc(app: ^App) {
 		heading("Shrinking and ellipsis")
 		note("Drag the slider to squeeze the row. Fit children shrink fairly toward their floors; text past its box is trimmed with an ellipsis at paint time.")
 		slider(&s.squeeze, "Row width")
-		w := 120 + s.squeeze.value * 520
+		w := 160 + s.squeeze.value * 480 // 160: three padded labels at their floors
 		niello.set(L.squeeze_row, .Size, size(fixed(w), fixed(34)))
 		if niello.begin(L.squeeze_row) {
 			niello.show(L.squeeze_label, {text = "The first label is fairly long"})

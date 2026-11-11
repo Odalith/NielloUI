@@ -197,10 +197,10 @@ test_image_intrinsic_and_with :: proc(t: ^testing.T) {
 	big, _ := niello.image_load_memory([]byte{1})
 	small, _ := niello.image_load_memory([]byte{2})
 
-	// A FIT leaf takes the image's size exactly. (Padding does
-	// not inflate a leaf's fit — the text-leaf rule; padding is
-	// a container concept here.) Shown inside a root row: a FIT
-	// root would fill the viewport instead (the Fit-root rule).
+	// A FIT leaf takes the image's size plus its padding: the image
+	// paints inside the content box, as text does. Shown inside a root
+	// row: a FIT root would fill the viewport instead (the Fit-root
+	// rule).
 	niello.mint(&img_leaf, niello.NO_UNIT, {
 		size = niello.Size{niello.fit(), niello.fit()},
 		padding = [4]u16{10, 10, 10, 10},
@@ -215,7 +215,7 @@ test_image_intrinsic_and_with :: proc(t: ^testing.T) {
 	niello.frame_end()
 	r, rok := niello.rect(inst)
 	testing.expect(t, rok)
-	testing.expect_value(t, r.size, niello.Vec2{400, 200})
+	testing.expect_value(t, r.size, niello.Vec2{420, 220})
 
 	// Per-instance swap: two instances of one unit, different
 	// images via With — each FITs its own image.
@@ -228,8 +228,8 @@ test_image_intrinsic_and_with :: proc(t: ^testing.T) {
 	niello.frame_end()
 	ra, _ := niello.rect(ia)
 	rb, _ := niello.rect(ib)
-	testing.expect_value(t, ra.size, niello.Vec2{400, 200})
-	testing.expect_value(t, rb.size, niello.Vec2{100, 50})
+	testing.expect_value(t, ra.size, niello.Vec2{420, 220})
+	testing.expect_value(t, rb.size, niello.Vec2{120, 70})
 }
 
 @(private)
