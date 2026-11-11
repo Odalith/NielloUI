@@ -123,7 +123,13 @@ Context :: struct {
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
 	stack:        [dynamic]int, // open container node indices
-	child_counts: [dynamic]int, // children declared so far, per open container
+	// Call-site identity (declare.odin): how often each call site has
+	// declared so far, per open container. One flat array; each open
+	// container owns the region from its site_base entry to the end,
+	// truncated when it closes. The root level is the region from 0.
+	site_counts: [dynamic]Site_Count,
+	site_base:   [dynamic]int,
+	popup_sites: [dynamic]Site_Count, // the same, for popup roots (the layer)
 	clip_stack:   [dynamic]Rect, // declare-time accumulated clip per open container (BL-3)
 
 	// Frame inputs, latched at frame_begin.
@@ -275,8 +281,6 @@ Context :: struct {
 	// frame's list (cleared after dispatch); frame_end reads this
 	// frame's for the modal focus bookkeeping.
 	popups:          [dynamic]Popup_Rec,
-	popup_ordinal:   int, // per-frame counter: the Key-0 ordinal
-	                         // fallback for popup roots
 	dismiss_flags:   map[Instance]bool, // popups whose dismissal was
 	                         // requested at this frame's dispatch;
 	                         // valid for one declare (dismiss_requested)
@@ -426,7 +430,9 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.emit_clips)
 	delete(ctx.nodes)
 	delete(ctx.stack)
-	delete(ctx.child_counts)
+	delete(ctx.site_counts)
+	delete(ctx.site_base)
+	delete(ctx.popup_sites)
 	delete(ctx.clip_stack)
 	delete(ctx.lay)
 	delete(ctx.first_child)

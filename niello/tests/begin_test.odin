@@ -27,10 +27,13 @@ test_begin_out_written_open_and_culled :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	bg_mint()
 	@(static) row_i: niello.Instance
-	@(static) open_seen: bool
+	@(static) open_seen, force_cull: bool
 	declare :: proc() {
 		if niello.begin(bg_root) {
-			open_seen = niello.begin(bg_row, niello.key_int(1), out = &row_i)
+			if force_cull {
+				niello.test_force_cull_next()
+			}
+			open_seen = niello.begin(bg_row, out = &row_i)
 		}
 	}
 	bg_frame(declare)
@@ -39,14 +42,9 @@ test_begin_out_written_open_and_culled :: proc(t: ^testing.T) {
 	testing.expect(t, first != 0, "out receives the instance")
 
 	row_i = 0
-	culled_open: bool
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
-	if niello.begin(bg_root) {
-		niello.test_force_cull_next()
-		culled_open = niello.begin(bg_row, niello.key_int(1), out = &row_i)
-	}
-	niello.frame_end()
-	testing.expect(t, !culled_open, "a culled container reports closed")
+	force_cull = true
+	bg_frame(declare)
+	testing.expect(t, !open_seen, "a culled container reports closed")
 	testing.expect_value(t, row_i, first)
 }
 

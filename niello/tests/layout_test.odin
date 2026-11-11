@@ -392,23 +392,18 @@ test_identity_stable_across_frames :: proc(t: ^testing.T) {
 	item: niello.Unit
 	niello.mint(&item, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(20)}})
 
-	ids1: [3]niello.Instance
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(root) {
-		ids1[0] = niello.show(item, 7)
-		ids1[1] = niello.show(item, 8)
-		ids1[2] = niello.show(item) // auto niello.key (sibling ordinal)
+	declare :: proc(root, item: niello.Unit) -> (ids: [3]niello.Instance) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
+		if niello.begin(root) {
+			ids[0] = niello.show(item, 7)
+			ids[1] = niello.show(item, 8)
+			ids[2] = niello.show(item) // no key: named by its call site
+		}
+		niello.frame_end()
+		return
 	}
-	niello.frame_end()
-
-	ids2: [3]niello.Instance
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(root) {
-		ids2[0] = niello.show(item, 7)
-		ids2[1] = niello.show(item, 8)
-		ids2[2] = niello.show(item)
-	}
-	niello.frame_end()
+	ids1 := declare(root, item)
+	ids2 := declare(root, item)
 
 	testing.expect(t, ids1 == ids2, "identities stable across frames")
 	testing.expect(t, ids1[0] != ids1[1] && ids1[1] != ids1[2], "distinct keys give distinct ids")
@@ -479,17 +474,18 @@ test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	testing.expect(t, niello.key(7) == niello.key(7), "int keys stable")
 	testing.expect(t, niello.key("a") == niello.key("a"), "string keys stable")
 	testing.expect(t, niello.key(7) != niello.key(8), "distinct keys distinct")
-	testing.expect(t, niello.key(0) == 0, "zero niello.key means sibling ordinal")
+	testing.expect(t, niello.key(0) == 0, "zero niello.key means the call site names the instance")
 
 	// The write damages exactly the frame that commits it; the
 	// next frame, with no writes, settles.
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(child) {}
-	res := niello.frame_end()
+	child_frame :: proc(child: niello.Unit) -> niello.Frame_Result {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
+		if niello.begin(child) {}
+		return niello.frame_end()
+	}
+	res := child_frame(child)
 	testing.expect(t, res.changed, "the write damages the frame that commits it")
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(child) {}
-	res = niello.frame_end()
+	res = child_frame(child)
 	testing.expect(t, !res.changed, "a frame with no writes is unchanged")
 }
 

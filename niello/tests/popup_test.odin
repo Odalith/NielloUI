@@ -321,27 +321,24 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 	pp_frame(pp_idle())
 	// A toast: stay = true. Declared via a local pattern — reuse the
 	// menu but keep it open manually.
+	declare_toast :: proc() {
+		if pp_popup_i != 0 && niello.dismiss_requested(pp_popup_i) {
+			pp_dismiss_seen = true
+		}
+		if niello.begin(pp_root_u) {
+			pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(1))
+			pp_under_i = niello.show(pp_under_u, niello.key_int(2))
+		}
+		if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), opts = {stay = true}, out = &pp_popup_i) {
+			niello.show(pp_item_u, niello.key_int(1))
+		}
+	}
 	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
-	if niello.begin(pp_root_u) {
-		niello.show(pp_anchor_u, niello.key_int(1))
-		niello.show(pp_under_u, niello.key_int(2))
-	}
-	if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), opts = {stay = true}, out = &pp_popup_i) {
-		niello.show(pp_item_u, niello.key_int(1))
-	}
+	declare_toast()
 	niello.frame_end()
-	inp := pp_at({200, 60}, true, false)
-	niello.frame_begin(niello.test_context(), inp, 0.016)
-	if pp_popup_i != 0 && niello.dismiss_requested(pp_popup_i) {
-		pp_dismiss_seen = true
-	}
-	if niello.begin(pp_root_u) {
-		niello.show(pp_anchor_u, niello.key_int(1))
-		niello.show(pp_under_u, niello.key_int(2))
-	}
-	if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), opts = {stay = true}, out = &pp_popup_i) {
-		niello.show(pp_item_u, niello.key_int(1))
-	}
+	pp_dismiss_seen = false
+	niello.frame_begin(niello.test_context(), pp_at({200, 60}, true, false), 0.016)
+	declare_toast()
 	niello.frame_end()
 	testing.expect(t, !pp_dismiss_seen, "stay popups are never light-dismissed")
 	testing.expect(t, niello.pressed(pp_under_i), "and the press is not consumed either")

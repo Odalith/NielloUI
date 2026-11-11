@@ -21,6 +21,7 @@ LBL_PT :: niello.Vec2{8, 8} // inside the label
 AWAY_PT :: niello.Vec2{300, 200} // inside the root only
 
 mint_input_tree :: proc() {
+	input_btn_hidden, input_btn_disabled = false, false
 	niello.mint(
 		&input_root,
 		niello.NO_UNIT,
@@ -47,10 +48,17 @@ mint_input_tree :: proc() {
 	)
 }
 
+// Variations of the input tree are flags on its one declare proc: an
+// instance is named by its call site, so the same element declared
+// from a second proc would be a different instance.
+input_btn_hidden, input_btn_disabled: bool
+
 declare_input_tree :: proc() {
 	if niello.begin(input_root, out = &input_root_i) {
-		if niello.begin(input_btn, out = &input_btn_i) {
-			input_lbl_i = niello.show(input_lbl, 0, niello.With{text = "OK"})
+		if !input_btn_hidden {
+			if niello.begin(input_btn, 0, niello.With{disabled = input_btn_disabled}, out = &input_btn_i) {
+				input_lbl_i = niello.show(input_lbl, 0, niello.With{text = "OK"})
+			}
 		}
 	}
 }

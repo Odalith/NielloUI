@@ -186,13 +186,18 @@ test_a11y_incremental_stability :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	a11y_mint()
-	// Frame 1: button "Alpha", slider "X".
-	a11y_frame(proc() {
+	// One declare proc for both frames (identity is the call site);
+	// the slider's label is its parameter.
+	@(static) slider_label: string
+	declare :: proc() {
 		if niello.begin(a11y_root) {
 			niello.show(a11y_btn, 0, {role = .Button, label = "Alpha"})
-			niello.show(a11y_slider, 0, {role = .Slider, label = "X"})
+			niello.show(a11y_slider, 0, {role = .Slider, label = slider_label})
 		}
-	})
+	}
+	// Frame 1: button "Alpha", slider "X".
+	slider_label = "X"
+	a11y_frame(declare)
 	tree1 := niello.a11y_tree(niello.test_context())
 	testing.expect(t, len(tree1) == 2, "two nodes mirrored")
 	if len(tree1) != 2 {
@@ -202,12 +207,8 @@ test_a11y_incremental_stability :: proc(t: ^testing.T) {
 	// Frame 2: the button is unchanged, the slider's label moves.
 	// The button's payload must not be rebuilt (F4): its name
 	// storage pointer is stable across the frame.
-	a11y_frame(proc() {
-		if niello.begin(a11y_root) {
-			niello.show(a11y_btn, 0, {role = .Button, label = "Alpha"})
-			niello.show(a11y_slider, 0, {role = .Slider, label = "Yankee"})
-		}
-	})
+	slider_label = "Yankee"
+	a11y_frame(declare)
 	tree2 := niello.a11y_tree(niello.test_context())
 	testing.expect(t, len(tree2) == 2, "two nodes mirrored after the change")
 	if len(tree2) == 2 {
@@ -259,17 +260,14 @@ test_a11y_focused_state :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	a11y_mint()
-	a11y_frame(proc() {
+	declare :: proc() {
 		if niello.begin(a11y_root) {
 			a11y_btn_i = niello.show(a11y_btn, 0, {role = .Button, label = "A", focusable = true})
 		}
-	})
+	}
+	a11y_frame(declare)
 	niello.focus(a11y_btn_i)
-	a11y_frame(proc() {
-		if niello.begin(a11y_root) {
-			niello.show(a11y_btn, 0, {role = .Button, label = "A", focusable = true})
-		}
-	})
+	a11y_frame(declare)
 	tree := niello.a11y_tree(niello.test_context())
 	if len(tree) == 1 {
 		testing.expect(t, .Focused in tree[0].state, "focused node reports Focused")

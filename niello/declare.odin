@@ -7,6 +7,7 @@
 // container is culled or on early return.
 package niello
 
+import "base:runtime"
 import "core:unicode/utf8"
 
 Frame_Node :: struct {
@@ -44,7 +45,6 @@ Frame_Node :: struct {
 	culled:          bool,
 	has_eff:         bool, // frame_end resolved an effective style into
 	                       // g.eff[idx] (interaction state or variant present)
-	sibling_ordinal: int,
 }
 
 // resolve_text: per-frame With.text wins, then With.text_no_copy (borrowed),
@@ -96,27 +96,89 @@ resolve_spans :: proc(with: With, s: ^Style) -> (spans: []Text_Span, hash: u64) 
 // root built from the same unit and key.
 POPUP_PARENT_SEED :: u64(0xd1b54a32d192ed03)
 
+// ---------------------------------------------------------------------------
+// Identity
+//
+// An instance is hash(parent, unit, k). With an explicit key, k is the
+// key: the caller names the identity, wherever it is declared from.
+// Without one (key 0), k is the call site plus how many times that
+// call site has already declared under the same parent this frame. So
+// declarations on different lines never disturb each other — a
+// conditional sibling appearing or vanishing shifts nothing — and only
+// a site that repeats (a loop) counts occurrences. Lists whose items
+// can move pass a key from the data instead.
+
+Site_Count :: struct {
+	site: u64,
+	n:    int,
+}
+
+// site_hash names a call site. The file path is a constant string in
+// the binary, so its address identifies the file without hashing the
+// bytes on every declaration.
+@(private)
+site_hash :: proc(loc: runtime.Source_Code_Location) -> u64 {
+	h := hash_mix(14695981039346656037, u64(uintptr(raw_data(loc.file_path))))
+	return hash_mix(h, u64(u32(loc.line)) << 32 | u64(u32(loc.column)))
+}
+
+// next_occurrence counts one declaration of site within counts[base:]
+// and returns how many came before it.
+@(private)
+next_occurrence :: proc(counts: ^[dynamic]Site_Count, base: int, site: u64) -> int {
+	for &c in counts[base:] {
+		if c.site == site {
+			n := c.n
+			c.n += 1
+			return n
+		}
+	}
+	append(counts, Site_Count{site = site, n = 1})
+	return 0
+}
+
+// SITE_KEY_SEED keeps derived keys out of the explicit-key domain.
+@(private)
+SITE_KEY_SEED :: u64(0x9e3779b97f4a7c15)
+
+// identity_key is the k of hash(parent, unit, k): the explicit key, or
+// one derived from the call site and its occurrence.
+@(private)
+identity_key :: proc(key: Key, counts: ^[dynamic]Site_Count, base: int, loc: runtime.Source_Code_Location) -> u64 {
+	if key != 0 {
+		return u64(key)
+	}
+	site := site_hash(loc)
+	occ := next_occurrence(counts, base, site)
+	return hash_mix(hash_mix(SITE_KEY_SEED, site), u64(occ))
+}
+
+// open_site_region starts a container's site-count region; close_site_region
+// drops it when the container ends.
+@(private)
+open_site_region :: proc() {
+	append(&g.site_base, len(g.site_counts))
+}
+
+@(private)
+close_site_region :: proc() {
+	resize(&g.site_counts, pop(&g.site_base))
+}
+
 // declare appends one node; parents always precede children in the array.
 @(private)
-declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instance, int) {
+declare :: proc(unit: Unit, key: Key, with: With, is_container: bool, loc: runtime.Source_Code_Location) -> (Instance, int) {
 	parent := -1
+	parent_culled := false
+	parent_id := u64(0)
 	if len(g.stack) > 0 {
 		parent = g.stack[len(g.stack) - 1]
-	}
-
-	ord := 0
-	parent_culled := false
-	if len(g.stack) > 0 {
-		ord = g.child_counts[len(g.child_counts) - 1]
-		g.child_counts[len(g.child_counts) - 1] += 1
 		parent_culled = g.nodes[parent].culled
-	}
-
-	parent_id := u64(0)
-	if parent >= 0 {
 		parent_id = u64(g.nodes[parent].identity)
 	}
-	return declare_as(unit, key, with, is_container, parent, ord, parent_id, parent_culled)
+	base := len(g.site_base) > 0 ? g.site_base[len(g.site_base) - 1] : 0
+	k := identity_key(key, &g.site_counts, base, loc)
+	return declare_as(unit, k, with, is_container, parent, parent_id, parent_culled)
 }
 
 // declare_as is declare with the parentage made explicit: popup
@@ -125,22 +187,16 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool) -> (Instan
 @(private)
 declare_as :: proc(
 	unit: Unit,
-	key: Key,
+	k: u64, // the identity key (identity_key)
 	with: With,
 	is_container: bool,
 	parent: int,
-	ord: int,
 	parent_id: u64,
 	culled: bool,
 ) -> (
 	Instance,
 	int,
 ) {
-	// Key 0 falls back to the sibling ordinal.
-	k := u64(key)
-	if k == 0 {
-		k = u64(ord) + 0x9e3779b97f4a7c15 // domain-separate from explicit keys
-	}
 	id := identity_of(parent_id, unit, k)
 
 	text := resolve_text(with, style_of(unit))
@@ -220,7 +276,6 @@ declare_as :: proc(
 			anchored = with.anchored,
 			is_container = is_container,
 			culled = culled,
-			sibling_ordinal = ord,
 		},
 	)
 	return id, len(g.nodes) - 1

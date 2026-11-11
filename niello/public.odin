@@ -45,7 +45,7 @@ NO_GROUP :: Group(0)
 Unit     :: distinct u32 // cold: minted once, owns its values
 Instance :: distinct u64 // hot: one on-screen occurrence = hash(parent, unit, key)
 Group    :: distinct u32 // cold: broadcast list of (unit, fields)
-Key      :: distinct u64 // stable per-item identity; 0 = sibling ordinal
+Key      :: distinct u64 // explicit identity (list items); 0 = the call site
 
 // ============ styling ============
 
@@ -900,8 +900,21 @@ clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 
 // ============ hot path ============
 
-show :: proc(unit: Unit, key: Key = 0, with: With = {}) -> Instance {
-	inst, _ := declare(unit, key, with, false)
+// show declares a leaf. Identity: with no key, an instance is named by
+// its call site (plus how many times that site has run under the same
+// parent this frame, for loops), so static code needs no keys at all.
+// Pass a key only for items of a list that can change order —
+// key_int(item.id) — and the key alone then names the instance.
+//
+// Component procs forward their caller's location, so each place a
+// component is used is its own call site:
+//
+//	button :: proc(text: string, loc := #caller_location) -> (i: niello.Instance) {
+//		if niello.begin(btn_u, out = &i, loc = loc) { ... }
+//		return
+//	}
+show :: proc(unit: Unit, key: Key = 0, with: With = {}, loc := #caller_location) -> Instance {
+	inst, _ := declare(unit, key, with, false, loc)
 	return inst
 }
 
@@ -962,7 +975,8 @@ child_clip_for :: proc(unit: Unit, inst: Instance, inherited: Rect) -> Rect {
 //	if niello.begin(list_u, out = &app.list_i) { ... }
 //	if niello.clicked(top_btn) { niello.scroll_to(app.list_i, {0, 0}) }
 //
-// Inside the block, current() returns the same instance.
+// Inside the block, current() returns the same instance. Identity and
+// loc work as for show.
 @(deferred_out = end)
 begin :: proc(
 	unit: Unit,
@@ -970,8 +984,9 @@ begin :: proc(
 	with: With = {},
 	flags: Begin_Flags = {},
 	out: ^Instance = nil,
+	loc := #caller_location,
 ) -> (open: bool) {
-	i, idx := declare(unit, key, with, true)
+	i, idx := declare(unit, key, with, true, loc)
 	if out != nil {
 		out^ = i
 	}
@@ -1007,7 +1022,7 @@ begin :: proc(
 	// Push even when closed: end() must pop symmetrically, and children declared
 	// while ignoring `open` are still correctly parented (just culled).
 	append(&g.stack, idx)
-	append(&g.child_counts, 0)
+	open_site_region()
 	append(&g.clip_stack, child_clip_for(unit, i, inherited_clip))
 	return !cull
 }
@@ -1016,7 +1031,7 @@ begin :: proc(
 // through @(deferred_out); it pops even when open == false.
 end :: proc(open: bool) {
 	pop(&g.stack)
-	pop(&g.child_counts)
+	close_site_region()
 	pop(&g.clip_stack)
 }
 
@@ -1084,15 +1099,17 @@ begin_popup :: proc(
 	with: With = {},
 	opts: Popup_Opts = {},
 	out: ^Instance = nil,
+	loc := #caller_location,
 ) -> (open: bool) {
 	anchor_ok := placement == .At || placement == .Center || anchor in g.instances
 	// A popup declared from inside a culled subtree stays culled,
 	// like any other declaration there.
 	decl_culled := len(g.stack) > 0 && g.nodes[g.stack[len(g.stack) - 1]].culled
-	ord := g.popup_ordinal
-	g.popup_ordinal += 1
+	// Popup roots belong to the layer, not the declaring container:
+	// their call-site occurrences count across the whole frame.
+	k := identity_key(key, &g.popup_sites, 0, loc)
 	i, idx := declare_as(
-		unit, key, with, true, -1, ord, POPUP_PARENT_SEED, decl_culled || !anchor_ok,
+		unit, k, with, true, -1, POPUP_PARENT_SEED, decl_culled || !anchor_ok,
 	)
 	if out != nil {
 		out^ = i
@@ -1105,7 +1122,7 @@ begin_popup :: proc(
 	nd.popup_gap = opts.gap
 	append(&g.popups, Popup_Rec{root_idx = idx, id = i, modal = opts.modal, stay = opts.stay})
 	append(&g.stack, idx)
-	append(&g.child_counts, 0)
+	open_site_region()
 	// Popup children escape the declaring ancestors' clips: their
 	// inherited clip restarts at the viewport, narrowed only by
 	// the popup's own rect when the popup itself clips.
@@ -1236,9 +1253,10 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	g.spans_chunk = 0 // and the spans arena beside it
 	g.spans_off = 0
 	clear(&g.popups) // last frame's list; dispatch already read it
-	g.popup_ordinal = 0
 	clear(&g.stack)
-	clear(&g.child_counts)
+	clear(&g.site_counts)
+	clear(&g.site_base)
+	clear(&g.popup_sites)
 	clear(&g.clip_stack)
 	clear(&g.lay)
 	clear(&g.pick_clip)
