@@ -144,6 +144,7 @@ lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
 				value = lerp_f32(sa.value, sb.value, t),
 				min   = lerp_f32(sa.min, sb.min, t),
 				weight = lerp_f32(sa.weight, sb.weight, t),
+				priority = sa.priority if t < 1 else sb.priority, // an order: snaps
 				// max is INF in most styles; only lerp two finite,
 				// differing ceilings, never arithmetic on INF.
 				max   = sa.max if sa.max == sb.max else sb.max,
