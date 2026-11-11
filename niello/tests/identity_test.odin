@@ -107,9 +107,9 @@ test_identity_explicit_key_ignores_call_site :: proc(t: ^testing.T) {
 	declare :: proc() {
 		if niello.begin(id_root) {
 			if wide {
-				inst = niello.show(id_a, niello.key_int(42))
+				inst = niello.show(id_a, key = niello.key_int(42))
 			} else {
-				inst = niello.show(id_a, niello.key_int(42))
+				inst = niello.show(id_a, key = niello.key_int(42))
 			}
 		}
 	}

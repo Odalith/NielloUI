@@ -142,7 +142,7 @@ mint :: proc() {
 }
 
 section :: proc(heading: string, body: proc()) {
-	niello.show(head_u, 0, {text = heading})
+	niello.show(head_u, {text = heading})
 	if niello.begin(card_u) {
 		body()
 	}
@@ -150,29 +150,29 @@ section :: proc(heading: string, body: proc()) {
 
 declare :: proc() {
 	if niello.begin(window_u) {
-		niello.show(title_u, 0, {text = "Text spans"})
+		niello.show(title_u, {text = "Text spans"})
 		section("STYLE SPANS — baked into the unit", proc() {
-			niello.show(body_u, 0, {text = LINE1})
-			niello.show(spanned_u, 0, {text = LINE1})
+			niello.show(body_u, {text = LINE1})
+			niello.show(spanned_u, {text = LINE1})
 		})
 		section("SPAN_BYTES — rune indices in, byte ranges out", proc() {
-			niello.show(cafe_u, 0, {text = LINE2})
+			niello.show(cafe_u, {text = LINE2})
 		})
 		section("WITH.TEXT_SPANS — per-instance override (replaces the list)", proc() {
-			niello.show(spanned_u, 0, {text = LINE1, text_spans = override_spans})
+			niello.show(spanned_u, {text = LINE1, text_spans = override_spans})
 		})
 		section("WRAPPED — runs survive line breaking", proc() {
 			if niello.begin(narrow_u) {
-				niello.show(wrap_u, 0, {text = LINE3})
+				niello.show(wrap_u, {text = LINE3})
 			}
 		})
 		section("TRUNCATION — the ellipsis cuts through runs", proc() {
 			if niello.begin(clipbox_u) {
-				niello.show(clip_u, 0, {text = LINE4})
+				niello.show(clip_u, {text = LINE4})
 			}
 		})
 		section("OVERLAP — later span wins", proc() {
-			niello.show(overlap_u, 0, {text = LINE5})
+			niello.show(overlap_u, {text = LINE5})
 		})
 	}
 }

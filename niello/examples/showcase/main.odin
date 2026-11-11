@@ -139,12 +139,12 @@ declare :: proc(app: ^App) {
 
 declare_header :: proc(app: ^App) {
 	if niello.begin(shell.header) {
-		niello.show(shell.header_title, 0, {text = "NielloUI showcase", role = .Header})
-		niello.show(ui.small, niello.key("ver"), {
+		niello.show(shell.header_title, {text = "NielloUI showcase", role = .Header})
+		niello.show(ui.small, {
 			text = niello.NIELLO_DEBUG ? "debug build — F12 opens the debugger" : "build with -define:NIELLO_DEBUG=true for the F12 debugger",
 		})
 		niello.show(shell.spacer)
-		if toggle(niello.key("dark"), app.dark ? "Dark theme" : "Light theme", &app.dark) {
+		if toggle(app.dark ? "Dark theme" : "Light theme", &app.dark) {
 			apply_theme(app.dark ? DARK_THEME : LIGHT_THEME, 250)
 			status_set(&app.status, "Theme: %s (one group broadcast per role, 250 ms glide)", app.dark ? "dark" : "light")
 		}
@@ -159,8 +159,8 @@ declare_sidebar :: proc(app: ^App) {
 			if on {
 				w.variant = shell.nav_item_on
 			}
-			if niello.begin(shell.nav_item, niello.key_int(int(p)), w, out = &app.nav_i[p]) {
-				niello.show(on ? ui.btn_label_on : shell.nav_label, 0, {text = PAGE_NAMES[p]})
+			if niello.begin(shell.nav_item, w, out = &app.nav_i[p]) {
+				niello.show(on ? ui.btn_label_on : shell.nav_label, {text = PAGE_NAMES[p]})
 			}
 			if niello.clicked(app.nav_i[p]) && p != app.page {
 				app.page = p
@@ -176,7 +176,7 @@ declare_content :: proc(app: ^App) {
 	if niello.begin(shell.content, out = &app.content_i) {
 		// Keyed by page: each page's instances are its own, so switching
 		// pages never carries hover or animation state across.
-		if niello.begin(shell.page, niello.key_int(int(app.page))) {
+		if niello.begin(shell.page, key = niello.key_int(int(app.page))) {
 			switch app.page {
 			case .Controls:      page_controls(app)
 			case .Layout:        page_layout(app)
@@ -200,9 +200,9 @@ declare_status :: proc(app: ^App) {
 		if p, mok := niello.mouse_position(); mok {
 			mouse = fmt.tprintf("%.0f, %.0f", p.x, p.y)
 		}
-		niello.show(ui.small, niello.key("mouse"), {text = fmt.tprintf("mouse %s", mouse)})
-		niello.show(ui.small, niello.key("inst"), {text = fmt.tprintf("instances %d", niello.instance_count(app.ctx))})
-		niello.show(ui.small, niello.key("status"), {text = status_text(&app.status)})
+		niello.show(ui.small, {text = fmt.tprintf("mouse %s", mouse)})
+		niello.show(ui.small, {text = fmt.tprintf("instances %d", niello.instance_count(app.ctx))})
+		niello.show(ui.small, {text = status_text(&app.status)})
 	}
 }
 

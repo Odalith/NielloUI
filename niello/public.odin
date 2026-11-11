@@ -900,11 +900,19 @@ clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 
 // ============ hot path ============
 
-// show declares a leaf. Identity: with no key, an instance is named by
-// its call site (plus how many times that site has run under the same
-// parent this frame, for loops), so static code needs no keys at all.
-// Pass a key only for items of a list that can change order —
-// key_int(item.id) — and the key alone then names the instance.
+// show declares a leaf:
+//
+//	niello.show(title_u, {text = "Settings"})
+//
+// Identity: with no key, an instance is named by its call site (plus
+// how many times that site has run under the same parent this frame,
+// for loops), so static code needs no keys at all. Pass a key only for
+// items of a list that can change order, and the key alone then names
+// the instance:
+//
+//	for r in rows {
+//		niello.show(row_u, {text = r.name}, niello.key_int(r.id))
+//	}
 //
 // Component procs forward their caller's location, so each place a
 // component is used is its own call site:
@@ -913,7 +921,7 @@ clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 //		if niello.begin(btn_u, out = &i, loc = loc) { ... }
 //		return
 //	}
-show :: proc(unit: Unit, key: Key = 0, with: With = {}, loc := #caller_location) -> Instance {
+show :: proc(unit: Unit, with: With = {}, key: Key = 0, loc := #caller_location) -> Instance {
 	inst, _ := declare(unit, key, with, false, loc)
 	return inst
 }
@@ -980,8 +988,8 @@ child_clip_for :: proc(unit: Unit, inst: Instance, inherited: Rect) -> Rect {
 @(deferred_out = end)
 begin :: proc(
 	unit: Unit,
-	key: Key = 0,
 	with: With = {},
+	key: Key = 0,
 	flags: Begin_Flags = {},
 	out: ^Instance = nil,
 	loc := #caller_location,
@@ -1095,8 +1103,8 @@ begin_popup :: proc(
 	unit: Unit,
 	anchor: Instance,
 	placement: Placement,
-	key: Key = 0,
 	with: With = {},
+	key: Key = 0,
 	opts: Popup_Opts = {},
 	out: ^Instance = nil,
 	loc := #caller_location,

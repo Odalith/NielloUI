@@ -26,59 +26,59 @@ scroll_units: struct {
 
 page_scrolling :: proc(app: ^App) {
 	s := &app.scrolling
-	niello.show(ui.title, niello.key("t"), {text = "Scrolling"})
-	note("n", "The wheel scrolls the deepest scroller under the cursor; leftover delta chains outward to the next one (this page itself scrolls). Scrollbars are a component: an anchored child reading scroll_offset / scroll_range.")
+	niello.show(ui.title, {text = "Scrolling"})
+	note("The wheel scrolls the deepest scroller under the cursor; leftover delta chains outward to the next one (this page itself scrolls). Scrollbars are a component: an anchored child reading scroll_offset / scroll_range.")
 
-	if niello.begin(ui.card_row, niello.key("lists")) {
-		if niello.begin(ui.column, niello.key("c1")) {
+	if niello.begin(ui.card_row) {
+		if niello.begin(ui.column) {
 			heading("List + nested scroller")
 			scroll_list(s)
-			if niello.begin(ui.row, niello.key("jump")) {
-				if niello.clicked(button(niello.key("top"), "Top")) {
+			if niello.begin(ui.row) {
+				if niello.clicked(button("Top")) {
 					niello.scroll_to(s.list_i, {0, 0})
 				}
-				if niello.clicked(button(niello.key("bottom"), "Bottom")) {
+				if niello.clicked(button("Bottom")) {
 					niello.scroll_to(s.list_i, {0, 1e9}) // clamped to the range
 				}
 			}
 			off := niello.scroll_offset(s.list_i)
 			rng := niello.scroll_range(s.list_i)
-			note("off", fmt.tprintf("offset %.0f of %.0f", off.y, rng.y))
+			note(fmt.tprintf("offset %.0f of %.0f", off.y, rng.y))
 		}
-		if niello.begin(ui.column, niello.key("c2")) {
+		if niello.begin(ui.column) {
 			heading("Smooth + overscroll")
 			scroll_smooth(s)
-			note("sm", "smooth_scroll glides each wheel tick; overscroll pulls past the ends with resistance and springs back.")
+			note("smooth_scroll glides each wheel tick; overscroll pulls past the ends with resistance and springs back.")
 			heading("Horizontal")
 			scroll_wide(s)
-			note("h", "Horizontal wheel or trackpad, or drag the bar.")
+			note("Horizontal wheel or trackpad, or drag the bar.")
 		}
 	}
 }
 
 scroll_list :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	if niello.begin(S.list, niello.key("list"), out = &s.list_i) {
-		if niello.begin(S.col, niello.key("col")) {
+	if niello.begin(S.list, out = &s.list_i) {
+		if niello.begin(S.col) {
 			for k in 0 ..< 6 {
-				niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Row %d", k + 1)})
+				niello.show(S.row, {text = fmt.tprintf("Row %d", k + 1)})
 			}
 			scroll_inner(s)
 			for k in 6 ..< 30 {
-				niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Row %d", k + 1)})
+				niello.show(S.row, {text = fmt.tprintf("Row %d", k + 1)})
 			}
 		}
-		niello.show(S.sticky, niello.key("sticky"), {text = "anchored header — does not scroll", anchored = true})
+		niello.show(S.sticky, {text = "anchored header — does not scroll", anchored = true})
 		scrollbar(&s.list_bar, s.list_i)
 	}
 }
 
 scroll_inner :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	if niello.begin(S.inner, niello.key("inner"), out = &s.inner_i) {
-		if niello.begin(S.col, niello.key("col")) {
+	if niello.begin(S.inner, out = &s.inner_i) {
+		if niello.begin(S.col) {
 			for k in 0 ..< 12 {
-				niello.show(S.inner_row, niello.key_int(k), {text = fmt.tprintf("Nested row %d — wheel here first", k + 1)})
+				niello.show(S.inner_row, {text = fmt.tprintf("Nested row %d — wheel here first", k + 1)})
 			}
 		}
 		scrollbar(&s.inner_bar, s.inner_i)
@@ -87,10 +87,10 @@ scroll_inner :: proc(s: ^Scrolling_State) {
 
 scroll_smooth :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	if niello.begin(S.smooth, niello.key("smooth"), out = &s.smooth_i) {
-		if niello.begin(S.col, niello.key("col")) {
+	if niello.begin(S.smooth, out = &s.smooth_i) {
+		if niello.begin(S.col) {
 			for k in 0 ..< 30 {
-				niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Glide row %d", k + 1)})
+				niello.show(S.row, {text = fmt.tprintf("Glide row %d", k + 1)})
 			}
 		}
 		scrollbar(&s.smooth_bar, s.smooth_i)
@@ -99,9 +99,9 @@ scroll_smooth :: proc(s: ^Scrolling_State) {
 
 scroll_wide :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	if niello.begin(S.wide, niello.key("wide"), out = &s.wide_i) {
+	if niello.begin(S.wide, out = &s.wide_i) {
 		for k in 0 ..< 14 {
-			niello.show(S.wide_row, niello.key_int(k), {text = fmt.tprintf("Tile %d", k + 1)})
+			niello.show(S.wide_row, {text = fmt.tprintf("Tile %d", k + 1)})
 		}
 		scrollbar(&s.wide_bar, s.wide_i)
 	}
@@ -129,36 +129,36 @@ ACCENTS := [4]niello.Color{{92, 140, 230, 255}, {200, 110, 70, 255}, {80, 165, 1
 page_animation :: proc(app: ^App) {
 	s := &app.anim
 	A := &anim_units
-	niello.show(ui.title, niello.key("t"), {text = "Animation"})
-	note("n", "Writes go through units: tween glides a unit toward another unit's style, group_set with a duration glides a whole group, propagate pushes a prototype's values to the units minted from it, and transient pulses one instance.")
+	niello.show(ui.title, {text = "Animation"})
+	note("Writes go through units: tween glides a unit toward another unit's style, group_set with a duration glides a whole group, propagate pushes a prototype's values to the units minted from it, and transient pulses one instance.")
 
-	if niello.begin(ui.card, niello.key("tween")) {
+	if niello.begin(ui.card) {
 		heading("tween — glide toward a pose unit")
-		if niello.clicked(button(niello.key("glide"), "Glide the box")) {
+		if niello.clicked(button("Glide the box")) {
 			s.box_at_b = !s.box_at_b
 			niello.tween(A.box, s.box_at_b ? A.pose_b : A.pose_a, 400, niello.Fields{.Size, .Color, .Corner_Radius})
 		}
-		niello.show(A.box, niello.key("box"))
+		niello.show(A.box)
 	}
 
-	if niello.begin(ui.card, niello.key("cards")) {
+	if niello.begin(ui.card) {
 		heading("propagate, group_set with a duration, transient")
-		if niello.begin(ui.row, niello.key("btns")) {
-			if niello.clicked(button(niello.key("prop"), "Next accent (propagate)")) {
+		if niello.begin(ui.row) {
+			if niello.clicked(button("Next accent (propagate)")) {
 				s.accent_idx = (s.accent_idx + 1) % len(ACCENTS)
 				niello.set(A.card_proto, .Color, ACCENTS[s.accent_idx])
 				niello.propagate(A.card_proto, niello.Fields{.Color})
 				status_set(&app.status, "propagate: the prototype's color reached every card minted from it")
 			}
-			if niello.clicked(button(niello.key("gset"), "Fade accent (group_set 600 ms)")) {
+			if niello.clicked(button("Fade accent (group_set 600 ms)")) {
 				s.accent_idx = (s.accent_idx + 1) % len(ACCENTS)
 				niello.group_set(A.accent_group, .Color, ACCENTS[s.accent_idx], 600)
 			}
 		}
-		if niello.begin(ui.row, niello.key("cards")) {
+		if niello.begin(ui.row) {
 			for k in 0 ..< 3 {
-				if niello.begin(A.cards[k], niello.key_int(k), {role = .Button, label = fmt.tprintf("Card %d", k + 1)}, out = &s.card_i[k]) {
-					niello.show(A.card_text, 0, {text = fmt.tprintf("Card %d — click to flash", k + 1)})
+				if niello.begin(A.cards[k], {role = .Button, label = fmt.tprintf("Card %d", k + 1)}, out = &s.card_i[k]) {
+					niello.show(A.card_text, {text = fmt.tprintf("Card %d — click to flash", k + 1)})
 				}
 				if niello.clicked(s.card_i[k]) {
 					niello.transient(s.card_i[k], A.flash, 100, 350)
@@ -167,9 +167,9 @@ page_animation :: proc(app: ^App) {
 		}
 	}
 
-	if niello.begin(ui.card, niello.key("edit")) {
+	if niello.begin(ui.card) {
 		heading("edit — bulk changes, diffed at frame end")
-		if niello.clicked(button(niello.key("ed"), "Restyle with edit()")) {
+		if niello.clicked(button("Restyle with edit()")) {
 			s.edit_step += 1
 			e := niello.edit(A.edit_box)
 			e.corner_radius = u8((s.edit_step * 9) % 32)
@@ -177,7 +177,7 @@ page_animation :: proc(app: ^App) {
 			e.border_width = u16(s.edit_step % 4)
 			e.size = sz(fixed(f32(160 + (s.edit_step % 3) * 60)), fixed(48))
 		}
-		niello.show(A.edit_box, niello.key("box"), {text = fmt.tprintf("edit step %d", s.edit_step)})
+		niello.show(A.edit_box, {text = fmt.tprintf("edit step %d", s.edit_step)})
 	}
 }
 
@@ -199,30 +199,30 @@ popup_units: struct {
 
 page_popups :: proc(app: ^App) {
 	s := &app.popups
-	niello.show(ui.title, niello.key("t"), {text = "Popups"})
-	note("n", "Popups are overlay roots declared after the main tree. The engine owns no open state: it reports dismiss_requested (click outside, Esc) and the app stops declaring.")
+	niello.show(ui.title, {text = "Popups"})
+	note("Popups are overlay roots declared after the main tree. The engine owns no open state: it reports dismiss_requested (click outside, Esc) and the app stops declaring.")
 
-	if niello.begin(ui.card, niello.key("menus")) {
+	if niello.begin(ui.card) {
 		heading("Menu, dialog, toast")
-		if niello.begin(ui.row, niello.key("r")) {
-			s.menu_btn_i = button(niello.key("menu"), "Open menu ▾")
+		if niello.begin(ui.row) {
+			s.menu_btn_i = button("Open menu ▾")
 			if niello.clicked(s.menu_btn_i) {
 				s.menu_open = !s.menu_open
 			}
-			if niello.clicked(button(niello.key("dlg"), "Modal dialog…")) {
+			if niello.clicked(button("Modal dialog…")) {
 				s.dlg_open = true
 			}
-			if niello.clicked(button(niello.key("toast"), "Show toast")) {
+			if niello.clicked(button("Show toast")) {
 				s.toast = "Saved. This toast hides itself after 2.5 s (wake_in)."
 				s.toast_until = time.tick_add(time.tick_now(), 2500 * time.Millisecond)
 			}
 		}
-		note("d", "The dialog is modal: outside presses are absorbed, Tab stays inside it, and focus returns to the opener when it closes.")
+		note("The dialog is modal: outside presses are absorbed, Tab stays inside it, and focus returns to the opener when it closes.")
 	}
 
-	if niello.begin(ui.card, niello.key("canvas")) {
+	if niello.begin(ui.card) {
 		heading("Context menu")
-		s.canvas_i = niello.show(popup_units.canvas, niello.key("c"), {text = "Click anywhere in this area"})
+		s.canvas_i = niello.show(popup_units.canvas, {text = "Click anywhere in this area"})
 		if niello.clicked(s.canvas_i) {
 			if p, pok := niello.mouse_position(); pok {
 				s.ctx_at = p
@@ -252,9 +252,9 @@ popups_overlay :: proc(app: ^App) {
 	}
 
 	if s.menu_open {
-		if niello.begin_popup(ui.menu, s.menu_btn_i, .Below, key = niello.key("menu"), opts = {gap = 4}, out = &s.menu_i) {
+		if niello.begin_popup(ui.menu, s.menu_btn_i, .Below, opts = {gap = 4}, out = &s.menu_i) {
 			for text, k in ([]string{"New", "Open…", "Save", "Save as…"}) {
-				if menu_item(niello.key_int(k), text) {
+				if menu_item(text) {
 					status_set(&app.status, "Menu: %s", text)
 					s.menu_open = false
 				}
@@ -262,9 +262,9 @@ popups_overlay :: proc(app: ^App) {
 		}
 	}
 	if s.ctx_open {
-		if niello.begin_popup(ui.menu, 0, .At, key = niello.key("ctx"), opts = {at = s.ctx_at}, out = &s.ctx_menu_i) {
+		if niello.begin_popup(ui.menu, 0, .At, opts = {at = s.ctx_at}, out = &s.ctx_menu_i) {
 			for text, k in ([]string{"Cut", "Copy", "Paste"}) {
-				if menu_item(niello.key_int(k), text) {
+				if menu_item(text) {
 					status_set(&app.status, "Context menu: %s at (%.0f, %.0f)", text, s.ctx_at.x, s.ctx_at.y)
 					s.ctx_open = false
 				}
@@ -272,16 +272,16 @@ popups_overlay :: proc(app: ^App) {
 		}
 	}
 	if s.dlg_open {
-		if niello.begin_popup(ui.backdrop, 0, .At, key = niello.key("backdrop"), opts = {stay = true}) {}
-		if niello.begin_popup(ui.dialog, 0, .Center, key = niello.key("dialog"), opts = {modal = true}, out = &s.dlg_i) {
-			niello.show(ui.title, niello.key("t"), {text = "Discard changes?"})
-			note("b", "Tab cycles between the buttons; Esc or a click on the backdrop cancels.")
-			if niello.begin(ui.row, niello.key("btns")) {
-				if niello.clicked(button(niello.key("discard"), "Discard", .Danger)) {
+		if niello.begin_popup(ui.backdrop, 0, .At, opts = {stay = true}) {}
+		if niello.begin_popup(ui.dialog, 0, .Center, opts = {modal = true}, out = &s.dlg_i) {
+			niello.show(ui.title, {text = "Discard changes?"})
+			note("Tab cycles between the buttons; Esc or a click on the backdrop cancels.")
+			if niello.begin(ui.row) {
+				if niello.clicked(button("Discard", .Danger)) {
 					s.dlg_open = false
 					status_set(&app.status, "Dialog: discarded")
 				}
-				if niello.clicked(button(niello.key("cancel"), "Cancel")) {
+				if niello.clicked(button("Cancel")) {
 					s.dlg_open = false
 					status_set(&app.status, "Dialog: cancelled")
 				}
@@ -296,17 +296,17 @@ popups_overlay :: proc(app: ^App) {
 			// The engine sleeps when nothing changes; ask for the frame
 			// that hides the toast.
 			niello.wake_in(u32(time.duration_milliseconds(left)) + 1)
-			if niello.begin_popup(popup_units.toast, 0, .At, key = niello.key("toast"), opts = {stay = true, at = {24, 24}}) {
-				niello.show(ui.btn_label_on, 0, {text = s.toast})
+			if niello.begin_popup(popup_units.toast, 0, .At, opts = {stay = true, at = {24, 24}}) {
+				niello.show(ui.btn_label_on, {text = s.toast})
 			}
 		}
 	}
 }
 
-menu_item :: proc(key: niello.Key, text: string) -> bool {
+menu_item :: proc(text: string, loc := #caller_location) -> bool {
 	i: niello.Instance
-	if niello.begin(ui.menu_item, key, {role = .MenuItem, label = text}, out = &i) {
-		niello.show(ui.body, 0, {text = text})
+	if niello.begin(ui.menu_item, {role = .MenuItem, label = text}, out = &i, loc = loc) {
+		niello.show(ui.body, {text = text})
 	}
 	return niello.clicked(i)
 }
@@ -333,16 +333,16 @@ drag_units: struct {
 page_drag :: proc(app: ^App) {
 	s := &app.drag
 	D := &drag_units
-	niello.show(ui.title, niello.key("t"), {text = "Drag"})
-	note("n", "A drag is a phase of a press: past 4 DIP the press becomes a drag, reported by dragging / drag_started / drag_ended with drag_delta, drag_total and drag_pos.")
+	niello.show(ui.title, {text = "Drag"})
+	note("A drag is a phase of a press: past 4 DIP the press becomes a drag, reported by dragging / drag_started / drag_ended with drag_delta, drag_total and drag_pos.")
 
-	if niello.begin(ui.card, niello.key("slider")) {
+	if niello.begin(ui.card) {
 		heading("Slider (press to seek, drag to scrub, arrows when focused)")
-		slider(&s.volume, niello.key("vol"), "Volume")
-		note("v", fmt.tprintf("value %.0f%%", s.volume.value * 100))
+		slider(&s.volume, "Volume")
+		note(fmt.tprintf("value %.0f%%", s.volume.value * 100))
 	}
 
-	if niello.begin(ui.card, niello.key("split")) {
+	if niello.begin(ui.card) {
 		heading("Splitter")
 		if niello.drag_started(s.divider_i) {
 			s.split_grab = s.split_w
@@ -351,19 +351,19 @@ page_drag :: proc(app: ^App) {
 			s.split_w = clamp(s.split_grab + niello.drag_total().x, 80, 600)
 		}
 		niello.set(D.left, .Size, sz(fixed(s.split_w), grow()))
-		if niello.begin(D.split_row, niello.key("row")) {
-			if niello.begin(D.left, niello.key("l")) {
-				note("l", fmt.tprintf("left pane, %.0f DIP", s.split_w))
+		if niello.begin(D.split_row) {
+			if niello.begin(D.left) {
+				note(fmt.tprintf("left pane, %.0f DIP", s.split_w))
 			}
-			if niello.begin(D.divider, niello.key("div"), out = &s.divider_i) {
+			if niello.begin(D.divider, out = &s.divider_i) {
 			}
-			if niello.begin(D.right, niello.key("r")) {
-				note("r", "right pane (grow)")
+			if niello.begin(D.right) {
+				note("right pane (grow)")
 			}
 		}
 	}
 
-	if niello.begin(ui.card, niello.key("free")) {
+	if niello.begin(ui.card) {
 		heading("Free drag")
 		if niello.drag_started(s.chip_i) {
 			s.chip_grab = s.chip_pos
@@ -377,7 +377,7 @@ page_drag :: proc(app: ^App) {
 		// The slot's padding is the chip's position inside the area.
 		niello.set(D.chip_slot, .Padding, [4]u16{u16(s.chip_pos.x), u16(s.chip_pos.y), 0, 0})
 		drag_area(s)
-		if niello.clicked(button(niello.key("dlg"), "Open a draggable dialog")) {
+		if niello.clicked(button("Open a draggable dialog")) {
 			s.dlg_open = true
 		}
 	}
@@ -385,9 +385,9 @@ page_drag :: proc(app: ^App) {
 
 drag_area :: proc(s: ^Drag_State) {
 	D := &drag_units
-	if niello.begin(D.area, niello.key("area"), out = &s.area_i) {
-		if niello.begin(D.chip_slot, niello.key("slot")) {
-			s.chip_i = niello.show(D.chip, niello.key("chip"), {text = "drag me", role = .Thumb, label = "Draggable chip"})
+	if niello.begin(D.area, out = &s.area_i) {
+		if niello.begin(D.chip_slot) {
+			s.chip_i = niello.show(D.chip, {text = "drag me", role = .Thumb, label = "Draggable chip"})
 		}
 	}
 }
@@ -407,13 +407,13 @@ drag_overlay :: proc(app: ^App) {
 	if niello.dragging(s.header_i) && !niello.dragging(s.close_i) {
 		s.dlg_pos = s.dlg_grab + niello.drag_total()
 	}
-	if niello.begin_popup(D.dlg, 0, .At, key = niello.key("dragdlg"), opts = {at = s.dlg_pos, stay = true}, out = &s.dlg_i) {
-		if niello.begin(D.dlg_header, niello.key("hdr"), out = &s.header_i) {
-			niello.show(ui.heading, 0, {text = "Drag me by the header"})
+	if niello.begin_popup(D.dlg, 0, .At, opts = {at = s.dlg_pos, stay = true}, out = &s.dlg_i) {
+		if niello.begin(D.dlg_header, out = &s.header_i) {
+			niello.show(ui.heading, {text = "Drag me by the header"})
 			niello.show(shell.spacer)
-			s.close_i = button(niello.key("x"), "Close")
+			s.close_i = button("Close")
 		}
-		note("b", fmt.tprintf("position (%.0f, %.0f)", s.dlg_pos.x, s.dlg_pos.y))
+		note(fmt.tprintf("position (%.0f, %.0f)", s.dlg_pos.x, s.dlg_pos.y))
 	}
 	if niello.clicked(s.close_i) {
 		s.dlg_open = false
@@ -451,37 +451,37 @@ load_images :: proc(s: ^Images_State) {
 page_images :: proc(app: ^App) {
 	s := &app.images
 	I := &image_units
-	niello.show(ui.title, niello.key("t"), {text = "Images"})
+	niello.show(ui.title, {text = "Images"})
 	if !s.loaded {
-		note("fail", "The test image did not decode (no backend?) — nothing to show.")
+		note("The test image did not decode (no backend?) — nothing to show.")
 		return
 	}
-	if niello.begin(ui.card, niello.key("fits")) {
+	if niello.begin(ui.card) {
 		heading("Fit modes — a 480x320 image in 180x120 boxes")
-		if niello.begin(ui.row, niello.key("r")) {
+		if niello.begin(ui.row) {
 			for k in 0 ..< 4 {
-				if niello.begin(ui.column, niello.key_int(k)) {
-					niello.show(I.fits[k], 0, {image = s.hero})
-					niello.show(I.caption, 0, {text = FIT_NAMES[k]})
+				if niello.begin(ui.column) {
+					niello.show(I.fits[k], {image = s.hero})
+					niello.show(I.caption, {text = FIT_NAMES[k]})
 				}
 			}
 		}
 	}
-	if niello.begin(ui.card, niello.key("variants")) {
+	if niello.begin(ui.card) {
 		heading("One unit, per-instance images: full, crop, decode-to-120")
-		if niello.begin(ui.row, niello.key("r")) {
-			niello.show(I.strip, niello.key("a"), {image = s.hero})
-			niello.show(I.strip, niello.key("b"), {image = s.crop})
-			niello.show(I.strip, niello.key("c"), {image = s.thumb})
+		if niello.begin(ui.row) {
+			niello.show(I.strip, {image = s.hero})
+			niello.show(I.strip, {image = s.crop})
+			niello.show(I.strip, {image = s.thumb})
 		}
 		heading("Interpolation (crop upscaled): high vs none")
-		if niello.begin(ui.row, niello.key("interp")) {
-			niello.show(I.smooth, niello.key("hi"), {image = s.crop})
-			niello.show(I.nearest, niello.key("no"), {image = s.crop})
+		if niello.begin(ui.row) {
+			niello.show(I.smooth, {image = s.crop})
+			niello.show(I.nearest, {image = s.crop})
 		}
 		heading("Background image behind children")
-		if niello.begin(I.bg, niello.key("bg"), {image = s.hero}) {
-			niello.show(ui.btn_label_on, 0, {text = "a container paints its image first"})
+		if niello.begin(I.bg, {image = s.hero}) {
+			niello.show(ui.btn_label_on, {text = "a container paints its image first"})
 		}
 	}
 }
@@ -587,47 +587,47 @@ async_shutdown :: proc(app: ^App) {
 
 page_async :: proc(app: ^App) {
 	s := &app.async
-	niello.show(ui.title, niello.key("t"), {text = "Async & windows"})
+	niello.show(ui.title, {text = "Async & windows"})
 
-	if niello.begin(ui.card, niello.key("job")) {
+	if niello.begin(ui.card) {
 		heading("Background work through an inbox")
-		note("n", "A worker thread sends progress into an inbox; send wakes the UI, and the app drains the inbox once per frame before declaring. Nothing touches app state between drains.")
-		if niello.begin(ui.row, niello.key("r")) {
-			if niello.clicked(button(niello.key("start"), "Start job", .Primary, disabled = s.running)) {
+		note("A worker thread sends progress into an inbox; send wakes the UI, and the app drains the inbox once per frame before declaring. Nothing touches app state between drains.")
+		if niello.begin(ui.row) {
+			if niello.clicked(button("Start job", .Primary, disabled = s.running)) {
 				async_start(s)
 			}
-			if niello.clicked(button(niello.key("cancel"), "Cancel", .Normal, disabled = !s.running)) {
+			if niello.clicked(button("Cancel", .Normal, disabled = !s.running)) {
 				sync.atomic_store(&s.cancel, true)
 			}
-			niello.show(ui.body, niello.key("st"), {text = fmt.tprintf("%d%% — %s", s.pct, s.last == "" ? "idle" : s.last)})
+			niello.show(ui.body, {text = fmt.tprintf("%d%% — %s", s.pct, s.last == "" ? "idle" : s.last)})
 		}
 		s.progress.value = f32(s.pct) / 100
-		progress_bar(&s.progress, niello.key("bar"), "Job progress")
+		progress_bar(&s.progress, "Job progress")
 	}
 
-	if niello.begin(ui.card, niello.key("clock")) {
+	if niello.begin(ui.card) {
 		heading("Timers: wake_in")
-		note("n", "The loop sleeps at ~0% CPU when nothing changes. A ticking readout asks for its next frame with wake_in.")
-		if toggle(niello.key("clk"), "Run the clock", &s.clock_on) && s.clock_on {
+		note("The loop sleeps at ~0% CPU when nothing changes. A ticking readout asks for its next frame with wake_in.")
+		if toggle("Run the clock", &s.clock_on) && s.clock_on {
 			s.clock_start = time.tick_now()
 		}
 		if s.clock_on {
 			el := time.tick_since(s.clock_start)
 			niello.wake_in(100)
-			niello.show(ui.title, niello.key("time"), {text = fmt.tprintf("%.1f s", time.duration_seconds(el))})
+			niello.show(ui.title, {text = fmt.tprintf("%.1f s", time.duration_seconds(el))})
 		} else {
-			niello.show(ui.title, niello.key("time"), {text = "stopped — the app is idle"})
+			niello.show(ui.title, {text = "stopped — the app is idle"})
 		}
 	}
 
-	if niello.begin(ui.card, niello.key("win")) {
+	if niello.begin(ui.card) {
 		heading("Windows")
-		note("n", "A second window has its own context; units and groups are global, so the theme switch reaches it too. It reads this window's committed tree with the cross-context API (rect_in, instance_count).")
-		if niello.clicked(button(niello.key("insp"), s.insp.open ? "Inspector is open" : "Open inspector window", .Normal, disabled = s.insp.open)) {
+		note("A second window has its own context; units and groups are global, so the theme switch reaches it too. It reads this window's committed tree with the cross-context API (rect_in, instance_count).")
+		if niello.clicked(button(s.insp.open ? "Inspector is open" : "Open inspector window", .Normal, disabled = s.insp.open)) {
 			inspector_open(app)
 		}
 		when niello.NIELLO_DEBUG {
-			if niello.clicked(button(niello.key("dbg"), "Open debugger (F12)")) {
+			if niello.clicked(button("Open debugger (F12)")) {
 				debugui.open(app.ctx)
 			}
 		}
@@ -652,16 +652,16 @@ inspector_open :: proc(app: ^App) {
 declare_inspector :: proc(s: ^Inspector) {
 	app := s.main
 	if niello.begin(inspector_units.root) {
-		niello.show(ui.title, 0, {text = "Inspector"})
-		niello.show(ui.body, niello.key("n"), {text = fmt.tprintf("main window: %d instances, page %s", niello.instance_count(app.ctx), PAGE_NAMES[app.page])})
+		niello.show(ui.title, {text = "Inspector"})
+		niello.show(ui.body, {text = fmt.tprintf("main window: %d instances, page %s", niello.instance_count(app.ctx), PAGE_NAMES[app.page])})
 		if r, rok := niello.rect_in(app.ctx, app.content_i); rok {
-			niello.show(ui.body, niello.key("c"), {text = fmt.tprintf("content area: %.0f x %.0f at (%.0f, %.0f)", r.size.x, r.size.y, r.pos.x, r.pos.y)})
+			niello.show(ui.body, {text = fmt.tprintf("content area: %.0f x %.0f at (%.0f, %.0f)", r.size.x, r.size.y, r.pos.x, r.pos.y)})
 		}
 		if r, rok := niello.rect_in(app.ctx, app.nav_i[app.page]); rok {
-			niello.show(ui.body, niello.key("s"), {text = fmt.tprintf("selected nav item: y = %.0f", r.pos.y)})
+			niello.show(ui.body, {text = fmt.tprintf("selected nav item: y = %.0f", r.pos.y)})
 		}
-		note("w", "This window re-renders when the main window wakes it.")
-		if niello.clicked(button(niello.key("close"), "Close")) {
+		note("This window re-renders when the main window wakes it.")
+		if niello.clicked(button("Close")) {
 			niello_sdl.close_window(s.id)
 		}
 	}

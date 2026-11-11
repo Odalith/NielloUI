@@ -211,9 +211,9 @@ mint :: proc() {
 	niello.mint(&player_u, niello.NO_UNIT, {font_size = 14, font_color = ACCENT})
 }
 
-button :: proc(key: string, label: string) -> (i: niello.Instance) {
-	if niello.begin(btn_u, niello.key(key), out = &i) {
-		niello.show(btn_label_u, 0, {text = label})
+button :: proc(label: string, loc := #caller_location) -> (i: niello.Instance) {
+	if niello.begin(btn_u, out = &i, loc = loc) {
+		niello.show(btn_label_u, {text = label})
 	}
 	return
 }
@@ -226,10 +226,10 @@ declare :: proc() {
 	if niello.begin(window_u) {
 		niello.show(title_u)
 		niello.show(hint_u)
-		if niello.begin(row_u, niello.key("buttons")) {
-			index_i = button("index", model.indexing ? "Indexing…" : "Index library")
-			cancel_i = button("cancel", "Cancel")
-			play_i = button("play", model.playing ? "Pause" : "Play")
+		if niello.begin(row_u) {
+			index_i = button(model.indexing ? "Indexing…" : "Index library")
+			cancel_i = button("Cancel")
+			play_i = button(model.playing ? "Pause" : "Play")
 		}
 		if niello.clicked(index_i) && !model.indexing {
 			start_index()
@@ -242,8 +242,8 @@ declare :: proc() {
 			sync.atomic_store(&engine_playing, model.playing)
 		}
 
-		niello.show(status_u, niello.key("status"), {text = status_text()})
-		niello.show(player_u, niello.key("player"), {
+		niello.show(status_u, {text = status_text()})
+		niello.show(player_u, {
 			text = fmt.tprintf("%s Track %d — %d:%02d / %d:%02d",
 				model.playing ? "▶" : "⏸", model.track + 1,
 				int(model.position) / 60, int(model.position) % 60,
@@ -252,10 +252,10 @@ declare :: proc() {
 
 		shown := min(len(model.items), 12)
 		for k in 0 ..< shown {
-			niello.show(item_u, niello.key_int(k), {text = model.items[k]})
+			niello.show(item_u, {text = model.items[k]})
 		}
 		if len(model.items) > shown {
-			niello.show(item_u, niello.key("more"), {
+			niello.show(item_u, {
 				text = fmt.tprintf("… and %d more", len(model.items) - shown),
 			})
 		}

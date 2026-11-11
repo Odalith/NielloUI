@@ -24,66 +24,66 @@ cursor_units: [niello.Cursor_Kind]niello.Unit
 
 page_controls :: proc(app: ^App) {
 	s := &app.controls
-	niello.show(ui.title, niello.key("t"), {text = "Controls"})
-	note("n", "Every control is polled during declare — clicked(), hovered(), pressed() — against last frame's hit test. No callbacks anywhere. Hover, press and focus states are overlay units merged over the base style.")
+	niello.show(ui.title, {text = "Controls"})
+	note("Every control is polled during declare — clicked(), hovered(), pressed() — against last frame's hit test. No callbacks anywhere. Hover, press and focus states are overlay units merged over the base style.")
 
-	if niello.begin(ui.card, niello.key("buttons")) {
+	if niello.begin(ui.card) {
 		heading("Buttons")
-		if niello.begin(ui.row, niello.key("r1")) {
-			s.count_i = button(niello.key("count"), fmt.tprintf("Clicked %d times", s.clicks))
+		if niello.begin(ui.row) {
+			s.count_i = button(fmt.tprintf("Clicked %d times", s.clicks))
 			if niello.clicked(s.count_i) {
 				s.clicks += 1
 				status_set(&app.status, "Button clicked (%d)", s.clicks)
 			}
-			if niello.clicked(button(niello.key("primary"), "Primary", .Primary)) {
+			if niello.clicked(button("Primary", .Primary)) {
 				status_set(&app.status, "Primary clicked")
 			}
-			if niello.clicked(button(niello.key("danger"), "Danger (pinned)", .Danger)) {
+			if niello.clicked(button("Danger (pinned)", .Danger)) {
 				status_set(&app.status, "Danger clicked — its color is pinned against theme broadcasts")
 			}
-			dis := button(niello.key("disabled"), "Disabled", .Normal, disabled = !s.locked)
+			dis := button("Disabled", .Normal, disabled = !s.locked)
 			if niello.clicked(dis) {
 				status_set(&app.status, "The unlocked button clicked")
 			}
 			if niello.hovered(dis) && !s.locked {
 				status_set(&app.status, "Disabled: it is hovered (and shows the not-allowed cursor) but absorbs clicks")
 			}
-			if niello.clicked(button(niello.key("reset"), "Reset count")) {
+			if niello.clicked(button("Reset count")) {
 				s.clicks = 0
 			}
 		}
 		if niello.pressed(s.count_i) {
-			note("press", "Pressed: the press captures — drag off the button and it stays pressed; release elsewhere cancels the click.")
+			note("Pressed: the press captures — drag off the button and it stays pressed; release elsewhere cancels the click.")
 		}
 	}
 
-	if niello.begin(ui.card, niello.key("toggles")) {
+	if niello.begin(ui.card) {
 		heading("Toggles and checkboxes")
-		if niello.begin(ui.row, niello.key("r1")) {
-			if toggle(niello.key("notify"), "Notifications", &s.notify) {
+		if niello.begin(ui.row) {
+			if toggle("Notifications", &s.notify) {
 				status_set(&app.status, "Notifications %s (a variant overlay)", s.notify ? "on" : "off")
 			}
-			toggle(niello.key("sound"), "Sound", &s.sound)
-			checkbox(niello.key("a"), "Option A", &s.opt_a)
-			checkbox(niello.key("b"), "Option B", &s.opt_b)
-			if checkbox(niello.key("lock"), "Enable the disabled button", &s.locked) {
+			toggle("Sound", &s.sound)
+			checkbox("Option A", &s.opt_a)
+			checkbox("Option B", &s.opt_b)
+			if checkbox("Enable the disabled button", &s.locked) {
 				status_set(&app.status, "Disabled button %s", s.locked ? "enabled" : "disabled")
 			}
 		}
 	}
 
-	if niello.begin(ui.card, niello.key("hover")) {
+	if niello.begin(ui.card) {
 		heading("Hover, tooltips and cursors")
-		s.hover_i = button(niello.key("hoverme"), "Hover me")
+		s.hover_i = button("Hover me")
 		tooltip(s.hover_i, "Tooltips are popups shown once hover_duration passes 0.5 s.")
 		d := niello.hover_duration(s.hover_i)
-		note("dur", d > 0 ? fmt.tprintf("hovered for %.1f s", d) : "not hovered")
-		if niello.begin(ui.row, niello.key("cursors")) {
+		note(d > 0 ? fmt.tprintf("hovered for %.1f s", d) : "not hovered")
+		if niello.begin(ui.row) {
 			for k in niello.Cursor_Kind {
-				s.cursor_i[k] = niello.show(cursor_units[k], niello.key_int(int(k)), {text = fmt.tprintf("%v", k)})
+				s.cursor_i[k] = niello.show(cursor_units[k], {text = fmt.tprintf("%v", k)})
 			}
 		}
-		note("cur", "Each chip sets Style.cursor; the host applies the hovered instance's cursor from Frame_Result.")
+		note("Each chip sets Style.cursor; the host applies the hovered instance's cursor from Frame_Result.")
 	}
 }
 
@@ -105,61 +105,61 @@ layout_units: struct {
 page_layout :: proc(app: ^App) {
 	s := &app.layout
 	L := &layout_units
-	niello.show(ui.title, niello.key("t"), {text = "Layout"})
-	note("n", "Row, column and stack containers. Each axis sizes as Fixed, Fit (content), Grow (share the leftover) or Percent (of the parent), with min/max clamps. Resize the window to watch Grow and Percent react.")
+	niello.show(ui.title, {text = "Layout"})
+	note("Row, column and stack containers. Each axis sizes as Fixed, Fit (content), Grow (share the leftover) or Percent (of the parent), with min/max clamps. Resize the window to watch Grow and Percent react.")
 
-	if niello.begin(ui.card, niello.key("sizing")) {
+	if niello.begin(ui.card) {
 		heading("Sizing kinds")
-		if niello.begin(L.box_row, niello.key("r1")) {
-			niello.show(L.fixed_b, 0, {text = "fixed(140)"})
-			niello.show(L.fit_b, 0, {text = "fit() — sized to this label"})
-			niello.show(L.grow_b, 0, {text = "grow()"})
-			niello.show(L.percent_b, 0, {text = "percent(0.2)"})
+		if niello.begin(L.box_row) {
+			niello.show(L.fixed_b, {text = "fixed(140)"})
+			niello.show(L.fit_b, {text = "fit() — sized to this label"})
+			niello.show(L.grow_b, {text = "grow()"})
+			niello.show(L.percent_b, {text = "percent(0.2)"})
 		}
-		if niello.begin(L.box_row, niello.key("r2")) {
-			niello.show(L.grow_max_b, 0, {text = "grow(max = 160)"})
-			niello.show(L.grow_b, 0, {text = "grow()"})
-			niello.show(L.grow_b, 0, {text = "grow()"})
+		if niello.begin(L.box_row) {
+			niello.show(L.grow_max_b, {text = "grow(max = 160)"})
+			niello.show(L.grow_b, {text = "grow()"})
+			niello.show(L.grow_b, {text = "grow()"})
 		}
-		note("g", "Growers split the leftover fairly; one clamped by its max gives the rest away.")
+		note("Growers split the leftover fairly; one clamped by its max gives the rest away.")
 	}
 
-	if niello.begin(ui.card, niello.key("align")) {
+	if niello.begin(ui.card) {
 		heading("Alignment (stack layout, align = [x, y])")
-		if niello.begin(ui.row, niello.key("cells")) {
+		if niello.begin(ui.row) {
 			for k in 0 ..< 9 {
-				if niello.begin(L.align_cells[k], niello.key_int(k)) {
+				if niello.begin(L.align_cells[k]) {
 					niello.show(L.align_dot)
 				}
 			}
 		}
 	}
 
-	if niello.begin(ui.card, niello.key("squeeze")) {
+	if niello.begin(ui.card) {
 		heading("Shrinking and ellipsis")
-		note("n", "Drag the slider to squeeze the row. Fit children shrink fairly toward their floors; text past its box is trimmed with an ellipsis at paint time.")
-		slider(&s.squeeze, niello.key("sl"), "Row width")
+		note("Drag the slider to squeeze the row. Fit children shrink fairly toward their floors; text past its box is trimmed with an ellipsis at paint time.")
+		slider(&s.squeeze, "Row width")
 		w := 120 + s.squeeze.value * 520
 		niello.set(L.squeeze_row, .Size, sz(fixed(w), fixed(34)))
-		if niello.begin(L.squeeze_row, niello.key("row")) {
-			niello.show(L.squeeze_label, 0, {text = "The first label is fairly long"})
-			niello.show(L.squeeze_label, 0, {text = "Second label"})
-			niello.show(L.squeeze_label, 0, {text = "Third, also somewhat long"})
+		if niello.begin(L.squeeze_row) {
+			niello.show(L.squeeze_label, {text = "The first label is fairly long"})
+			niello.show(L.squeeze_label, {text = "Second label"})
+			niello.show(L.squeeze_label, {text = "Third, also somewhat long"})
 		}
-		note("w", fmt.tprintf("row width %.0f DIP", w))
+		note(fmt.tprintf("row width %.0f DIP", w))
 	}
 
-	if niello.begin(ui.card, niello.key("overflow")) {
+	if niello.begin(ui.card) {
 		heading("Overflow: spill vs clip")
-		if niello.begin(ui.row, niello.key("r")) {
-			if niello.begin(L.spill_box, niello.key("spill")) {
-				niello.show(L.wide, 0, {text = "Spill (default): I draw past my parent"})
+		if niello.begin(ui.row) {
+			if niello.begin(L.spill_box) {
+				niello.show(L.wide, {text = "Spill (default): I draw past my parent"})
 			}
-			if niello.begin(L.clip_box, niello.key("clip")) {
-				niello.show(L.wide, 0, {text = "Clip: I am cut at my parent's edge"})
+			if niello.begin(L.clip_box) {
+				niello.show(L.wide, {text = "Clip: I am cut at my parent's edge"})
 			}
 		}
-		note("d", "In debug builds the F12 debugger lists the spill as an overflow.")
+		note("In debug builds the F12 debugger lists the spill as an overflow.")
 	}
 }
 
@@ -186,63 +186,63 @@ WRAP_TEXT :: "Word wrap packs words into lines at the box's width. Drag the slid
 page_text :: proc(app: ^App) {
 	s := &app.text
 	T := &text_units
-	niello.show(ui.title, niello.key("t"), {text = "Text"})
+	niello.show(ui.title, {text = "Text"})
 
-	if niello.begin(ui.card, niello.key("fonts")) {
+	if niello.begin(ui.card) {
 		heading("Size, weight, slant")
-		if niello.begin(ui.row, niello.key("sizes")) {
+		if niello.begin(ui.row) {
 			for u, k in T.sizes {
-				niello.show(u, niello.key_int(k), {text = fmt.tprintf("%.0f px", TEXT_SIZES[k])})
+				niello.show(u, {text = fmt.tprintf("%.0f px", TEXT_SIZES[k])})
 			}
 		}
-		if niello.begin(ui.row, niello.key("weights")) {
+		if niello.begin(ui.row) {
 			k := 0
 			for w in niello.Font_Weight {
-				niello.show(T.weights[k], niello.key_int(k), {text = fmt.tprintf("%v", w)})
+				niello.show(T.weights[k], {text = fmt.tprintf("%v", w)})
 				k += 1
 			}
 		}
-		if niello.begin(ui.row, niello.key("slants")) {
+		if niello.begin(ui.row) {
 			k := 0
 			for sl in niello.Font_Slant {
-				niello.show(T.slants[k], niello.key_int(k), {text = fmt.tprintf("%v slant", sl)})
+				niello.show(T.slants[k], {text = fmt.tprintf("%v slant", sl)})
 				k += 1
 			}
 		}
-		niello.show(ui.body, niello.key("uni"), {text = "Unicode: Grüße, café, naïve, ½ → ✓"})
-		niello.show(ui.body, niello.key("nl"), {text = "Explicit newlines\nalways break,\neven without wrap."})
+		niello.show(ui.body, {text = "Unicode: Grüße, café, naïve, ½ → ✓"})
+		niello.show(ui.body, {text = "Explicit newlines\nalways break,\neven without wrap."})
 	}
 
-	if niello.begin(ui.card, niello.key("spans")) {
+	if niello.begin(ui.card) {
 		heading("Rich text spans")
-		niello.show(T.spans, 0, {text = SPAN_TEXT})
+		niello.show(T.spans, {text = SPAN_TEXT})
 	}
 
-	if niello.begin(ui.card, niello.key("wrap")) {
+	if niello.begin(ui.card) {
 		heading("Wrapping")
-		slider(&s.width, niello.key("sl"), "Paragraph width")
+		slider(&s.width, "Paragraph width")
 		w := 160 + s.width.value * 500
 		niello.set(T.wrapped, .Size, sz(fixed(w), fit()))
-		niello.show(T.wrapped, niello.key("p"), {text = WRAP_TEXT})
-		note("w", fmt.tprintf("width %.0f DIP", w))
+		niello.show(T.wrapped, {text = WRAP_TEXT})
+		note(fmt.tprintf("width %.0f DIP", w))
 	}
 
-	if niello.begin(ui.card, niello.key("ws")) {
+	if niello.begin(ui.card) {
 		heading("Whitespace and trimming")
-		if niello.begin(ui.row, niello.key("r")) {
-			if niello.begin(T.ws_box, niello.key("c")) {
-				niello.show(T.collapse, 0, {text = "  Collapse:   runs   fold  "})
+		if niello.begin(ui.row) {
+			if niello.begin(T.ws_box) {
+				niello.show(T.collapse, {text = "  Collapse:   runs   fold  "})
 			}
-			if niello.begin(T.ws_box, niello.key("p")) {
-				niello.show(T.preserve, 0, {text = "  Preserve:   runs   stay  "})
+			if niello.begin(T.ws_box) {
+				niello.show(T.preserve, {text = "  Preserve:   runs   stay  "})
 			}
 		}
-		if niello.begin(ui.row, niello.key("trim")) {
-			if niello.begin(T.trim_box, niello.key("e")) {
-				niello.show(T.ellipsis, 0, {text = "ellipsis on: this sentence is too long for the box"})
+		if niello.begin(ui.row) {
+			if niello.begin(T.trim_box) {
+				niello.show(T.ellipsis, {text = "ellipsis on: this sentence is too long for the box"})
 			}
-			if niello.begin(T.trim_box, niello.key("n")) {
-				niello.show(T.no_ellipsis, 0, {text = "ellipsis off: this sentence is too long for the box"})
+			if niello.begin(T.trim_box) {
+				niello.show(T.no_ellipsis, {text = "ellipsis off: this sentence is too long for the box"})
 			}
 		}
 	}
@@ -270,10 +270,10 @@ input_units: struct {
 
 page_input :: proc(app: ^App) {
 	s := &app.input
-	niello.show(ui.title, niello.key("t"), {text = "Keyboard & focus"})
-	note("n", "Tab / Shift+Tab walk the focusable instances in declaration order; clicking focuses. Text and keys route to the focused instance only: input_text for typed characters, input_keys for key events as Key_Codes.")
+	niello.show(ui.title, {text = "Keyboard & focus"})
+	note("Tab / Shift+Tab walk the focusable instances in declaration order; clicking focuses. Text and keys route to the focused instance only: input_text for typed characters, input_keys for key events as Key_Codes.")
 
-	if niello.begin(ui.card, niello.key("form")) {
+	if niello.begin(ui.card) {
 		heading("Text fields")
 		if text_field_input(&s.name) {
 			niello.focus_next()
@@ -281,17 +281,17 @@ page_input :: proc(app: ^App) {
 		if text_field_input(&s.email) {
 			niello.focus_next()
 		}
-		niello.show(ui.small, niello.key("l1"), {text = "NAME"})
-		text_field(&s.name, niello.key("name"), "e.g. Ada Lovelace")
-		niello.show(ui.small, niello.key("l2"), {text = "EMAIL"})
-		text_field(&s.email, niello.key("email"), "ada@example.com")
-		note("keys", "Backspace, Delete, Left/Right, Home/End; Ctrl+Backspace and Ctrl+Left jump by word; Enter moves on.")
-		if niello.begin(ui.row, niello.key("btns")) {
-			if niello.clicked(button(niello.key("submit"), "Submit", .Primary)) {
+		niello.show(ui.small, {text = "NAME"})
+		text_field(&s.name, "e.g. Ada Lovelace")
+		niello.show(ui.small, {text = "EMAIL"})
+		text_field(&s.email, "ada@example.com")
+		note("Backspace, Delete, Left/Right, Home/End; Ctrl+Backspace and Ctrl+Left jump by word; Enter moves on.")
+		if niello.begin(ui.row) {
+			if niello.clicked(button("Submit", .Primary)) {
 				delete(s.submitted)
 				s.submitted = fmt.aprintf("Submitted: %q <%s>", string(s.name.buf[:]), string(s.email.buf[:]))
 			}
-			if niello.clicked(button(niello.key("clear"), "Clear")) {
+			if niello.clicked(button("Clear")) {
 				clear(&s.name.buf)
 				clear(&s.email.buf)
 				s.name.caret, s.email.caret = 0, 0
@@ -299,13 +299,13 @@ page_input :: proc(app: ^App) {
 			}
 		}
 		if s.submitted != "" {
-			niello.show(ui.accent_text, niello.key("sub"), {text = s.submitted})
+			niello.show(ui.accent_text, {text = s.submitted})
 		}
 	}
 
-	if niello.begin(ui.card, niello.key("keys")) {
+	if niello.begin(ui.card) {
 		heading("Key tester")
-		note("n", "Click the box (or Tab to it) and press keys. Each event shows its logical key (what the layout produces), its physical key (the US-QWERTY position) and the held modifiers.")
+		note("Click the box (or Tab to it) and press keys. Each event shows its logical key (what the layout produces), its physical key (the US-QWERTY position) and the held modifiers.")
 		for ev in niello.input_keys(s.key_box_i) {
 			copy(s.key_log[1:], s.key_log[:KEY_LOG - 1])
 			s.key_log[0] = ev
@@ -322,18 +322,18 @@ page_input :: proc(app: ^App) {
 			}
 		}
 		focused := niello.focused(s.key_box_i)
-		if niello.begin(input_units.key_box, niello.key("box"), {role = .Pane, label = "Key tester"}, out = &s.key_box_i) {
-			niello.show(ui.small, niello.key("hint"), {
+		if niello.begin(input_units.key_box, {role = .Pane, label = "Key tester"}, out = &s.key_box_i) {
+			niello.show(ui.small, {
 				text = focused ? "focused — press keys (Tab leaves)" : "click to focus",
 			})
 			for k in 0 ..< s.key_log_n {
 				ev := s.key_log[k]
-				niello.show(ui.mono, niello.key_int(k), {text = fmt.tprintf(
+				niello.show(ui.mono, {text = fmt.tprintf(
 					"%-4s key=%-12s physical=%-12s mods=%v%s",
 					ev.down ? "down" : "up", fmt.tprint(ev.key), fmt.tprint(ev.physical), ev.mods, ev.repeat ? " (repeat)" : "",
 				)})
 			}
-			niello.show(ui.mono, niello.key("typed"), {text = fmt.tprintf("typed: %s", string(s.typed[:s.typed_n]))})
+			niello.show(ui.mono, {text = fmt.tprintf("typed: %s", string(s.typed[:s.typed_n]))})
 		}
 	}
 }

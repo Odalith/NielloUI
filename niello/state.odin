@@ -570,11 +570,26 @@ hash_mix :: proc(h, v: u64) -> u64 {
 	return (h ~ v) * 1099511628211
 }
 
+// mix64 is the splitmix64 finalizer: every input bit reaches every
+// output bit. Identities fold through it rather than hash_mix, whose
+// word-wide FNV step keeps its inputs' structure — with structured
+// inputs (parent hashes, call-site addresses, small keys) two nodes
+// collide whenever h1 ~ h2 == k1 ~ k2, and call-site keys move with
+// ASLR, so such collisions came and went between runs.
+mix64 :: proc(x: u64) -> u64 {
+	x := x
+	x ~= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ~= x >> 27
+	x *= 0x94d049bb133111eb
+	x ~= x >> 31
+	return x
+}
+
 identity_of :: proc(parent_id: u64, u: Unit, key: u64) -> Instance {
-	h := u64(14695981039346656037)
-	h = hash_mix(h, parent_id)
-	h = hash_mix(h, u64(u))
-	h = hash_mix(h, key)
+	h := mix64(parent_id ~ 0x243f6a8885a308d3)
+	h = mix64(h ~ u64(u))
+	h = mix64(h ~ key)
 	return Instance(h)
 }
 

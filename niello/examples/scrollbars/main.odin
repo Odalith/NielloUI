@@ -81,7 +81,7 @@ BAR_MIN_THUMB :: f32(24)
 // scrollbar_declare paints one bar inside its scroller and runs its
 // interactions. Call it inside the scroller's begin, after the
 // content, every frame the scroller is declared.
-scrollbar_declare :: proc(sb: ^Scrollbar, scroller: niello.Instance) {
+scrollbar_declare :: proc(sb: ^Scrollbar, scroller: niello.Instance, loc := #caller_location) {
 	vert := sb.axis == .Vertical
 	ax := vert ? 1 : 0
 	rng := niello.scroll_range(scroller)
@@ -172,7 +172,7 @@ scrollbar_declare :: proc(sb: ^Scrollbar, scroller: niello.Instance) {
 		niello.set_many(sb.spacer_u, {size = niello.Size{niello.fixed(thumb_pos), niello.fixed(0)}})
 		niello.set_many(sb.thumb_u, {size = niello.Size{niello.fixed(thumb_len), niello.grow(1)}})
 	}
-	if niello.begin(sb.strip_u, 0, {anchored = true}, out = &sb.strip_i) {
+	if niello.begin(sb.strip_u, {anchored = true}, out = &sb.strip_i, loc = loc) {
 		niello.show(sb.spacer_u)
 		sb.thumb_i = niello.show(sb.thumb_u)
 	} else {
@@ -270,12 +270,12 @@ row_text_buf: [32]u8
 declare :: proc() {
 	if niello.begin(root_u) {
 		// Left: the reading list with the default bar.
-		if niello.begin(col_u, niello.key_int(1)) {
-			niello.show(label_u, niello.key_int(1), {text = "Reading list"})
-			if niello.begin(list_scroll_u, niello.key_int(2), out = &list_i) {
+		if niello.begin(col_u) {
+			niello.show(label_u, {text = "Reading list"})
+			if niello.begin(list_scroll_u, out = &list_i) {
 				for k in 0 ..< 30 {
 					n := len(fmt.bprintf(row_text_buf[:], "Chapter %d", k + 1))
-					niello.show(row_u, niello.key_int(k + 1), {
+					niello.show(row_u, {
 						text = string(row_text_buf[:n]),
 					})
 				}
@@ -283,23 +283,23 @@ declare :: proc() {
 			}
 		}
 		// Right: a both-axes pane and a restyled bar.
-		if niello.begin(col_u, niello.key_int(2)) {
-			niello.show(label_u, niello.key_int(1), {text = "Both axes (wide rows)"})
-			if niello.begin(both_scroll_u, niello.key_int(2), out = &both_i) {
+		if niello.begin(col_u) {
+			niello.show(label_u, {text = "Both axes (wide rows)"})
+			if niello.begin(both_scroll_u, out = &both_i) {
 				for k in 0 ..< 8 {
 					n := len(fmt.bprintf(row_text_buf[:], "Wide row %d — lorem ipsum dolor sit amet", k + 1))
-					niello.show(wide_row_u, niello.key_int(k + 1), {
+					niello.show(wide_row_u, {
 						text = string(row_text_buf[:n]),
 					})
 				}
 				scrollbar_declare(&both_vbar, both_i)
 				scrollbar_declare(&both_hbar, both_i)
 			}
-			niello.show(label_u, niello.key_int(3), {text = "Same component, custom mint (18px, accent, smooth + overscroll)"})
-			if niello.begin(cust_scroll_u, niello.key_int(4), out = &cust_i) {
+			niello.show(label_u, {text = "Same component, custom mint (18px, accent, smooth + overscroll)"})
+			if niello.begin(cust_scroll_u, out = &cust_i) {
 				for k in 0 ..< 30 {
 					n := len(fmt.bprintf(row_text_buf[:], "Entry %d", k + 1))
-					niello.show(row_u, niello.key_int(k + 1), {
+					niello.show(row_u, {
 						text = string(row_text_buf[:n]),
 					})
 				}
@@ -310,7 +310,7 @@ declare :: proc() {
 			status_len = len(fmt.bprintf(status_buf[:],
 				"list: offset %.0f / range %.0f — wheel, drag the thumb, or click the track",
 				off.y, rng.y))
-			niello.show(status_u, niello.key_int(9), {
+			niello.show(status_u, {
 				text = string(status_buf[:status_len]),
 			})
 		}

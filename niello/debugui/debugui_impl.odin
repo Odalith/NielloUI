@@ -301,7 +301,7 @@ when niello.NIELLO_DEBUG {
 		if niello.begin(root_u) {
 			// Windows section: targets only. Toggles live with
 			// the panels they affect (the tint is in Overflows).
-			niello.show(section_u, 0, {text = "WINDOWS"})
+			niello.show(section_u, {text = "WINDOWS"})
 			if niello.begin(bar_u) {
 				for w, wi in wins {
 					if w.ctx == own_ctx {
@@ -312,8 +312,8 @@ when niello.NIELLO_DEBUG {
 					txt := fmt.bprintf(buf[:], "%s · %d nodes", name, len(niello.debug_tree(w.ctx)))
 					on := w.ctx == target
 					chip: niello.Instance
-					if niello.begin(chip_on_u if on else chip_u, niello.key_int(wi + 1), out = &chip) {
-						niello.show(chip_label_on_u if on else chip_label_u, 0, {text = txt})
+					if niello.begin(chip_on_u if on else chip_u, out = &chip) {
+						niello.show(chip_label_on_u if on else chip_label_u, {text = txt})
 					}
 					if niello.clicked(chip) && w.ctx != target {
 						clear_hl()
@@ -339,16 +339,16 @@ when niello.NIELLO_DEBUG {
 			if niello.begin(mid_u) {
 				// Units panel.
 				if niello.begin(panel_u) {
-					niello.show(section_u, 0, {text = "UNITS"})
+					niello.show(section_u, {text = "UNITS"})
 					if niello.begin(tree_scroll_u) {
 						if niello.begin(tree_col_u) {
 							if len(tree) == 0 {
-								niello.show(val_u, 0, {text = "no target — F12 in any window"})
+								niello.show(val_u, {text = "no target — F12 in any window"})
 							}
 							for dn, i in tree {
 								row: niello.Instance
 								row_style := row_sel_u if dn.instance == selected else row_u
-								if niello.begin(row_style, niello.key_int(i + 1), out = &row) {
+								if niello.begin(row_style, out = &row) {
 									buf: [128]u8
 									off := 0
 									for _ in 0 ..< depths[i] * 2 {
@@ -359,7 +359,7 @@ when niello.NIELLO_DEBUG {
 										name = "unit"
 									}
 									off += len(fmt.bprintf(buf[off:], "%s #%d", name, int(dn.unit)))
-									niello.show(label_u, 0, {text = string(buf[:off])})
+									niello.show(label_u, {text = string(buf[:off])})
 									// A node can overflow on both
 									// axes; badge each.
 									boff := 0
@@ -370,9 +370,9 @@ when niello.NIELLO_DEBUG {
 										}
 									}
 									if boff > 0 {
-										niello.show(alert_u, 0, {text = string(bb[:boff])})
+										niello.show(alert_u, {text = string(bb[:boff])})
 									} else if .Culled in dn.flags {
-										niello.show(val_u, 0, {text = "culled"})
+										niello.show(val_u, {text = "culled"})
 									}
 								}
 								if niello.hovered(row) {
@@ -389,7 +389,7 @@ when niello.NIELLO_DEBUG {
 
 				// Details panel.
 				if niello.begin(info_u) {
-					niello.show(section_u, 0, {text = "DETAILS"})
+					niello.show(section_u, {text = "DETAILS"})
 					declare_info(tree)
 				}
 			}
@@ -398,10 +398,10 @@ when niello.NIELLO_DEBUG {
 			// tint toggle lives here — it is this panel's switch.
 			if niello.begin(ovf_u) {
 				if niello.begin(ovf_head_u) {
-					niello.show(section_u, 0, {text = "OVERFLOWS"})
+					niello.show(section_u, {text = "OVERFLOWS"})
 					tog: niello.Instance
-					if niello.begin(chip_on_u if show_ovf else chip_u, niello.key_int(900), out = &tog) {
-						niello.show(chip_label_on_u if show_ovf else chip_label_u, 0, {text = "tint: on" if show_ovf else "tint"})
+					if niello.begin(chip_on_u if show_ovf else chip_u, out = &tog) {
+						niello.show(chip_label_on_u if show_ovf else chip_label_u, {text = "tint: on" if show_ovf else "tint"})
 					}
 					if niello.clicked(tog) {
 						show_ovf = !show_ovf
@@ -412,20 +412,20 @@ when niello.NIELLO_DEBUG {
 					}
 				}
 				if target == nil || len(recs) == 0 {
-					niello.show(val_u, 0, {text = "none"})
+					niello.show(val_u, {text = "none"})
 				}
 				shown := 0
 				for rec in recs {
 					if shown >= 4 {
 						buf: [48]u8
-						niello.show(val_u, 0, {text = fmt.bprintf(buf[:], "+ %d more", len(recs) - shown)})
+						niello.show(val_u, {text = fmt.bprintf(buf[:], "+ %d more", len(recs) - shown)})
 						break
 					}
 					shown += 1
 					row: niello.Instance
-					if niello.begin(row_u, niello.key_int(10000 + shown), out = &row) {
+					if niello.begin(row_u, out = &row) {
 						buf: [96]u8
-						niello.show(alert_u, 0, {text = fmt.bprintf(buf[:], "%s · %v · %.0f px", rec.name, rec.axis, rec.px)})
+						niello.show(alert_u, {text = fmt.bprintf(buf[:], "%s · %v · %.0f px", rec.name, rec.axis, rec.px)})
 					}
 					if niello.hovered(row) {
 						hovered_any = true
@@ -447,15 +447,15 @@ when niello.NIELLO_DEBUG {
 	// kv declares one label/value row in the Details panel.
 	kv :: proc(key: string, val: string) {
 		if niello.begin(krow_u) {
-			niello.show(key_u, 0, {text = key})
-			niello.show(val_u, 0, {text = val})
+			niello.show(key_u, {text = key})
+			niello.show(val_u, {text = val})
 		}
 	}
 
 	declare_info :: proc(tree: []niello.Debug_Node) {
 		dn, ok := find_node(tree, selected)
 		if !ok {
-			niello.show(val_u, 0, {text = "click a unit row to inspect"})
+			niello.show(val_u, {text = "click a unit row to inspect"})
 			return
 		}
 		buf: [192]u8
@@ -463,9 +463,9 @@ when niello.NIELLO_DEBUG {
 		if name == "" {
 			name = "unit"
 		}
-		niello.show(title_u, 0, {text = fmt.bprintf(buf[:], "%s #%d", name, int(dn.unit))})
+		niello.show(title_u, {text = fmt.bprintf(buf[:], "%s #%d", name, int(dn.unit))})
 
-		niello.show(section_u, 0, {text = "NODE"})
+		niello.show(section_u, {text = "NODE"})
 		kv("instance", fmt.bprintf(buf[:], "%d", int(dn.instance)))
 		if file, line, lok := niello.debug_unit_loc(dn.unit); lok {
 			kv("minted", fmt.bprintf(buf[:], "%s:%d", basename(file), line))
@@ -487,7 +487,7 @@ when niello.NIELLO_DEBUG {
 		}
 
 		if s, sok := niello.debug_style_in(target, dn.instance); sok {
-			niello.show(section_u, 0, {text = "STYLE (UNIT)"})
+			niello.show(section_u, {text = "STYLE (UNIT)"})
 			kv("layout", fmt.bprintf(buf[:], "%v", s.layout))
 			{
 				bx: [64]u8
@@ -517,7 +517,7 @@ when niello.NIELLO_DEBUG {
 			kv("padding", fmt.bprintf(buf[:], "%v", s.padding))
 		}
 
-		niello.show(section_u, 0, {text = "WITH (INSTANCE)"})
+		niello.show(section_u, {text = "WITH (INSTANCE)"})
 		w := dn.with
 		if w.present == {} {
 			kv("—", "(none)")

@@ -40,13 +40,13 @@ fo_declare :: proc() {
 	fo_cap_keys_a = len(niello.input_keys(fo_a))
 	fo_cap_keys_b = len(niello.input_keys(fo_b))
 	if niello.begin(fo_root) {
-		fo_a = niello.show(fo_btn, niello.key_int(1))
-		fo_b = niello.show(fo_btn, niello.key_int(2), {disabled = fo_disable_b})
+		fo_a = niello.show(fo_btn, key = niello.key_int(1))
+		fo_b = niello.show(fo_btn, {disabled = fo_disable_b}, niello.key_int(2))
 		if !fo_hide_c {
-			fo_c = niello.show(fo_btn, niello.key_int(3))
+			fo_c = niello.show(fo_btn, key = niello.key_int(3))
 		}
-		fo_d = niello.show(fo_btn, niello.key_int(4), {disabled = true})
-		niello.show(fo_label, 0, {text = "label"})
+		fo_d = niello.show(fo_btn, {disabled = true}, niello.key_int(4))
+		niello.show(fo_label, {text = "label"})
 		if niello.pressed(fo_a) { fo_cap_pressed_a = true }
 		if niello.clicked(fo_a) { fo_cap_clicked_a = true }
 		fo_cap_text_a = niello.input_text(fo_a)
@@ -256,11 +256,11 @@ fw_r1, fw_r2, fw_r3, fw_b1, fw_b2: niello.Instance
 
 fw_declare :: proc() {
 	if niello.begin(fw_root) {
-		fw_r1 = niello.show(fw_row, niello.key_int(1))
-		fw_r2 = niello.show(fw_row, niello.key_int(2), {focusable = true})
-		fw_r3 = niello.show(fw_row, niello.key_int(3))
-		fw_b1 = niello.show(fw_bar, niello.key_int(4))
-		fw_b2 = niello.show(fw_bar, niello.key_int(5), {focusable = false})
+		fw_r1 = niello.show(fw_row, key = niello.key_int(1))
+		fw_r2 = niello.show(fw_row, {focusable = true}, niello.key_int(2))
+		fw_r3 = niello.show(fw_row, key = niello.key_int(3))
+		fw_b1 = niello.show(fw_bar, key = niello.key_int(4))
+		fw_b2 = niello.show(fw_bar, {focusable = false}, niello.key_int(5))
 	}
 }
 
@@ -314,12 +314,12 @@ dd_a_rect: niello.Rect
 dd_declare :: proc() {
 	if niello.begin(dd_root) {
 		if dd_show_a {
-			i := niello.show(dd_a, niello.key_int(1), {text = "aaaaaaaaaaaaaaaaaaaa"})
+			i := niello.show(dd_a, {text = "aaaaaaaaaaaaaaaaaaaa"}, niello.key_int(1))
 			if r, ok2 := niello.rect(i); ok2 {
 				dd_a_rect = r
 			}
 		} else {
-			niello.show(dd_b, niello.key_int(1), {text = "bb"})
+			niello.show(dd_b, {text = "bb"}, niello.key_int(1))
 		}
 	}
 }

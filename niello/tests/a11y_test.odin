@@ -61,7 +61,6 @@ test_a11y_role_label_description :: proc(t: ^testing.T) {
 		if niello.begin(a11y_root) {
 			niello.show(
 				a11y_btn,
-				0,
 				{
 					role = .Button,
 					label = "Play",
@@ -95,7 +94,7 @@ test_a11y_name_falls_back_to_text :: proc(t: ^testing.T) {
 	a11y_mint()
 	a11y_frame(proc() {
 		if niello.begin(a11y_root) {
-			niello.show(a11y_btn, 0, {role = .Button, text = "Stop"})
+			niello.show(a11y_btn, {role = .Button, text = "Stop"})
 		}
 	})
 	tree := niello.a11y_tree(niello.test_context())
@@ -113,8 +112,8 @@ test_a11y_name_falls_back_to_subtree_text :: proc(t: ^testing.T) {
 	a11y_frame(proc() {
 		if niello.begin(a11y_root) {
 			// Button is a container; its name lives on the label child.
-			if niello.begin(a11y_btn, 0, {role = .Button}) {
-				niello.show(a11y_lbl, 0, {text = "Next"})
+			if niello.begin(a11y_btn, {role = .Button}) {
+				niello.show(a11y_lbl, {text = "Next"})
 			}
 		}
 	})
@@ -136,9 +135,9 @@ test_a11y_undeclared_nodes_absent :: proc(t: ^testing.T) {
 			// only the button inside the wrap is mirrored, and its
 			// mirror parent skips the undeclared wrap.
 			if niello.begin(a11y_wrap) {
-				niello.show(a11y_btn, 0, {role = .Button, label = "In wrap"})
+				niello.show(a11y_btn, {role = .Button, label = "In wrap"})
 			}
-			niello.show(a11y_lbl, 0, {text = "plain"})
+			niello.show(a11y_lbl, {text = "plain"})
 		}
 	})
 	tree := niello.a11y_tree(niello.test_context())
@@ -158,7 +157,6 @@ test_a11y_value_and_flags :: proc(t: ^testing.T) {
 		if niello.begin(a11y_root) {
 			niello.show(
 				a11y_slider,
-				0,
 				{
 					role = .Slider,
 					label = "Volume",
@@ -191,8 +189,8 @@ test_a11y_incremental_stability :: proc(t: ^testing.T) {
 	@(static) slider_label: string
 	declare :: proc() {
 		if niello.begin(a11y_root) {
-			niello.show(a11y_btn, 0, {role = .Button, label = "Alpha"})
-			niello.show(a11y_slider, 0, {role = .Slider, label = slider_label})
+			niello.show(a11y_btn, {role = .Button, label = "Alpha"})
+			niello.show(a11y_slider, {role = .Slider, label = slider_label})
 		}
 	}
 	// Frame 1: button "Alpha", slider "X".
@@ -229,7 +227,7 @@ test_a11y_states :: proc(t: ^testing.T) {
 	// Frame 1: plain declared button — no engine state.
 	a11y_frame(proc() {
 		if niello.begin(a11y_root) {
-			niello.show(a11y_btn, 0, {role = .Button, label = "A"})
+			niello.show(a11y_btn, {role = .Button, label = "A"})
 		}
 	})
 	tree := niello.a11y_tree(niello.test_context())
@@ -239,7 +237,7 @@ test_a11y_states :: proc(t: ^testing.T) {
 	// Frame 2: disabled — the Disabled state appears.
 	a11y_frame(proc() {
 		if niello.begin(a11y_root) {
-			niello.show(a11y_btn, 0, {role = .Button, label = "A", disabled = true})
+			niello.show(a11y_btn, {role = .Button, label = "A", disabled = true})
 		}
 	})
 	tree = niello.a11y_tree(niello.test_context())
@@ -262,7 +260,7 @@ test_a11y_focused_state :: proc(t: ^testing.T) {
 	a11y_mint()
 	declare :: proc() {
 		if niello.begin(a11y_root) {
-			a11y_btn_i = niello.show(a11y_btn, 0, {role = .Button, label = "A", focusable = true})
+			a11y_btn_i = niello.show(a11y_btn, {role = .Button, label = "A", focusable = true})
 		}
 	}
 	a11y_frame(declare)
@@ -282,9 +280,9 @@ test_a11y_parent_links :: proc(t: ^testing.T) {
 	a11y_mint()
 	a11y_frame(proc() {
 		// Group > Group > Button, all declared: parents chain.
-		if niello.begin(a11y_root, 0, {role = .Group, label = "outer"}) {
-			if niello.begin(a11y_wrap, 0, {role = .Group, label = "inner"}) {
-				niello.show(a11y_btn, 0, {role = .Button, label = "Go"})
+		if niello.begin(a11y_root, {role = .Group, label = "outer"}) {
+			if niello.begin(a11y_wrap, {role = .Group, label = "inner"}) {
+				niello.show(a11y_btn, {role = .Button, label = "Go"})
 			}
 		}
 	})

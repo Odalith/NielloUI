@@ -109,8 +109,8 @@ mint_units :: proc() {
 
 declare :: proc() {
 	if niello.begin(window_u) {
-		niello.show(title_u, niello.key("title"), {text = "Buttons — polled input, no callbacks"})
-		niello.show(hint_u, niello.key("hint"), {
+		niello.show(title_u, {text = "Buttons — polled input, no callbacks"})
+		niello.show(hint_u, {
 			text = "Hover, press, drag off mid-press. The disabled button absorbs its clicks.",
 		})
 
@@ -120,7 +120,7 @@ declare :: proc() {
 			if niello.clicked(counter_i) {
 				count += 1
 			}
-			niello.show(label_u, niello.key("counter"), {
+			niello.show(label_u, {
 				text = fmt.tprintf("Clicked %d times — click me", count),
 			})
 		}
@@ -131,13 +131,13 @@ declare :: proc() {
 					sound_on = !sound_on
 					niello.set(swatch_u, .Color, GREEN if sound_on else GREY)
 				}
-				niello.show(label_u, niello.key("toggle"), {
+				niello.show(label_u, {
 					text = fmt.tprintf("Sound: %s", "on" if sound_on else "off"),
 				})
 			}
 			niello.show(swatch_u)
-			if niello.begin(disabled_u, 0, {disabled = true}, out = &disabled_i) {
-				niello.show(label_u, niello.key("disabled"), {
+			if niello.begin(disabled_u, {disabled = true}, out = &disabled_i) {
+				niello.show(label_u, {
 					text = "Disabled — clicks stop here",
 				})
 			}
@@ -155,7 +155,7 @@ declare :: proc() {
 		} else if niello.hovered(toggle_i) {
 			status = "Over the toggle."
 		}
-		niello.show(status_u, niello.key("status"), {text = status})
+		niello.show(status_u, {text = status})
 	}
 }
 

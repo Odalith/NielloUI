@@ -51,7 +51,7 @@ test_toolbar_layout :: proc(t: ^testing.T) {
 		if niello.begin(toolbar, out = &i_tb) {
 			i_open = niello.show(open_b)
 			i_save = niello.show(save_b)
-			i_title = niello.show(title, 0, niello.With{text = "Notes"})
+			i_title = niello.show(title, niello.With{text = "Notes"})
 		}
 	}
 	niello.frame_end()
@@ -127,7 +127,7 @@ test_shrink_to_floors :: proc(t: ^testing.T) {
 	if niello.begin(root) {
 		if niello.begin(row) {
 			ia = niello.show(a)
-			ib = niello.show(b, 0, niello.With{text = "aa bb cc dd ee"}) // 5x16 + 4x8 = 112
+			ib = niello.show(b, niello.With{text = "aa bb cc dd ee"}) // 5x16 + 4x8 = 112
 		}
 	}
 	niello.frame_end()
@@ -189,7 +189,7 @@ test_word_wrap :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root) {
 		if niello.begin(card, out = &icard) {
-			idesc = niello.show(desc, 0, niello.With{text = "The quick brown fox jumps high"})
+			idesc = niello.show(desc, niello.With{text = "The quick brown fox jumps high"})
 		}
 	}
 	niello.frame_end()
@@ -216,7 +216,7 @@ test_no_wrap_default :: proc(t: ^testing.T) {
 	ilabel: niello.Instance
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root) {
-		ilabel = niello.show(label, 0, niello.With{text = "Hello world this is long"}) // 24ch = 192px
+		ilabel = niello.show(label, niello.With{text = "Hello world this is long"}) // 24ch = 192px
 	}
 	niello.frame_end()
 
@@ -252,7 +252,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root) {
 		if niello.begin(row, out = &irow) {
-			ia = niello.show(a, 0, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
+			ia = niello.show(a, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
 			_ = niello.show(b)
 		}
 	}
@@ -277,7 +277,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root2) {
 		if niello.begin(row2, out = &irow2) {
-			ia2 = niello.show(a2, 0, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
+			ia2 = niello.show(a2, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
 			_ = niello.show(b2)
 		}
 	}
@@ -360,7 +360,7 @@ test_damage_tracks_changes :: proc(t: ^testing.T) {
 
 	declare :: proc(root, title: niello.Unit, text: string) {
 		if niello.begin(root) {
-			_ = niello.show(title, 0, niello.With{text = text})
+			_ = niello.show(title, niello.With{text = text})
 		}
 	}
 
@@ -395,8 +395,8 @@ test_identity_stable_across_frames :: proc(t: ^testing.T) {
 	declare :: proc(root, item: niello.Unit) -> (ids: [3]niello.Instance) {
 		niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 		if niello.begin(root) {
-			ids[0] = niello.show(item, 7)
-			ids[1] = niello.show(item, 8)
+			ids[0] = niello.show(item, key = 7)
+			ids[1] = niello.show(item, key = 8)
 			ids[2] = niello.show(item) // no key: named by its call site
 		}
 		niello.frame_end()
@@ -525,7 +525,7 @@ perf_declare :: proc(
 					if niello.begin(cards[s][c]) {
 						for l in 0 ..< N_LEAVES {
 							if leaf_text[s][c][l] {
-								_ = niello.show(leaves[s][c][l], 0, {text = texts[ti % len(texts)]})
+								_ = niello.show(leaves[s][c][l], {text = texts[ti % len(texts)]})
 								ti += 1
 							} else {
 								_ = niello.show(leaves[s][c][l])
@@ -850,11 +850,11 @@ test_fit_container_passes_deficit_to_children :: proc(t: ^testing.T) {
 
 	finish(proc() {
 		if niello.begin(sqz_root) {
-			if niello.begin(sqz_btn, niello.key_int(0), out = &sqz_btn_i) {
-				sqz_lbl_i = niello.show(sqz_lbl, 0, {text = "Cycle accent + propagate"})
+			if niello.begin(sqz_btn, key = niello.key_int(0), out = &sqz_btn_i) {
+				sqz_lbl_i = niello.show(sqz_lbl, {text = "Cycle accent + propagate"})
 			}
-			if niello.begin(sqz_btn, niello.key_int(1)) {
-				niello.show(sqz_lbl, 0, {text = "Crossfade theme"})
+			if niello.begin(sqz_btn, key = niello.key_int(1)) {
+				niello.show(sqz_lbl, {text = "Crossfade theme"})
 			}
 		}
 	})
@@ -905,7 +905,7 @@ test_culling_real :: proc(t: ^testing.T) {
 				if no_cull_last && k == 5 {
 					flags = {.No_Cull}
 				}
-				if niello.begin(row, niello.key_int(k + 1), {}, flags, out = &ids[k]) {
+				if niello.begin(row, {}, niello.key_int(k + 1), flags, out = &ids[k]) {
 					opens[k] = true
 					niello.show(leaf)
 				} else {
@@ -978,7 +978,7 @@ test_recycle_swap_with_culled_node :: proc(t: ^testing.T) {
 		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 200}}, 0)
 		if niello.begin(clip) {
 			for k in keys {
-				if niello.begin(row, niello.key_int(k), out = &ids[k]) {
+				if niello.begin(row, key = niello.key_int(k), out = &ids[k]) {
 				}
 			}
 		}

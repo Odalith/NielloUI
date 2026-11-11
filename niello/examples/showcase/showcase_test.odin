@@ -82,6 +82,14 @@ settles :: proc(t: ^testing.T, app: ^App, label: string) {
 	testing.expectf(t, !res.changed, "%s: still changing after 30 idle frames", label)
 	testing.expectf(t, res.next_wake_ms == max(u32), "%s: a deadline is pending while idle", label)
 	when niello.NIELLO_DEBUG {
+		// Every declared node has its own identity: a hash collision
+		// would merge two nodes into one committed record.
+		seen := make(map[niello.Instance]bool, context.temp_allocator)
+		for n in niello.debug_tree(app.ctx) {
+			testing.expectf(t, n.instance not_in seen, "%s: two nodes share identity %v (%s)",
+				label, n.instance, niello.debug_unit_name(n.unit))
+			seen[n.instance] = true
+		}
 		for n in niello.debug_tree(app.ctx) {
 			if n.unit == layout_units.spill_box || n.unit == layout_units.clip_box {
 				continue

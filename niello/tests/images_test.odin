@@ -222,8 +222,8 @@ test_image_intrinsic_and_with :: proc(t: ^testing.T) {
 	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
 	ia, ib: niello.Instance
 	if niello.begin(img_row) {
-		ia = niello.show(img_leaf, niello.key("a"))
-		ib = niello.show(img_leaf, niello.key("b"), {image = small})
+		ia = niello.show(img_leaf, key = niello.key("a"))
+		ib = niello.show(img_leaf, {image = small}, niello.key("b"))
 	}
 	niello.frame_end()
 	ra, _ := niello.rect(ia)
@@ -270,7 +270,7 @@ test_image_emit_fit_math :: proc(t: ^testing.T) {
 			image_fit = c.fit,
 		})
 		niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
-		niello.show(img_box, niello.key("only"), {image = img})
+		niello.show(img_box, {image = img}, niello.key("only"))
 		niello.frame_end()
 		cmd, found := find_image_cmd()
 		testing.expect(t, found, "image command emitted")
@@ -291,13 +291,13 @@ test_image_emit_fit_math :: proc(t: ^testing.T) {
 		size = niello.Size{niello.fixed(100), niello.fixed(100)},
 	})
 	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
-	niello.show(img_box, niello.key("only"), {image = img})
+	niello.show(img_box, {image = img}, niello.key("only"))
 	niello.frame_end()
 	_, found := find_image_cmd()
 	testing.expect(t, found)
 	niello.image_release(img)
 	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
-	niello.show(img_box, niello.key("only"), {image = img})
+	niello.show(img_box, {image = img}, niello.key("only"))
 	niello.frame_end()
 	_, found = find_image_cmd()
 	testing.expect(t, !found, "released image draws nothing")
@@ -317,7 +317,7 @@ test_image_swap_damages :: proc(t: ^testing.T) {
 	})
 	frame :: proc(ctx: ^niello.Context, img: niello.Image) -> bool {
 		niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
-		niello.show(img_box, niello.key("only"), {image = img})
+		niello.show(img_box, {image = img}, niello.key("only"))
 		return niello.frame_end().changed
 	}
 	_ = frame(ctx, a) // settle
@@ -341,7 +341,7 @@ test_image_emit_corner_radius :: proc(t: ^testing.T) {
 		corner_radius = 12,
 	})
 	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
-	niello.show(img_box, niello.key("only"), {image = img})
+	niello.show(img_box, {image = img}, niello.key("only"))
 	niello.frame_end()
 	cmd, found := find_image_cmd()
 	testing.expect(t, found, "image command emitted")
@@ -358,7 +358,7 @@ test_image_emit_corner_radius :: proc(t: ^testing.T) {
 		size = niello.Size{niello.fixed(100), niello.fixed(100)},
 	})
 	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
-	niello.show(img_box, niello.key("only"), {image = img})
+	niello.show(img_box, {image = img}, niello.key("only"))
 	niello.frame_end()
 	cmd, found = find_image_cmd()
 	testing.expect(t, found, "image command emitted")

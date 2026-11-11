@@ -122,15 +122,15 @@ mint_units :: proc() {
 
 declare_row :: proc(n: int) {
 	u := row_a_u if n % 2 == 0 else row_b_u
-	if niello.begin(u, niello.key_int(n)) {
-		niello.show(label_u, 0, {text = fmt.tprintf("Row %d", n + 1)})
+	if niello.begin(u) {
+		niello.show(label_u, {text = fmt.tprintf("Row %d", n + 1)})
 	}
 }
 
 declare :: proc() {
 	if niello.begin(window_u) {
-		niello.show(title_u, niello.key("title"), {text = "Scroll — wheel, chaining, scroll_to"})
-		niello.show(hint_u, niello.key("hint"), {
+		niello.show(title_u, {text = "Scroll — wheel, chaining, scroll_to"})
+		niello.show(hint_u, {
 			text = "Wheel over the list scrolls it. Wheel over the warm panel: the panel scrolls first, the leftover chains to the list.",
 		})
 
@@ -140,9 +140,9 @@ declare :: proc() {
 			}
 			// The embedded scroller sits in the list's flow; it is a
 			// child of the list, so chaining has somewhere to go.
-			if niello.begin(panel_u, niello.key("panel"), out = &panel_i) {
+			if niello.begin(panel_u, out = &panel_i) {
 				for k in 0 ..< 6 {
-					niello.show(mini_u, niello.key_int(k), {
+					niello.show(mini_u, {
 						text = fmt.tprintf("Panel item %d — the panel's own scroll region", k + 1),
 					})
 				}
@@ -158,9 +158,9 @@ declare :: proc() {
 					niello.scroll_to(list_i, {0, 0})
 					niello.scroll_to(panel_i, {0, 0})
 				}
-				niello.show(label_u, niello.key("top"), {text = "Back to top"})
+				niello.show(label_u, {text = "Back to top"})
 			}
-			niello.show(status_u, niello.key("status"), {
+			niello.show(status_u, {
 				text = fmt.tprintf("List offset %.0f · panel offset %.0f",
 					niello.scroll_offset(list_i).y, niello.scroll_offset(panel_i).y),
 			})

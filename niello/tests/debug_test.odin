@@ -165,7 +165,7 @@ when niello.NIELLO_DEBUG {
 
 		niello.frame_begin(ctx1, niello.Input{viewport = {400, 300}}, 0.016)
 		if niello.begin(dbg_root) {
-			niello.show(dbg_wleaf, 0, {
+			niello.show(dbg_wleaf, {
 				text = "override",
 				disabled = true,
 				variant = dbg_wide,

@@ -118,8 +118,8 @@ Site_Count :: struct {
 // bytes on every declaration.
 @(private)
 site_hash :: proc(loc: runtime.Source_Code_Location) -> u64 {
-	h := hash_mix(14695981039346656037, u64(uintptr(raw_data(loc.file_path))))
-	return hash_mix(h, u64(u32(loc.line)) << 32 | u64(u32(loc.column)))
+	h := mix64(u64(uintptr(raw_data(loc.file_path))))
+	return mix64(h ~ (u64(u32(loc.line)) << 32 | u64(u32(loc.column))))
 }
 
 // next_occurrence counts one declaration of site within counts[base:]
@@ -150,7 +150,7 @@ identity_key :: proc(key: Key, counts: ^[dynamic]Site_Count, base: int, loc: run
 	}
 	site := site_hash(loc)
 	occ := next_occurrence(counts, base, site)
-	return hash_mix(hash_mix(SITE_KEY_SEED, site), u64(occ))
+	return mix64(mix64(SITE_KEY_SEED ~ site) ~ u64(occ))
 }
 
 // open_site_region starts a container's site-count region; close_site_region

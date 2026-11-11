@@ -111,20 +111,20 @@ edit_field :: proc(f: ^Field) {
 	}
 }
 
-show_field :: proc(f: ^Field, key: niello.Key, placeholder: string) {
-	if niello.begin(field_u, key, out = &f.inst) {
+show_field :: proc(f: ^Field, placeholder: string, loc := #caller_location) {
+	if niello.begin(field_u, out = &f.inst, loc = loc) {
 		if len(f.buf) == 0 && !niello.focused(f.inst) {
-			niello.show(placeholder_u, niello.key_int(1), {text = placeholder})
+			niello.show(placeholder_u, {text = placeholder})
 		} else if niello.focused(f.inst) {
 			if f.caret > 0 {
-				niello.show(field_text_u, niello.key_int(1), {text = string(f.buf[:f.caret])})
+				niello.show(field_text_u, {text = string(f.buf[:f.caret])})
 			}
-			niello.show(caret_u, niello.key_int(2))
+			niello.show(caret_u)
 			if f.caret < len(f.buf) {
-				niello.show(field_text_u, niello.key_int(3), {text = string(f.buf[f.caret:])})
+				niello.show(field_text_u, {text = string(f.buf[f.caret:])})
 			}
 		} else {
-			niello.show(field_text_u, niello.key_int(1), {text = string(f.buf[:])})
+			niello.show(field_text_u, {text = string(f.buf[:])})
 		}
 	}
 }
@@ -189,13 +189,13 @@ declare :: proc(app: ^Form) {
 	edit_field(&app.quest)
 
 	if niello.begin(window_u) {
-		niello.show(title_u, 0, {text = "Form"})
-		niello.show(hint_u, 0, {text = "Tab / Shift+Tab to move · click a field to focus · Enter jumps on · Space/Enter pushes a focused button"})
+		niello.show(title_u, {text = "Form"})
+		niello.show(hint_u, {text = "Tab / Shift+Tab to move · click a field to focus · Enter jumps on · Space/Enter pushes a focused button"})
 
-		niello.show(caption_u, 0, {text = "NAME"})
-		show_field(&app.name, niello.key_int(1), "e.g. Ada")
-		niello.show(caption_u, 0, {text = "QUEST"})
-		show_field(&app.quest, niello.key_int(2), "e.g. To seek the grail")
+		niello.show(caption_u, {text = "NAME"})
+		show_field(&app.name, "e.g. Ada")
+		niello.show(caption_u, {text = "QUEST"})
+		show_field(&app.quest, "e.g. To seek the grail")
 
 		declare_buttons(app)
 
@@ -209,16 +209,16 @@ declare :: proc(app: ^Form) {
 		} else if niello.focused(app.submit_i) {
 			focus_name = "Submit"
 		}
-		niello.show(status_u, 0, {text = fmt.bprintf(app.focus_buf[:], "focused: %s", focus_name)})
-		niello.show(status_u, 0, {text = app.status})
+		niello.show(status_u, {text = fmt.bprintf(app.focus_buf[:], "focused: %s", focus_name)})
+		niello.show(status_u, {text = app.status})
 	}
 }
 
 buttons_row_u: niello.Unit
 declare_buttons :: proc(app: ^Form) {
 	if niello.begin(buttons_row_u) {
-		if niello.begin(btn_u, niello.key_int(1), out = &app.clear_i) {
-			niello.show(btn_label_u, 0, {text = "Clear"})
+		if niello.begin(btn_u, out = &app.clear_i) {
+			niello.show(btn_label_u, {text = "Clear"})
 			if niello.clicked(app.clear_i) {
 				clear(&app.name.buf)
 				clear(&app.quest.buf)
@@ -226,8 +226,8 @@ declare_buttons :: proc(app: ^Form) {
 				app.status = "Cleared."
 			}
 		}
-		if niello.begin(btn_u, niello.key_int(2), out = &app.submit_i) {
-			niello.show(btn_label_u, 0, {text = "Submit"})
+		if niello.begin(btn_u, out = &app.submit_i) {
+			niello.show(btn_label_u, {text = "Submit"})
 			if niello.clicked(app.submit_i) {
 				if len(app.name.buf) == 0 {
 					app.status = "The name field is empty — Tab over and type something."

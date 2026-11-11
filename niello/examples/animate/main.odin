@@ -122,44 +122,44 @@ mint :: proc() {
 	niello.set(btn_u, .Color, DARK_SURFACE)
 }
 
-button :: proc(key: string, text: string) -> (i: niello.Instance) {
-	if niello.begin(btn_u, niello.key(key), out = &i) {
-		niello.show(btn_label_u, 0, {text = text})
+button :: proc(text: string, loc := #caller_location) -> (i: niello.Instance) {
+	if niello.begin(btn_u, out = &i, loc = loc) {
+		niello.show(btn_label_u, {text = text})
 	}
 	return
 }
 
 declare :: proc() {
 	if niello.begin(window_u) {
-		niello.show(title_u, niello.key("title"), {text = "Animate — tweens, propagate, transients"})
-		niello.show(hint_u, niello.key("hint"), {text = "Theme crossfades via group_tween. Accent cycles the card proto + propagate. Click a card for a transient flash."})
+		niello.show(title_u, {text = "Animate — tweens, propagate, transients"})
+		niello.show(hint_u, {text = "Theme crossfades via group_tween. Accent cycles the card proto + propagate. Click a card for a transient flash."})
 
-		if niello.begin(row_u, niello.key("controls")) {
-			theme_i := button("theme", "Crossfade theme")
+		if niello.begin(row_u) {
+			theme_i := button("Crossfade theme")
 			if niello.clicked(theme_i) {
 				dark = !dark
 				pose := dark ? pose_dark_u : pose_light_u
 				niello.group_tween(surfaces, pose, 250, niello.Fields{.Color})
 				niello.group_tween(texts, pose, 250, niello.Fields{.Font_Color})
 			}
-			accent_i := button("accent", "Cycle accent + propagate")
+			accent_i := button("Cycle accent + propagate")
 			if niello.clicked(accent_i) {
 				accent_idx = (accent_idx + 1) % len(ACCENTS)
 				niello.set(card_proto_u, .Color, ACCENTS[accent_idx])
 				niello.propagate(card_proto_u, niello.Fields{.Color})
 			}
-			glide_i := button("glide", "Glide the box")
+			glide_i := button("Glide the box")
 			if niello.clicked(glide_i) {
 				box_at_b = !box_at_b
 				niello.tween(box_u, box_at_b ? pose_b_u : pose_a_u, 300, niello.Fields{.Size, .Color})
 			}
 		}
 
-		if niello.begin(row_u, niello.key("cards")) {
+		if niello.begin(row_u) {
 			for k in 0 ..< 3 {
-				if niello.begin(card_units[k], niello.key_int(k), out = &card_inst[k]) {
-					niello.show(card_title_u, 0, {text = fmt.tprintf("Card %d", k + 1)})
-					niello.show(card_body_u, 0, {text = "Minted from the proto. Click me."})
+				if niello.begin(card_units[k], out = &card_inst[k]) {
+					niello.show(card_title_u, {text = fmt.tprintf("Card %d", k + 1)})
+					niello.show(card_body_u, {text = "Minted from the proto. Click me."})
 				}
 				if niello.clicked(card_inst[k]) {
 					niello.transient(card_inst[k], flash_u, 120, 240)
@@ -167,11 +167,11 @@ declare :: proc() {
 			}
 		}
 
-		if niello.begin(row_u, niello.key("boxrow")) {
-			niello.show(box_u, niello.key("box"))
+		if niello.begin(row_u) {
+			niello.show(box_u)
 		}
 
-		niello.show(status_u, niello.key("status"), {
+		niello.show(status_u, {
 			text = fmt.tprintf("theme %s · accent %d of %d · box at %s",
 				dark ? "dark" : "light", accent_idx + 1, len(ACCENTS), box_at_b ? "B" : "A"),
 		})

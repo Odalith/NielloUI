@@ -64,13 +64,13 @@ pp_declare :: proc() {
 		pp_modal = false
 	}
 	if niello.begin(pp_root_u) {
-		pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(1))
-		pp_under_i = niello.show(pp_under_u, niello.key_int(2))
+		pp_anchor_i = niello.show(pp_anchor_u, key = niello.key_int(1))
+		pp_under_i = niello.show(pp_under_u, key = niello.key_int(2))
 	}
 	if pp_open {
 		if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), out = &pp_popup_i) {
 			for k in 0 ..< 3 {
-				pp_item_i[k] = niello.show(pp_item_u, niello.key_int(k + 1))
+				pp_item_i[k] = niello.show(pp_item_u, key = niello.key_int(k + 1))
 			}
 		}
 	}
@@ -83,8 +83,8 @@ pp_declare :: proc() {
 			opts = {modal = true, stay = pp_modal_stay, at = niello.Vec2{100, 80}},
 			out = &pp_popup_i,
 		) {
-			pp_ok_i = niello.show(pp_ok_u, niello.key_int(1))
-			pp_cancel_i = niello.show(pp_cancel_u, niello.key_int(2))
+			pp_ok_i = niello.show(pp_ok_u, key = niello.key_int(1))
+			pp_cancel_i = niello.show(pp_cancel_u, key = niello.key_int(2))
 		}
 	}
 }
@@ -273,7 +273,7 @@ test_popup_placement_center :: proc(t: ^testing.T) {
 		niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
 		if niello.begin_popup(pp_menu_u, 0, .Center, key = niello.key_int(7), out = &pp_popup_i) {
 			for k in 0 ..< 3 {
-				niello.show(pp_item_u, niello.key_int(k + 1))
+				niello.show(pp_item_u, key = niello.key_int(k + 1))
 			}
 		}
 		niello.frame_end()
@@ -326,11 +326,11 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 			pp_dismiss_seen = true
 		}
 		if niello.begin(pp_root_u) {
-			pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(1))
-			pp_under_i = niello.show(pp_under_u, niello.key_int(2))
+			pp_anchor_i = niello.show(pp_anchor_u, key = niello.key_int(1))
+			pp_under_i = niello.show(pp_under_u, key = niello.key_int(2))
 		}
 		if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), opts = {stay = true}, out = &pp_popup_i) {
-			niello.show(pp_item_u, niello.key_int(1))
+			niello.show(pp_item_u, key = niello.key_int(1))
 		}
 	}
 	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
@@ -353,14 +353,14 @@ pp_flip_mode: int // 0 = Below a bottom anchor, 1 = At a corner point
 pp_flip_declare :: proc() {
 	if niello.begin(pp_root_u) {
 		if pp_flip_mode == 0 {
-			niello.show(pp_spacer_u, niello.key_int(1))
+			niello.show(pp_spacer_u, key = niello.key_int(1))
 		}
-		pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(2))
+		pp_anchor_i = niello.show(pp_anchor_u, key = niello.key_int(2))
 	}
 	if pp_flip_mode == 0 {
 		if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), out = &pp_popup_i) {
 			for k in 0 ..< 3 {
-				niello.show(pp_item_u, niello.key_int(k + 1))
+				niello.show(pp_item_u, key = niello.key_int(k + 1))
 			}
 		}
 	} else {
@@ -373,7 +373,7 @@ pp_flip_declare :: proc() {
 			out = &pp_popup_i,
 		) {
 			for k in 0 ..< 3 {
-				niello.show(pp_item_u, niello.key_int(k + 1))
+				niello.show(pp_item_u, key = niello.key_int(k + 1))
 			}
 		}
 	}
@@ -422,7 +422,7 @@ pp_at_pt: niello.Vec2
 
 pp_at_declare :: proc() {
 	if niello.begin(pp_root_u) {
-		pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(2))
+		pp_anchor_i = niello.show(pp_anchor_u, key = niello.key_int(2))
 	}
 	if niello.begin_popup(
 		pp_menu_u,
@@ -433,7 +433,7 @@ pp_at_declare :: proc() {
 		out = &pp_popup_i,
 	) {
 		for k in 0 ..< 3 {
-			niello.show(pp_item_u, niello.key_int(k + 1))
+			niello.show(pp_item_u, key = niello.key_int(k + 1))
 		}
 	}
 }
@@ -482,8 +482,8 @@ test_modal_without_candidates_contains_keyboard :: proc(t: ^testing.T) {
 	field_i, anchor_i: niello.Instance
 	declare_mk :: proc(root, field, dialog, label: niello.Unit, field_i, anchor_i: ^niello.Instance, modal: bool) {
 		if niello.begin(root) {
-			field_i^ = niello.show(field, niello.key_int(1))
-			anchor_i^ = niello.show(field, niello.key_int(2))
+			field_i^ = niello.show(field, key = niello.key_int(1))
+			anchor_i^ = niello.show(field, key = niello.key_int(2))
 		}
 		if modal {
 			if niello.begin_popup(dialog, anchor_i^, .At, key = niello.key_int(9), opts = {modal = true, at = niello.Vec2{100, 80}}) {

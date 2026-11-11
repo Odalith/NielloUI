@@ -93,7 +93,7 @@ declare_main :: proc() {
 	// keeps the container open until the BLOCK ends, silently
 	// reparenting later siblings.
 	if niello.begin(root_u) {
-		niello.show(title_u, 0, {text = "Main window"})
+		niello.show(title_u, {text = "Main window"})
 		if niello.begin(panel_u, out = &trk_panel) {
 			trk_chip = niello.show(chip_u)
 			pulse := niello.show(pulse_u)
@@ -102,7 +102,7 @@ declare_main :: proc() {
 				niello.transient(pulse, pulse_on_u, 120, 240)
 			}
 			pulse_was_hovered = hov
-			niello.show(title_u, 0, {text = "hover the square"})
+			niello.show(title_u, {text = "hover the square"})
 		}
 		btn: niello.Instance
 		if niello.begin(open_btn_u, out = &btn) {
@@ -112,29 +112,29 @@ declare_main :: proc() {
 			spawn_inspector()
 		}
 		buf: [48]u8
-		trk_counter = niello.show(counter_u, 0, {text = fmt.bprintf(buf[:], "main frame %d", main_frames)})
+		trk_counter = niello.show(counter_u, {text = fmt.bprintf(buf[:], "main frame %d", main_frames)})
 	}
 }
 
 declare_inspector :: proc() {
 	me := niello.current_context()
 	if niello.begin(insp_root_u) {
-		niello.show(insp_title_u, 0, {text = "Inspector"})
+		niello.show(insp_title_u, {text = "Inspector"})
 		buf: [128]u8
-		niello.show(line_u, 0, {text = fmt.bprintf(buf[:], "main window: %d instances", niello.instance_count(main_ctx))})
+		niello.show(line_u, {text = fmt.bprintf(buf[:], "main window: %d instances", niello.instance_count(main_ctx))})
 		if r, ok := niello.rect_in(main_ctx, trk_chip); ok {
 			u, _ := niello.unit_in(main_ctx, trk_chip)
-			niello.show(line_u, 0, {text = fmt.bprintf(buf[:], "chip: (%.0f, %.0f) %.0f x %.0f, unit %d", r.pos.x, r.pos.y, r.size.x, r.size.y, int(u))})
+			niello.show(line_u, {text = fmt.bprintf(buf[:], "chip: (%.0f, %.0f) %.0f x %.0f, unit %d", r.pos.x, r.pos.y, r.size.x, r.size.y, int(u))})
 		}
 		if r, ok := niello.rect_in(main_ctx, trk_counter); ok {
 			u, _ := niello.unit_in(main_ctx, trk_counter)
-			niello.show(line_u, 0, {text = fmt.bprintf(buf[:], "counter: (%.0f, %.0f) %.0f x %.0f, unit %d", r.pos.x, r.pos.y, r.size.x, r.size.y, int(u))})
+			niello.show(line_u, {text = fmt.bprintf(buf[:], "counter: (%.0f, %.0f) %.0f x %.0f, unit %d", r.pos.x, r.pos.y, r.size.x, r.size.y, int(u))})
 		}
 		if r, ok := niello.rect_in(main_ctx, trk_panel); ok {
 			u, _ := niello.unit_in(main_ctx, trk_panel)
-			niello.show(line_u, 0, {text = fmt.bprintf(buf[:], "panel: (%.0f, %.0f) %.0f x %.0f, unit %d", r.pos.x, r.pos.y, r.size.x, r.size.y, int(u))})
+			niello.show(line_u, {text = fmt.bprintf(buf[:], "panel: (%.0f, %.0f) %.0f x %.0f, unit %d", r.pos.x, r.pos.y, r.size.x, r.size.y, int(u))})
 		}
-		niello.show(line_u, 0, {text = "watch the counter's width grow as it counts"})
+		niello.show(line_u, {text = "watch the counter's width grow as it counts"})
 		btn: niello.Instance
 		if niello.begin(close_btn_u, out = &btn) {
 			niello.show(close_btn_label_u)

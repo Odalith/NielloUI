@@ -195,17 +195,17 @@ declare :: proc() {
 		load_cycle()
 	}
 	if niello.begin(window_u) {
-		niello.show(title_u, niello.key("title"), niello.With{
+		niello.show(title_u, niello.With{
 			text = "Image soak — TODO #13 VERIFICATION OWED",
 		})
-		niello.show(status_u, niello.key("status"), niello.With{
+		niello.show(status_u, niello.With{
 			text = fmt.tprintf("cycle %d/%d · frame %d/%d · live handles %d · failed decodes (clean) %d · RSS %d kB · GPU cache %d kB",
 				cycle, CYCLES, frame_in_cycle, DRAW_FRAMES, len(live), failed_decodes, proc_rss_kb(),
 				int(niello_sdl.gpu_cache_bytes() / 1024)),
 		})
-		if niello.begin(row_u, niello.key("row")) {
+		if niello.begin(row_u) {
 			for img, i in live {
-				niello.show(cell_u, niello.key(fmt.tprintf("cell%d", i)), niello.With{image = img})
+				niello.show(cell_u, niello.With{image = img})
 			}
 		}
 	}
@@ -258,7 +258,7 @@ show_verdict :: proc() {
 		verdict_shown = true
 	}
 	if niello.begin(window_u) {
-		niello.show(verdict_u, niello.key("verdict"), niello.With{text = verdict})
+		niello.show(verdict_u, niello.With{text = verdict})
 	}
 }
 

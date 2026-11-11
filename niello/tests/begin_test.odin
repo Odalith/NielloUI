@@ -57,10 +57,10 @@ test_begin_children_belong_to_the_if_block :: proc(t: ^testing.T) {
 	declare :: proc() {
 		if niello.begin(bg_root) {
 			if niello.begin(bg_row) {
-				a = niello.show(bg_cell, niello.key_int(1))
-				b = niello.show(bg_cell, niello.key_int(2))
+				a = niello.show(bg_cell, key = niello.key_int(1))
+				b = niello.show(bg_cell, key = niello.key_int(2))
 			}
-			after = niello.show(bg_cell, niello.key_int(3))
+			after = niello.show(bg_cell, key = niello.key_int(3))
 		}
 	}
 	bg_frame(declare)
@@ -103,7 +103,7 @@ test_begin_popup_out_and_signal :: proc(t: ^testing.T) {
 	@(static) pop_open, missing_open: bool
 	declare :: proc() {
 		if niello.begin(bg_root) {
-			anchor = niello.show(bg_cell, niello.key_int(1))
+			anchor = niello.show(bg_cell, key = niello.key_int(1))
 		}
 		// A block scopes each popup: its deferred end runs at the brace.
 		{

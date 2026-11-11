@@ -56,8 +56,8 @@ input_btn_hidden, input_btn_disabled: bool
 declare_input_tree :: proc() {
 	if niello.begin(input_root, out = &input_root_i) {
 		if !input_btn_hidden {
-			if niello.begin(input_btn, 0, niello.With{disabled = input_btn_disabled}, out = &input_btn_i) {
-				input_lbl_i = niello.show(input_lbl, 0, niello.With{text = "OK"})
+			if niello.begin(input_btn, niello.With{disabled = input_btn_disabled}, out = &input_btn_i) {
+				input_lbl_i = niello.show(input_lbl, niello.With{text = "OK"})
 			}
 		}
 	}
@@ -475,7 +475,7 @@ abs_under_i, abs_dis_i: niello.Instance
 declare_abs_tree :: proc() {
 	if niello.begin(abs_root) {
 		abs_under_i = niello.show(abs_under)
-		abs_dis_i = niello.show(abs_dis, 0, niello.With{disabled = true})
+		abs_dis_i = niello.show(abs_dis, niello.With{disabled = true})
 	}
 }
 
@@ -535,7 +535,7 @@ ov_btn_disabled: bool
 
 declare_ov_tree :: proc() {
 	if niello.begin(ov_root) {
-		ov_btn_i = niello.show(ov_btn, 0, niello.With{disabled = ov_btn_disabled})
+		ov_btn_i = niello.show(ov_btn, niello.With{disabled = ov_btn_disabled})
 	}
 }
 
@@ -645,7 +645,7 @@ dc_btn_i: niello.Instance
 
 declare_dc_tree :: proc() {
 	if niello.begin(dc_root) {
-		dc_btn_i = niello.show(dc_btn, 0, niello.With{disabled = true})
+		dc_btn_i = niello.show(dc_btn, niello.With{disabled = true})
 	}
 }
 

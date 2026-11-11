@@ -248,8 +248,8 @@ test_capture_dies_when_target_culled :: proc(t: ^testing.T) {
 	clip_i, row2_i: niello.Instance
 	declare_clip :: proc(clip, row: niello.Unit, clip_i, row2_i: ^niello.Instance) {
 		if niello.begin(clip, out = clip_i) {
-			niello.show(row, niello.key_int(1))
-			if niello.begin(row, niello.key_int(2), out = row2_i) {
+			niello.show(row, key = niello.key_int(1))
+			if niello.begin(row, key = niello.key_int(2), out = row2_i) {
 			}
 		}
 	}
@@ -327,7 +327,7 @@ test_capture_dies_when_modal_opens :: proc(t: ^testing.T) {
 	bg_i, anchor_i: niello.Instance
 	declare_modal :: proc(root, bg, dialog: niello.Unit, bg_i, anchor_i: ^niello.Instance, modal: bool) {
 		if niello.begin(root) {
-			anchor_i^ = niello.show(bg, niello.key_int(1))
+			anchor_i^ = niello.show(bg, key = niello.key_int(1))
 			bg_i^ = anchor_i^
 		}
 		if modal {

@@ -33,7 +33,7 @@ test_draw_list_rect_and_text :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if niello.begin(root) {
 		niello.show(box)
-		niello.show(label, 0, niello.With{text = "Hi"})
+		niello.show(label, niello.With{text = "Hi"})
 	}
 	niello.frame_end()
 
@@ -76,7 +76,7 @@ test_draw_list_truncation :: proc(t: ^testing.T) {
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if niello.begin(root) {
-		niello.show(lbl, 0, niello.With{text = "Hello world"})
+		niello.show(lbl, niello.With{text = "Hello world"})
 	}
 	niello.frame_end()
 
@@ -262,7 +262,7 @@ test_draw_list_truncation_in_column :: proc(t: ^testing.T) {
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if niello.begin(root) {
-		niello.show(lbl, 0, niello.With{text = "Hello world"}) // 88px intrinsic
+		niello.show(lbl, niello.With{text = "Hello world"}) // 88px intrinsic
 	}
 	niello.frame_end()
 
@@ -297,7 +297,7 @@ test_draw_list_truncation_nested_fit :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if niello.begin(root) {
 		if niello.begin(card) {
-			niello.show(lbl, 0, niello.With{text = "Hello world"})
+			niello.show(lbl, niello.With{text = "Hello world"})
 		}
 	}
 	niello.frame_end()
@@ -331,7 +331,7 @@ test_cross_fit_not_clamped_when_scrollable :: proc(t: ^testing.T) {
 
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
 	if niello.begin(root) {
-		niello.show(lbl, 0, niello.With{text = "Hello world"})
+		niello.show(lbl, niello.With{text = "Hello world"})
 	}
 	niello.frame_end()
 
@@ -356,7 +356,7 @@ dmg_text: string
 declare_dmg_tree :: proc() {
 	if niello.begin(dmg_root) {
 		niello.show(dmg_box)
-		niello.show(dmg_lbl, 0, niello.With{text = dmg_text})
+		niello.show(dmg_lbl, niello.With{text = dmg_text})
 	}
 }
 
@@ -570,7 +570,7 @@ test_emit_skips_offscreen_leaves :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
 	if niello.begin(scroller) {
 		for k in 0 ..< 10 {
-			if niello.begin(row, niello.key_int(k + 1)) {
+			if niello.begin(row, key = niello.key_int(k + 1)) {
 			}
 		}
 	}
