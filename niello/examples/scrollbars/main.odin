@@ -19,8 +19,8 @@
 // per frame from the live geometry).
 //
 // Host contract: the bar is declared inside its scroller, after
-// the content, anchored. The scroller's own align places it
-// (cross End = right edge, main End = bottom edge); anchored
+// the content, anchored. The scroller's own align places it,
+// read per axis [x, y] (x End = right edge, y End = bottom edge); anchored
 // children take no flow slot, so a plain Column scroller hosts its
 // bar directly — no wrapper containers.
 package main
@@ -227,7 +227,7 @@ mint :: proc() {
 		layout = niello.Layout.Top_To_Bottom,
 		size = niello.Size{niello.grow(1), niello.grow(1)},
 		scroll = niello.Scroll.Vertical,
-		align = [2]niello.Align_Kind{.Start, .End},
+		align = [2]niello.Align_Kind{.End, .Start},
 		color = PANEL, corner_radius = 8,
 		gap = 4, padding = [4]u16{6, 6, 6, 6},
 	})
@@ -255,7 +255,7 @@ mint :: proc() {
 		smooth_scroll = true, smooth_ms = 150, // wheel glides (§3.21);
 		overscroll = true, overscroll_px = 80, // band + spring (§3.22)
 		// thumb drags stay instant (they go through scroll_to)
-		align = [2]niello.Align_Kind{.Start, .End},
+		align = [2]niello.Align_Kind{.End, .Start},
 		color = PANEL, corner_radius = 8,
 		gap = 4, padding = [4]u16{6, 6, 6, 6},
 	})

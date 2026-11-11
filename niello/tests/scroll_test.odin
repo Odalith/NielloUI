@@ -693,3 +693,59 @@ test_clipping_child_overflow_does_not_leak :: proc(t: ^testing.T) {
 	testing.expect_value(t, niello.scroll_range(sc_inner_i), niello.Vec2{0, 60})
 	testing.expect_value(t, niello.scroll_range(sc_outer_i), niello.Vec2{0, 0})
 }
+
+// A scroller that is culled — scrolled out of its parent's clip — keeps
+// its offset, and comes back where it was.
+cs_outer_u, cs_inner_u, cs_row_u, cs_filler_u: niello.Unit
+cs_outer_i, cs_inner_i: niello.Instance
+
+cs_declare :: proc() {
+	if niello.begin(sc_root) {
+		if niello.begin(cs_outer_u, out = &cs_outer_i) {
+			if niello.begin(cs_inner_u, out = &cs_inner_i) {
+				for _ in 0 ..< 10 {
+					niello.show(cs_row_u)
+				}
+			}
+			niello.show(cs_filler_u)
+		}
+	}
+}
+
+@(test)
+test_culled_scroller_keeps_its_offset :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	sc_root = fixed_root()
+	// outer 200x100 scrolls over [inner 200x60 (10 rows of 30 -> range
+	// 240), filler 200x400].
+	niello.mint(&cs_outer_u, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = niello.Size{niello.fixed(200), niello.fixed(100)}, scroll = .Vertical,
+	})
+	niello.mint(&cs_inner_u, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = niello.Size{niello.fixed(200), niello.fixed(60)}, scroll = .Vertical,
+	})
+	niello.mint(&cs_row_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(30)}})
+	niello.mint(&cs_filler_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(400)}})
+	frame :: proc() {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
+		cs_declare()
+		niello.frame_end()
+	}
+	frame()
+	frame()
+	niello.scroll_to(cs_inner_i, {0, 90})
+	frame()
+	testing.expect(t, niello.scroll_offset(cs_inner_i) == niello.Vec2{0, 90}, "the nested scroller scrolled")
+	niello.scroll_to(cs_outer_i, {0, 300}) // the nested scroller leaves the clip
+	for _ in 0 ..< 3 {
+		frame()
+	}
+	_, live := niello.rect(cs_inner_i)
+	testing.expect(t, !live, "the nested scroller is culled")
+	niello.scroll_to(cs_outer_i, {0, 0})
+	for _ in 0 ..< 3 {
+		frame()
+	}
+	testing.expect_value(t, niello.scroll_offset(cs_inner_i), niello.Vec2{0, 90})
+}

@@ -102,11 +102,10 @@ mint_shell :: proc(t: Theme) {
 	})
 	niello.mint(&shell.nav_label, ui.body, {})
 	niello.group_add(groups.ink, shell.nav_label)
-	// The content area scrolls vertically. It is a row so its align
-	// reads the same for the flow (the page column, top-left) and for
-	// the anchored scrollbar (right edge, top).
+	// The content area scrolls vertically; align [x, y] puts its
+	// anchored scrollbar at the right edge, top.
 	niello.mint(&shell.content, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), grow()),
+		layout = .Top_To_Bottom, size = sz(grow(), grow()),
 		scroll = .Vertical, smooth_scroll = true,
 		align = [2]niello.Align_Kind{.End, .Start},
 		padding = [4]u16{22, 20, 26, 24},
