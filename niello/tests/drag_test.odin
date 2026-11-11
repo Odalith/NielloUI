@@ -199,23 +199,6 @@ test_drag_second_press_starts_clean :: proc(t: ^testing.T) {
 // the same-frame flick (int-14).
 
 // frame_with runs one frame with a caller-chosen declare proc.
-frame_with :: proc(input: niello.Input, declare: proc()) {
-	niello.frame_begin(niello.test_context(), input, 1.0 / 60.0)
-	finish(declare)
-}
-
-declare_root_only :: proc() {
-	if niello.begin(input_root, out = &input_root_i) {
-	}
-}
-
-declare_btn_disabled :: proc() {
-	if niello.begin(input_root, out = &input_root_i) {
-		if niello.begin(input_btn, 0, niello.With{disabled = true}, out = &input_btn_i) {
-			input_lbl_i = niello.show(input_lbl, 0, niello.With{text = "OK"})
-		}
-	}
-}
 
 @(test)
 test_capture_dies_with_target :: proc(t: ^testing.T) {
@@ -225,8 +208,9 @@ test_capture_dies_with_target :: proc(t: ^testing.T) {
 	frame(idle_input(BTN_PT))
 
 	frame(press_at(BTN_PT)) // plain press, sub-threshold
-	frame_with(idle_input(BTN_PT), declare_root_only) // the button leaves the tree
-	frame_with(release_at(BTN_PT), declare_root_only)
+	input_btn_hidden = true // the button leaves the tree
+	frame(idle_input(BTN_PT))
+	frame(release_at(BTN_PT))
 	testing.expect(t, !niello.clicked(input_root_i),
 		"a press whose target died completes no click — not even on the surviving ancestor")
 	testing.expect(t, !niello.clicked(input_btn_i), "and none on the dead target")
@@ -242,8 +226,9 @@ test_capture_dies_when_target_disabled :: proc(t: ^testing.T) {
 	frame(press_at(BTN_PT))
 	frame(hold_at(BTN_PT + {10, 0})) // drag is live
 	testing.expect(t, niello.dragging(input_btn_i), "drag live before the disable")
-	frame_with(hold_at(BTN_PT + {10, 0}), declare_btn_disabled)
-	frame_with(release_at(BTN_PT + {10, 0}), declare_btn_disabled)
+	input_btn_disabled = true
+	frame(hold_at(BTN_PT + {10, 0}))
+	frame(release_at(BTN_PT + {10, 0}))
 	testing.expect(t, niello.drag_ended(input_btn_i), "the drag ends")
 	testing.expect(t, !niello.drag_completed(input_btn_i),
 		"disabled mid-drag cancels the capture (ruled 2026-11-04), it does not complete it")
@@ -263,8 +248,8 @@ test_capture_dies_when_target_culled :: proc(t: ^testing.T) {
 	clip_i, row2_i: niello.Instance
 	declare_clip :: proc(clip, row: niello.Unit, clip_i, row2_i: ^niello.Instance) {
 		if niello.begin(clip, out = clip_i) {
-			niello.show(row, niello.key_int(1))
-			if niello.begin(row, niello.key_int(2), out = row2_i) {
+			niello.show(row, key = niello.key_int(1))
+			if niello.begin(row, key = niello.key_int(2), out = row2_i) {
 			}
 		}
 	}
@@ -342,7 +327,7 @@ test_capture_dies_when_modal_opens :: proc(t: ^testing.T) {
 	bg_i, anchor_i: niello.Instance
 	declare_modal :: proc(root, bg, dialog: niello.Unit, bg_i, anchor_i: ^niello.Instance, modal: bool) {
 		if niello.begin(root) {
-			anchor_i^ = niello.show(bg, niello.key_int(1))
+			anchor_i^ = niello.show(bg, key = niello.key_int(1))
 			bg_i^ = anchor_i^
 		}
 		if modal {

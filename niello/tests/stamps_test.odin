@@ -19,7 +19,7 @@ st_box_i: niello.Instance
 declare_st_tree :: proc() {
 	if niello.begin(st_root) {
 		st_box_i = niello.show(st_box)
-		niello.show(st_lbl, 0, niello.With{text = st_text, static_values = st_static})
+		niello.show(st_lbl, niello.With{text = st_text, static_values = st_static})
 	}
 }
 

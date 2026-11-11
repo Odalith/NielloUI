@@ -115,9 +115,9 @@ set_status :: proc(format: string, args: ..any) {
 
 // button is the demo's button component: a keyed container with a
 // centered label. Returns the instance; ask niello.clicked on it.
-button :: proc(key: int, text: string) -> (i: niello.Instance) {
-	if niello.begin(btn_u, niello.key_int(key), out = &i) {
-		niello.show(btn_label_u, 0, {text = text})
+button :: proc(text: string, loc := #caller_location) -> (i: niello.Instance) {
+	if niello.begin(btn_u, out = &i, loc = loc) {
+		niello.show(btn_label_u, {text = text})
 	}
 	return
 }
@@ -147,14 +147,14 @@ declare :: proc() {
 	}
 
 	if niello.begin(root_u) {
-		if niello.begin(bar_u, niello.key_int(1)) {
-			file_btn_i = button(1, "File")
-			del_btn_i = button(2, "Delete…")
+		if niello.begin(bar_u) {
+			file_btn_i = button("File")
+			del_btn_i = button("Delete…")
 		}
-		canvas_i = niello.show(canvas_u, niello.key_int(3))
-		if niello.begin(bar_u, niello.key_int(4)) {
-			help_btn_i = button(3, "Help")
-			niello.show(status_u, niello.key_int(9), {
+		canvas_i = niello.show(canvas_u)
+		if niello.begin(bar_u) {
+			help_btn_i = button("Help")
+			niello.show(status_u, {
 				text = string(status_buf[:status_len]),
 			})
 		}
@@ -190,11 +190,11 @@ declare :: proc() {
 	// layer regardless — order here is just readability).
 	if file_open {
 		items := []string{"New", "Open…", "Save", "Save As…"}
-		if niello.begin_popup(menu_u, file_btn_i, .Below, key = niello.key_int(100), opts = {gap = 4}, out = &file_menu_i) {
+		if niello.begin_popup(menu_u, file_btn_i, .Below, opts = {gap = 4}, out = &file_menu_i) {
 			for text, k in items {
 				it: niello.Instance
-				if niello.begin(item_u, niello.key_int(k + 1), out = &it) {
-					niello.show(item_label_u, 0, {text = text})
+				if niello.begin(item_u, out = &it) {
+					niello.show(item_label_u, {text = text})
 				}
 				if niello.clicked(it) {
 					set_status("File > %s", text)
@@ -205,11 +205,11 @@ declare :: proc() {
 	}
 	if help_open {
 		items := []string{"About", "Shortcuts"}
-		if niello.begin_popup(menu_u, help_btn_i, .Below, key = niello.key_int(200), opts = {gap = 4}, out = &help_menu_i) {
+		if niello.begin_popup(menu_u, help_btn_i, .Below, opts = {gap = 4}, out = &help_menu_i) {
 			for text, k in items {
 				it: niello.Instance
-				if niello.begin(item_u, niello.key_int(k + 1), out = &it) {
-					niello.show(item_label_u, 0, {text = text})
+				if niello.begin(item_u, out = &it) {
+					niello.show(item_label_u, {text = text})
 				}
 				if niello.clicked(it) {
 					set_status("Help > %s", text)
@@ -220,11 +220,11 @@ declare :: proc() {
 	}
 	if ctx_open {
 		items := []string{"Mark", "Flag", "Clear marks"}
-		if niello.begin_popup(menu_u, 0, .At, key = niello.key_int(300), opts = {at = ctx_at}, out = &ctx_menu_i) {
+		if niello.begin_popup(menu_u, 0, .At, opts = {at = ctx_at}, out = &ctx_menu_i) {
 			for text, k in items {
 				it: niello.Instance
-				if niello.begin(item_u, niello.key_int(k + 1), out = &it) {
-					niello.show(item_label_u, 0, {text = text})
+				if niello.begin(item_u, out = &it) {
+					niello.show(item_label_u, {text = text})
 				}
 				if niello.clicked(it) {
 					set_status("Canvas: %s at (%d, %d)", text, int(ctx_at.x), int(ctx_at.y))
@@ -238,14 +238,14 @@ declare :: proc() {
 		// popup that only shades. Presses on it land outside the
 		// modal, so they absorb and light-dismiss the dialog —
 		// backdrop click = cancel.
-		niello.begin_popup(backdrop_u, 0, .At, key = niello.key_int(399), opts = {stay = true, at = {0, 0}})
-		if niello.begin_popup(panel_u, 0, .Center, key = niello.key_int(400), opts = {modal = true}, out = &dlg_i) {
-			niello.show(msg_u, niello.key_int(1), {
+		niello.begin_popup(backdrop_u, 0, .At, opts = {stay = true, at = {0, 0}})
+		if niello.begin_popup(panel_u, 0, .Center, opts = {modal = true}, out = &dlg_i) {
+			niello.show(msg_u, {
 				text = "Delete \"untitled.txt\"?",
 			})
-			if niello.begin(bar_u, niello.key_int(3)) {
-				ok_i := button(11, "Delete")
-				cancel_i := button(12, "Cancel")
+			if niello.begin(bar_u) {
+				ok_i := button("Delete")
+				cancel_i := button("Cancel")
 				if niello.clicked(ok_i) {
 					dlg_open = false
 					set_status("Deleted (not really).")

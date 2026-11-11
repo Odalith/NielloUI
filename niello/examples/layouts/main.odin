@@ -153,63 +153,63 @@ mint_units :: proc() {
 }
 
 // A label centered in its box (the box's align does the centering).
-box :: proc(u: niello.Unit, key: string, text: string) {
-	if niello.begin(u, niello.key(key)) {
-		niello.show(lbl_u, niello.key(key), {text = text})
+box :: proc(u: niello.Unit, text: string, loc := #caller_location) {
+	if niello.begin(u, loc = loc) {
+		niello.show(lbl_u, {text = text})
 	}
 }
 
-hdr :: proc(key, text: string) {
-	niello.show(hdr_u, niello.key(key), {text = text})
+hdr :: proc(text: string, loc := #caller_location) {
+	niello.show(hdr_u, {text = text}, loc = loc)
 }
 
 declare :: proc() {
 	if niello.begin(window_u) {
-		niello.show(title_u, niello.key("title"), {text = "Layout gallery — NielloUI"})
+		niello.show(title_u, {text = "Layout gallery — NielloUI"})
 
-		hdr("h1", "1 · Row (Left_To_Right) — Fixed, Fit, Grow")
+		hdr("1 · Row (Left_To_Right) — Fixed, Fit, Grow")
 		if niello.begin(row1) {
-			box(b_fixed, "b1", "Fixed 120")
-			box(b_fit, "b2", "Fit")
-			box(b_grow, "b3", "Grow — takes what's left")
+			box(b_fixed, "Fixed 120")
+			box(b_fit, "Fit")
+			box(b_grow, "Grow — takes what's left")
 		}
 
-		hdr("h2", "2 · Row — Grow split and Percent")
+		hdr("2 · Row — Grow split and Percent")
 		if niello.begin(row2) {
-			box(g1, "g1", "Grow")
-			box(g2, "g2", "Grow")
-			box(pc, "pc", "Percent 25%")
+			box(g1, "Grow")
+			box(g2, "Grow")
+			box(pc, "Percent 25%")
 		}
 
-		hdr("h3", "3 · Column (Top_To_Bottom) in a fixed-height band")
+		hdr("3 · Column (Top_To_Bottom) in a fixed-height band")
 		if niello.begin(col1) {
-			box(c_fixed, "c1", "Fixed 30")
-			box(c_fit, "c2", "Fit")
-			box(c_grow, "c3", "Grow — fills the band")
+			box(c_fixed, "Fixed 30")
+			box(c_fit, "Fit")
+			box(c_grow, "Grow — fills the band")
 		}
 
-		hdr("h4", "4 · Nesting — a Row of two Columns")
+		hdr("4 · Nesting — a Row of two Columns")
 		if niello.begin(row3) {
 			if niello.begin(colA) {
-				box(a1, "a1", "A1 (Grow)")
-				box(a2, "a2", "A2 (Grow)")
+				box(a1, "A1 (Grow)")
+				box(a2, "A2 (Grow)")
 			}
 			if niello.begin(colB) {
-				box(bb1, "bb1", "B1 (Fixed)")
-				box(bb2, "bb2", "B2 (Grow)")
-				box(bb3, "bb3", "B3 (Fixed)")
+				box(bb1, "B1 (Fixed)")
+				box(bb2, "B2 (Grow)")
+				box(bb3, "B3 (Fixed)")
 			}
 		}
 
-		hdr("h5", "5 · Stack — children overlap, each resolved against the full box")
+		hdr("5 · Stack — children overlap, each resolved against the full box")
 		if niello.begin(stack1) {
-			box(back, "back", "Back (Grow)")
-			box(front, "front", "Front (Fixed, End-aligned)")
+			box(back, "Back (Grow)")
+			box(front, "Front (Fixed, End-aligned)")
 		}
 
-		hdr("h6", "6 · Alignment — Align Center / Center")
+		hdr("6 · Alignment — Align Center / Center")
 		if niello.begin(row4) {
-			box(mid, "mid", "Centered")
+			box(mid, "Centered")
 		}
 	}
 }

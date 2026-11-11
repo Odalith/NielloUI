@@ -42,7 +42,7 @@ declare_flat_tree :: proc() {
 	if niello.begin(sc_root) {
 		if niello.begin(sc_outer, out = &sc_outer_i) {
 			for k in 0 ..< 6 {
-				ri := niello.show(sc_row, niello.key_int(k))
+				ri := niello.show(sc_row, key = niello.key_int(k))
 				if k == 0 {
 					sc_first_row_i = ri
 				}
@@ -71,16 +71,16 @@ declare_nested_tree :: proc() {
 			if sc_inner_disabled {
 				w.disabled = true
 			}
-			if niello.begin(sc_inner, 0, w, out = &sc_inner_i) {
+			if niello.begin(sc_inner, w, out = &sc_inner_i) {
 				for k in 0 ..< 4 {
-					ri := niello.show(sc_row, niello.key_int(k))
+					ri := niello.show(sc_row, key = niello.key_int(k))
 					if k == 0 {
 						sc_first_row_i = ri
 					}
 				}
 			}
 			for k in 0 ..< 4 {
-				niello.show(sc_row, niello.key_int(10 + k))
+				niello.show(sc_row, key = niello.key_int(10 + k))
 			}
 		}
 	}
@@ -328,7 +328,7 @@ declare_bound_tree :: proc() {
 		sc_bound_head_i = niello.show(sc_bound_head)
 		if niello.begin(sc_outer, out = &sc_outer_i) {
 			for k in 0 ..< 10 {
-				niello.show(sc_row, niello.key_int(k))
+				niello.show(sc_row, key = niello.key_int(k))
 			}
 		}
 		sc_bound_foot_i = niello.show(sc_bound_foot)
@@ -339,7 +339,7 @@ declare_strip_tree :: proc() {
 	if niello.begin(sc_root) {
 		if niello.begin(sc_strip, out = &sc_strip_i) {
 			for k in 0 ..< 6 {
-				ci := niello.show(sc_cell, niello.key_int(k))
+				ci := niello.show(sc_cell, key = niello.key_int(k))
 				if k == 0 {
 					sc_first_cell_i = ci
 				}
@@ -391,10 +391,10 @@ test_text_leaf_not_crushed_by_deficit :: proc(t: ^testing.T) {
 
 declare_crush_tree :: proc() {
 	if niello.begin(sc_crush_root) {
-		sc_crush_title_i = niello.show(sc_crush_title, 0, {text = "Header"})
+		sc_crush_title_i = niello.show(sc_crush_title, {text = "Header"})
 		if niello.begin(sc_outer, out = &sc_outer_i) {
 			for k in 0 ..< 6 {
-				niello.show(sc_row, niello.key_int(k))
+				niello.show(sc_row, key = niello.key_int(k))
 			}
 		}
 		sc_crush_foot_i = niello.show(sc_crush_foot)
@@ -679,10 +679,10 @@ test_clipping_child_overflow_does_not_leak :: proc(t: ^testing.T) {
 	declare :: proc() {
 		if niello.begin(sc_root) {
 			if niello.begin(sc_outer, out = &sc_outer_i) {
-				niello.show(sc_row, niello.key_int(99))
+				niello.show(sc_row, key = niello.key_int(99))
 				if niello.begin(sc_inner, out = &sc_inner_i) {
 					for k in 0 ..< 4 {
-						niello.show(sc_row, niello.key_int(k))
+						niello.show(sc_row, key = niello.key_int(k))
 					}
 				}
 			}

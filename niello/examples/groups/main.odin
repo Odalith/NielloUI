@@ -166,8 +166,8 @@ mint_units :: proc() {
 
 declare :: proc() {
 	if niello.begin(window_u) {
-		niello.show(title_u, niello.key("title"), {text = "Groups — one broadcast, many components"})
-		niello.show(hint_u, niello.key("hint"), {
+		niello.show(title_u, {text = "Groups — one broadcast, many components"})
+		niello.show(hint_u, {
 			text = "Switch the theme, then add a card: it is born in the base palette, because joining a group applies nothing.",
 		})
 
@@ -177,7 +177,7 @@ declare :: proc() {
 					dark = !dark
 					apply_theme()
 				}
-				niello.show(btn_label_u, niello.key("theme"), {
+				niello.show(btn_label_u, {
 					text = "Switch to light theme" if dark else "Switch to dark theme",
 				})
 			}
@@ -192,26 +192,26 @@ declare :: proc() {
 					append(&cards, card)
 					append(&card_notes, "Minted at runtime — it missed every broadcast so far. The next switch reaches it.")
 				}
-				niello.show(btn_label_u, niello.key("add"), {text = "Add a card"})
+				niello.show(btn_label_u, {text = "Add a card"})
 			}
 			if niello.begin(danger_u, out = &danger_i) {
 				if niello.clicked(danger_i) {
 					danger_clicks += 1
 				}
-				niello.show(btn_label_u, niello.key("danger"), {
+				niello.show(btn_label_u, {
 					text = fmt.tprintf("Danger — pinned red · clicked %d", danger_clicks),
 				})
 			}
 		}
 
 		for i in 0 ..< len(cards) {
-			if niello.begin(cards[i], niello.key_int(i)) {
-				niello.show(card_title_u, 0, {text = fmt.tprintf("Card %d", i + 1)})
-				niello.show(card_body_u, 0, {text = card_notes[i]})
+			if niello.begin(cards[i]) {
+				niello.show(card_title_u, {text = fmt.tprintf("Card %d", i + 1)})
+				niello.show(card_body_u, {text = card_notes[i]})
 			}
 		}
 
-		niello.show(hint_u, niello.key("status"), {
+		niello.show(hint_u, {
 			text = fmt.tprintf("Theme: %s · %d cards · the danger button is a group member with Color pinned.",
 				"dark" if dark else "light", len(cards)),
 		})

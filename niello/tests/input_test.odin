@@ -21,6 +21,7 @@ LBL_PT :: niello.Vec2{8, 8} // inside the label
 AWAY_PT :: niello.Vec2{300, 200} // inside the root only
 
 mint_input_tree :: proc() {
+	input_btn_hidden, input_btn_disabled = false, false
 	niello.mint(
 		&input_root,
 		niello.NO_UNIT,
@@ -47,10 +48,17 @@ mint_input_tree :: proc() {
 	)
 }
 
+// Variations of the input tree are flags on its one declare proc: an
+// instance is named by its call site, so the same element declared
+// from a second proc would be a different instance.
+input_btn_hidden, input_btn_disabled: bool
+
 declare_input_tree :: proc() {
 	if niello.begin(input_root, out = &input_root_i) {
-		if niello.begin(input_btn, out = &input_btn_i) {
-			input_lbl_i = niello.show(input_lbl, 0, niello.With{text = "OK"})
+		if !input_btn_hidden {
+			if niello.begin(input_btn, niello.With{disabled = input_btn_disabled}, out = &input_btn_i) {
+				input_lbl_i = niello.show(input_lbl, niello.With{text = "OK"})
+			}
 		}
 	}
 }
@@ -467,7 +475,7 @@ abs_under_i, abs_dis_i: niello.Instance
 declare_abs_tree :: proc() {
 	if niello.begin(abs_root) {
 		abs_under_i = niello.show(abs_under)
-		abs_dis_i = niello.show(abs_dis, 0, niello.With{disabled = true})
+		abs_dis_i = niello.show(abs_dis, niello.With{disabled = true})
 	}
 }
 
@@ -527,7 +535,7 @@ ov_btn_disabled: bool
 
 declare_ov_tree :: proc() {
 	if niello.begin(ov_root) {
-		ov_btn_i = niello.show(ov_btn, 0, niello.With{disabled = ov_btn_disabled})
+		ov_btn_i = niello.show(ov_btn, niello.With{disabled = ov_btn_disabled})
 	}
 }
 
@@ -637,7 +645,7 @@ dc_btn_i: niello.Instance
 
 declare_dc_tree :: proc() {
 	if niello.begin(dc_root) {
-		dc_btn_i = niello.show(dc_btn, 0, niello.With{disabled = true})
+		dc_btn_i = niello.show(dc_btn, niello.With{disabled = true})
 	}
 }
 

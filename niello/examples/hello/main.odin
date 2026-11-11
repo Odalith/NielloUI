@@ -54,13 +54,13 @@ mint_units :: proc() {
 declare :: proc() {
 	if niello.begin(window) {
 		if niello.begin(toolbar) {
-			niello.show(title, niello.key("title"), {text = "Hello, NielloUI"})
+			niello.show(title, {text = "Hello, NielloUI"})
 		}
 		if niello.begin(card) {
-			niello.show(card_label, niello.key("body"), {
+			niello.show(card_label, {
 				text = "A real window, rendered by Skia through Dawn.",
 			})
-			niello.show(card_label, niello.key("hint"), {
+			niello.show(card_label, {
 				text = "Close the window to quit.",
 			})
 		}

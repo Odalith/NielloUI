@@ -37,7 +37,7 @@ win2_open: bool
 
 declare_main :: proc() {
 	if niello.begin(root_u) {
-		niello.show(title_u, 0, {text = "Debugger host — press F12"})
+		niello.show(title_u, {text = "Debugger host — press F12"})
 		if niello.begin(panel_u) {
 			niello.show(wide_u)
 			niello.show(leaf_u)
@@ -60,7 +60,7 @@ declare_main :: proc() {
 declare_win2 :: proc() {
 	if niello.begin(win2_root_u) {
 		niello.show(win2_box_u)
-		niello.show(title_u, 0, {text = "F12 works here too"})
+		niello.show(title_u, {text = "F12 works here too"})
 	}
 }
 

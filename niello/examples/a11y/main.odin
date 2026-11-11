@@ -116,13 +116,13 @@ mint_units :: proc() {
 // enter the mirror.
 declare :: proc() {
 	if niello.begin(window) {
-		niello.show(heading, niello.key("heading"), {
+		niello.show(heading, {
 			text = "Accessibility Demo",
 			role = .Text,
 			label = "Accessibility Demo",
 		})
 		if niello.begin(row) {
-			play_i := niello.show(play_btn, niello.key("play"), {
+			play_i := niello.show(play_btn, {
 				text = "Pause" if playing else "Play",
 				role = .Button,
 				label = "Play or pause",
@@ -133,7 +133,7 @@ declare :: proc() {
 			if niello.clicked(play_i) {
 				playing = !playing
 			}
-			down_i := niello.show(vol_down, niello.key("voldn"), {
+			down_i := niello.show(vol_down, {
 				text = "−",
 				role = .Button,
 				label = "Volume down",
@@ -142,7 +142,7 @@ declare :: proc() {
 			if niello.clicked(down_i) {
 				volume = max(0, volume - 5)
 			}
-			niello.show(vol_track, niello.key("vol"), {
+			niello.show(vol_track, {
 				text = fmt.tprintf("%d%%", int(volume)),
 				role = .Slider,
 				label = "Volume",
@@ -150,7 +150,7 @@ declare :: proc() {
 				value = niello.A11y_Value{num = volume, has_num = true, min = 0, max = 130},
 				focusable = true,
 			})
-			up_i := niello.show(vol_up, niello.key("volup"), {
+			up_i := niello.show(vol_up, {
 				text = "+",
 				role = .Button,
 				label = "Volume up",
@@ -160,7 +160,7 @@ declare :: proc() {
 				volume = min(130, volume + 5)
 			}
 		}
-		if niello.begin(list_box, niello.key("songs")) {
+		if niello.begin(list_box) {
 			for song, i in songs {
 				// One declare per row: begin carries the ListItem
 				// semantics, the text child names it for the
@@ -174,15 +174,15 @@ declare :: proc() {
 					focusable = true,
 				}
 				row_i: niello.Instance
-				if niello.begin(song_row, niello.key(i), w, out = &row_i) {
-					niello.show(song_label, niello.key("name"), {text = song})
+				if niello.begin(song_row, w, out = &row_i) {
+					niello.show(song_label, {text = song})
 					if niello.clicked(row_i) {
 						selected = i
 					}
 				}
 			}
 		}
-		niello.show(status, niello.key("status"), {
+		niello.show(status, {
 			text = "Verify with Orca or Accerciser: the tree, the states, and the change signals.",
 			role = .Text,
 		})

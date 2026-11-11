@@ -51,7 +51,7 @@ test_toolbar_layout :: proc(t: ^testing.T) {
 		if niello.begin(toolbar, out = &i_tb) {
 			i_open = niello.show(open_b)
 			i_save = niello.show(save_b)
-			i_title = niello.show(title, 0, niello.With{text = "Notes"})
+			i_title = niello.show(title, niello.With{text = "Notes"})
 		}
 	}
 	niello.frame_end()
@@ -127,7 +127,7 @@ test_shrink_to_floors :: proc(t: ^testing.T) {
 	if niello.begin(root) {
 		if niello.begin(row) {
 			ia = niello.show(a)
-			ib = niello.show(b, 0, niello.With{text = "aa bb cc dd ee"}) // 5x16 + 4x8 = 112
+			ib = niello.show(b, niello.With{text = "aa bb cc dd ee"}) // 5x16 + 4x8 = 112
 		}
 	}
 	niello.frame_end()
@@ -189,7 +189,7 @@ test_word_wrap :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root) {
 		if niello.begin(card, out = &icard) {
-			idesc = niello.show(desc, 0, niello.With{text = "The quick brown fox jumps high"})
+			idesc = niello.show(desc, niello.With{text = "The quick brown fox jumps high"})
 		}
 	}
 	niello.frame_end()
@@ -216,7 +216,7 @@ test_no_wrap_default :: proc(t: ^testing.T) {
 	ilabel: niello.Instance
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root) {
-		ilabel = niello.show(label, 0, niello.With{text = "Hello world this is long"}) // 24ch = 192px
+		ilabel = niello.show(label, niello.With{text = "Hello world this is long"}) // 24ch = 192px
 	}
 	niello.frame_end()
 
@@ -252,7 +252,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root) {
 		if niello.begin(row, out = &irow) {
-			ia = niello.show(a, 0, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
+			ia = niello.show(a, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
 			_ = niello.show(b)
 		}
 	}
@@ -277,7 +277,7 @@ test_ellipsis_shrink_floor :: proc(t: ^testing.T) {
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
 	if niello.begin(root2) {
 		if niello.begin(row2, out = &irow2) {
-			ia2 = niello.show(a2, 0, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
+			ia2 = niello.show(a2, niello.With{text = "Hello world foo bar"}) // 19ch = 152px
 			_ = niello.show(b2)
 		}
 	}
@@ -360,7 +360,7 @@ test_damage_tracks_changes :: proc(t: ^testing.T) {
 
 	declare :: proc(root, title: niello.Unit, text: string) {
 		if niello.begin(root) {
-			_ = niello.show(title, 0, niello.With{text = text})
+			_ = niello.show(title, niello.With{text = text})
 		}
 	}
 
@@ -392,23 +392,18 @@ test_identity_stable_across_frames :: proc(t: ^testing.T) {
 	item: niello.Unit
 	niello.mint(&item, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(20)}})
 
-	ids1: [3]niello.Instance
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(root) {
-		ids1[0] = niello.show(item, 7)
-		ids1[1] = niello.show(item, 8)
-		ids1[2] = niello.show(item) // auto niello.key (sibling ordinal)
+	declare :: proc(root, item: niello.Unit) -> (ids: [3]niello.Instance) {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
+		if niello.begin(root) {
+			ids[0] = niello.show(item, key = 7)
+			ids[1] = niello.show(item, key = 8)
+			ids[2] = niello.show(item) // no key: named by its call site
+		}
+		niello.frame_end()
+		return
 	}
-	niello.frame_end()
-
-	ids2: [3]niello.Instance
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(root) {
-		ids2[0] = niello.show(item, 7)
-		ids2[1] = niello.show(item, 8)
-		ids2[2] = niello.show(item)
-	}
-	niello.frame_end()
+	ids1 := declare(root, item)
+	ids2 := declare(root, item)
 
 	testing.expect(t, ids1 == ids2, "identities stable across frames")
 	testing.expect(t, ids1[0] != ids1[1] && ids1[1] != ids1[2], "distinct keys give distinct ids")
@@ -479,17 +474,18 @@ test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	testing.expect(t, niello.key(7) == niello.key(7), "int keys stable")
 	testing.expect(t, niello.key("a") == niello.key("a"), "string keys stable")
 	testing.expect(t, niello.key(7) != niello.key(8), "distinct keys distinct")
-	testing.expect(t, niello.key(0) == 0, "zero niello.key means sibling ordinal")
+	testing.expect(t, niello.key(0) == 0, "zero niello.key means the call site names the instance")
 
 	// The write damages exactly the frame that commits it; the
 	// next frame, with no writes, settles.
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(child) {}
-	res := niello.frame_end()
+	child_frame :: proc(child: niello.Unit) -> niello.Frame_Result {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
+		if niello.begin(child) {}
+		return niello.frame_end()
+	}
+	res := child_frame(child)
 	testing.expect(t, res.changed, "the write damages the frame that commits it")
-	niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0)
-	if niello.begin(child) {}
-	res = niello.frame_end()
+	res = child_frame(child)
 	testing.expect(t, !res.changed, "a frame with no writes is unchanged")
 }
 
@@ -529,7 +525,7 @@ perf_declare :: proc(
 					if niello.begin(cards[s][c]) {
 						for l in 0 ..< N_LEAVES {
 							if leaf_text[s][c][l] {
-								_ = niello.show(leaves[s][c][l], 0, {text = texts[ti % len(texts)]})
+								_ = niello.show(leaves[s][c][l], {text = texts[ti % len(texts)]})
 								ti += 1
 							} else {
 								_ = niello.show(leaves[s][c][l])
@@ -854,11 +850,11 @@ test_fit_container_passes_deficit_to_children :: proc(t: ^testing.T) {
 
 	finish(proc() {
 		if niello.begin(sqz_root) {
-			if niello.begin(sqz_btn, niello.key_int(0), out = &sqz_btn_i) {
-				sqz_lbl_i = niello.show(sqz_lbl, 0, {text = "Cycle accent + propagate"})
+			if niello.begin(sqz_btn, key = niello.key_int(0), out = &sqz_btn_i) {
+				sqz_lbl_i = niello.show(sqz_lbl, {text = "Cycle accent + propagate"})
 			}
-			if niello.begin(sqz_btn, niello.key_int(1)) {
-				niello.show(sqz_lbl, 0, {text = "Crossfade theme"})
+			if niello.begin(sqz_btn, key = niello.key_int(1)) {
+				niello.show(sqz_lbl, {text = "Crossfade theme"})
 			}
 		}
 	})
@@ -909,7 +905,7 @@ test_culling_real :: proc(t: ^testing.T) {
 				if no_cull_last && k == 5 {
 					flags = {.No_Cull}
 				}
-				if niello.begin(row, niello.key_int(k + 1), {}, flags, out = &ids[k]) {
+				if niello.begin(row, {}, niello.key_int(k + 1), flags, out = &ids[k]) {
 					opens[k] = true
 					niello.show(leaf)
 				} else {
@@ -982,7 +978,7 @@ test_recycle_swap_with_culled_node :: proc(t: ^testing.T) {
 		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 200}}, 0)
 		if niello.begin(clip) {
 			for k in keys {
-				if niello.begin(row, niello.key_int(k), out = &ids[k]) {
+				if niello.begin(row, key = niello.key_int(k), out = &ids[k]) {
 				}
 			}
 		}

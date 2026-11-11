@@ -126,49 +126,49 @@ mint :: proc() {
 	})
 }
 
-button :: proc(key: string, text: string) -> (i: niello.Instance) {
-	if niello.begin(btn_u, niello.key(key), out = &i) {
-		niello.show(btn_label_u, 0, {text = text})
+button :: proc(text: string, loc := #caller_location) -> (i: niello.Instance) {
+	if niello.begin(btn_u, out = &i, loc = loc) {
+		niello.show(btn_label_u, {text = text})
 	}
 	return
 }
 
 declare :: proc() {
 	if niello.begin(root_u) {
-		niello.show(title_u, 0, {text = "Drag"})
-		niello.show(hint_u, 0, {text = "Press the slider to seek, drag to scrub. Drag the divider. Open the dialog and drag it by its header — the X button still just closes."})
+		niello.show(title_u, {text = "Drag"})
+		niello.show(hint_u, {text = "Press the slider to seek, drag to scrub. Drag the divider. Open the dialog and drag it by its header — the X button still just closes."})
 
 		// --- slider ---
-		niello.show(caption_u, niello.key("cap1"), {text = "Slider"})
+		niello.show(caption_u, {text = "Slider"})
 		// begin goes in the if condition: its end runs when the if
 		// ends. As a plain statement it would run at the end of the
 		// root block, silently reparenting everything below into the
 		// track.
-		if niello.begin(track_u, niello.key("slider"), out = &slider_i) {
+		if niello.begin(track_u, out = &slider_i) {
 			niello.set(fill_u, .Size, niello.Size{niello.percent(slider_value), niello.percent(1)})
-			if niello.begin(fill_u, niello.key("fill")) {}
+			if niello.begin(fill_u) {}
 		}
 		if niello.pressed(slider_i) || niello.dragging(slider_i) {
 			if r, rok := niello.rect(slider_i); rok && r.size.x > 0 {
 				slider_value = clamp(niello.drag_pos(slider_i).x / r.size.x, 0, 1)
 			}
 		}
-		niello.show(value_u, niello.key("val1"), {text = fmt.tprintf("value %.0f%%", slider_value * 100)})
+		niello.show(value_u, {text = fmt.tprintf("value %.0f%%", slider_value * 100)})
 
 		// --- splitter ---
-		niello.show(caption_u, niello.key("cap2"), {text = "Splitter"})
-		if niello.begin(split_row_u, niello.key("split")) {
+		niello.show(caption_u, {text = "Splitter"})
+		if niello.begin(split_row_u) {
 			niello.set(left_pane_u, .Size, niello.Size{niello.fixed(split_w), niello.percent(1)})
-			if niello.begin(left_pane_u, niello.key("left")) {
-				niello.show(pane_text_u, 0, {text = fmt.tprintf("left pane, %.0f DIP wide", split_w)})
+			if niello.begin(left_pane_u) {
+				niello.show(pane_text_u, {text = fmt.tprintf("left pane, %.0f DIP wide", split_w)})
 			}
 			// Same rule as the track: the divider's end must pop at
 			// the end of this statement's scope, not the row's,
 			// or the right pane becomes a child of the divider.
-			if niello.begin(divider_u, niello.key("divider"), out = &divider_i) {
+			if niello.begin(divider_u, out = &divider_i) {
 			}
-			if niello.begin(right_pane_u, niello.key("right")) {
-				niello.show(pane_text_u, 0, {text = "right pane (grow)"})
+			if niello.begin(right_pane_u) {
+				niello.show(pane_text_u, {text = "right pane (grow)"})
 			}
 		}
 		if niello.drag_started(divider_i) {
@@ -179,20 +179,20 @@ declare :: proc() {
 		}
 
 		// --- dialog ---
-		open_i := button("open", "Open dialog")
+		open_i := button("Open dialog")
 		if niello.clicked(open_i) {
 			dlg_open = true
 		}
-		niello.show(hint_u, niello.key("hint2"), {text = fmt.tprintf("dialog at (%.0f, %.0f)", dlg_pos.x, dlg_pos.y)})
+		niello.show(hint_u, {text = fmt.tprintf("dialog at (%.0f, %.0f)", dlg_pos.x, dlg_pos.y)})
 	}
 
 	if dlg_open {
-		if niello.begin_popup(dlg_u, 0, .At, key = niello.key("dlg"), opts = {at = dlg_pos, modal = true}, out = &dlg_i) {
-			if niello.begin(dlg_header_u, niello.key("hdr"), out = &header_i) {
-				niello.show(dlg_title_u, 0, {text = "Drag me"})
-				close_i = button("close", "X")
+		if niello.begin_popup(dlg_u, 0, .At, opts = {at = dlg_pos, modal = true}, out = &dlg_i) {
+			if niello.begin(dlg_header_u, out = &header_i) {
+				niello.show(dlg_title_u, {text = "Drag me"})
+				close_i = button("X")
 			}
-			niello.show(dlg_body_u, 0, {text = "The header drags the dialog: its .At point is app state, moved by drag_total. Pressing X and dragging does not move it (the drag belongs to X)."})
+			niello.show(dlg_body_u, {text = "The header drags the dialog: its .At point is app state, moved by drag_total. Pressing X and dragging does not move it (the drag belongs to X)."})
 		}
 		// The F4 subtraction, live: the header's drag counts only
 		// when the close button isn't the one being dragged.
