@@ -587,8 +587,7 @@ mix64 :: proc(x: u64) -> u64 {
 }
 
 identity_of :: proc(parent_id: u64, u: Unit, key: u64) -> Instance {
-	h := mix64(parent_id ~ 0x243f6a8885a308d3)
-	h = mix64(h ~ u64(u))
+	h := mix64(parent_id ~ u64(u) * 0x243f6a8885a308d3)
 	h = mix64(h ~ key)
 	return Instance(h)
 }
