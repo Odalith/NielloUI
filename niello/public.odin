@@ -42,7 +42,7 @@ NO_UNIT :: Unit(0)
 // NO_GROUP is the group store's sentinel (index 0), mirroring NO_UNIT.
 NO_GROUP :: Group(0)
 
-Unit     :: distinct u32 // cold: minted once, owns its values
+Unit     :: distinct u64 // cold: minted once, owns its values (slot index + generation; see unit_live)
 Instance :: distinct u64 // hot: one on-screen occurrence = hash(parent, unit, key)
 Group    :: distinct u32 // cold: broadcast list of (unit, fields)
 Key      :: distinct u64 // explicit identity (list items); 0 = the call site
@@ -658,11 +658,10 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	if strings.has_prefix(nm, "&") {
 		nm = nm[1:]
 	}
-	u := Unit(u32(len(store.units)))
-	rec := Unit_Rec{style = default_style(), name = nm, loc = loc, proto = base}
+	rec := Unit_Rec{style = default_style(), name = nm, loc = loc, proto = base, live = true}
 	if base != NO_UNIT {
-		assert(int(base) < len(store.units), "niello.mint: base is not a minted unit")
-		rec.style = store.units[int(base)].style
+		assert(unit_live(base), "niello.mint: base is not a minted unit")
+		rec.style = store.units[unit_index(base)].style
 		// The base copy is a snapshot: clone the reference-typed
 		// fields so the new unit owns its copies (see store_spans).
 		rec.style.text_spans = clone_spans(rec.style.text_spans)
@@ -670,7 +669,18 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 			rec.style.text = strings.clone(rec.style.text)
 		}
 	}
-	append(&store.units, rec)
+	// A slot freed by unmint is reused under its next generation, so
+	// handles to the unit that held it before stay dead.
+	u: Unit
+	if n := len(store.free_units); n > 0 {
+		idx := int(pop(&store.free_units))
+		rec.generation = store.units[idx].generation + 1
+		store.units[idx] = rec
+		u = unit_handle(idx, rec.generation)
+	} else {
+		append(&store.units, rec)
+		u = unit_handle(len(store.units) - 1, 0)
+	}
 	out^ = u
 	// decl = {} is a no-op merge (set_many skips the generation bump when no
 	// explicit fields were set).
@@ -808,7 +818,7 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 // never delete + re-clone on a no-op.
 @(private)
 write_style_field :: proc(u: Unit, f: Field, v: any) -> bool {
-	rec := &store.units[int(u)]
+	rec := &store.units[unit_index(u)]
 	if !field_gliding(u, f) {
 		tmp: Style
 		style_set_any(&tmp, f, v)
@@ -832,7 +842,7 @@ set_any :: proc(u: Unit, f: Field, v: any) {
 	// One failure policy for cold handles (audit api-A4): an
 	// invalid unit asserts loudly, exactly like pin — the silent
 	// alternative was writing into the NO_UNIT sentinel record.
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set: unit is not minted")
+	assert(unit_live(u), "niello.set: unit is not minted")
 	if write_style_field(u, f, v) {
 		touch(u, Fields{f})
 	}
@@ -862,7 +872,7 @@ apply_decl_field :: proc(u: Unit, f: Field, m: Maybe($T), changed: ^Fields) {
 // sets — changed or not — because a deliberate restatement is still
 // the author's choice, and propagate must not override it.
 set_many :: proc(u: Unit, decl: Style_Decl) {
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.set_many: unit is not minted")
+	assert(unit_live(u), "niello.set_many: unit is not minted")
 	changed: Fields
 	apply_decl_field(u, .Color, decl.color, &changed)
 	apply_decl_field(u, .Font_Color, decl.font_color, &changed)
@@ -899,7 +909,7 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_decl_field(u, .Image_Fit, decl.image_fit, &changed)
 	apply_decl_field(u, .Image_Interp, decl.image_interp, &changed)
 
-	rec := &store.units[int(u)]
+	rec := &store.units[unit_index(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
 	// doesn't mention them leaves existing overlays alone; clearing one is
 	// clear_overlay's job (audit core-H5).
@@ -938,8 +948,8 @@ Overlay_Kind :: enum {
 // the only way to clear one: in a decl, NO_UNIT means "unset" and
 // leaves the slot alone (audit core-H5).
 clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.clear_overlay: unit is not minted")
-	rec := &store.units[int(u)]
+	assert(unit_live(u), "niello.clear_overlay: unit is not minted")
+	rec := &store.units[unit_index(u)]
 	switch kind {
 	case .Hover:    rec.hover = NO_UNIT
 	case .Press:    rec.press = NO_UNIT
@@ -1966,13 +1976,13 @@ group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 		if f not_in m.fields {
 			continue
 		}
-		if f in store.units[int(m.unit)].pinned {
+		if f in store.units[unit_index(m.unit)].pinned {
 			continue
 		}
 		if ms == 0 {
 			set(m.unit, f, v)
 		} else {
-			target := store.units[int(m.unit)].style
+			target := store.units[unit_index(m.unit)].style
 			style_set_any(&target, f, v)
 			start_glide(m.unit, Fields{f}, &target, ms)
 		}
@@ -1988,24 +1998,99 @@ group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 // group with ordinary actions. If you find yourself pinning routinely,
 // the group is drawn wrong: split it instead.
 pin :: proc(u: Unit, fields: Fields) {
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.pin: unit is not minted")
-	store.units[int(u)].pinned += fields
+	assert(unit_live(u), "niello.pin: unit is not minted")
+	store.units[unit_index(u)].pinned += fields
 }
 
 unpin :: proc(u: Unit, fields: Fields) {
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.unpin: unit is not minted")
-	store.units[int(u)].pinned -= fields
+	assert(unit_live(u), "niello.unpin: unit is not minted")
+	store.units[unit_index(u)].pinned -= fields
 }
 
 @(private)
 group_rec :: proc(grp: Group) -> ^Group_Rec {
-	assert(int(grp) >= 1 && int(grp) < len(store.groups), "niello: group handle is not a live group")
+	assert(int(grp) >= 1 && int(grp) < len(store.groups) && !store.groups[int(grp)].deleted,
+		"niello: group handle is not a live group")
 	return &store.groups[int(grp)]
+}
+
+// group_delete frees a group's member list. The units themselves are
+// untouched (a group only locates them); the handle is dead afterwards.
+// Group ids are not reused.
+group_delete :: proc(grp: Group) {
+	rec := group_rec(grp)
+	delete(rec.members)
+	rec.members = nil
+	rec.deleted = true
+}
+
+// ============ freeing units ============
+
+// unmint frees a unit: its owned text and spans, its slot (which a later
+// mint reuses under a new generation), and every reference the engine
+// holds to it — group memberships, other units' state overlays and
+// prototype links, in-flight tweens and pending edits. Afterwards the
+// handle is dead: declaring it, or passing it anywhere a Unit is
+// expected, asserts. Units minted from it keep the values they have;
+// they simply stop receiving propagate.
+//
+// Stop declaring the unit before unmint-ing it: an instance of a dead
+// unit cannot be laid out.
+unmint :: proc(u: Unit) {
+	assert(unit_live(u), "niello.unmint: unit is not minted (or was unmint-ed already)")
+	idx := unit_index(u)
+	rec := &store.units[idx]
+	if rec.style.text_spans != nil {
+		delete(rec.style.text_spans)
+	}
+	if len(rec.style.text) > 0 {
+		delete(rec.style.text)
+	}
+	for &other in store.units {
+		if !other.live {
+			continue
+		}
+		if other.proto == u { other.proto = NO_UNIT }
+		if other.hover == u { other.hover = NO_UNIT }
+		if other.press == u { other.press = NO_UNIT }
+		if other.focus == u { other.focus = NO_UNIT }
+		if other.disabled == u { other.disabled = NO_UNIT }
+	}
+	for &gr in store.groups {
+		for k := len(gr.members) - 1; k >= 0; k -= 1 {
+			if gr.members[k].unit == u {
+				ordered_remove(&gr.members, k)
+			}
+		}
+	}
+	cancel_glide_fields(u, ALL_FIELDS)
+	for ctx in store.contexts {
+		if es, ok := ctx.edits[u]; ok {
+			free(es)
+			delete_key(&ctx.edits, u)
+		}
+	}
+	store.units[idx] = Unit_Rec{generation = rec.generation, live = false}
+	append(&store.free_units, u32(idx))
+}
+
+// shutdown releases everything the engine holds: every context still
+// alive (their ^Context pointers are dead afterwards), every unit and
+// group, the image registry and the text caches. Call it once, after
+// the last frame — typically right after niello_sdl.run returns. A new
+// mint afterwards starts a fresh store.
+shutdown :: proc() {
+	for len(store.contexts) > 0 {
+		context_destroy(store.contexts[len(store.contexts) - 1])
+	}
+	free_store()
+	store = Store{}
+	g = nil
 }
 
 @(private)
 group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.group_add: unit is not minted")
+	assert(unit_live(u), "niello.group_add: unit is not minted")
 	rec := group_rec(grp)
 	for &m in rec.members {
 		if m.unit == u {
@@ -2031,9 +2116,9 @@ group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
 // an explicit write (set/set_many/edit/group_set) to a gliding field
 // cancels that field's glide. ms == 0 is an immediate masked copy.
 tween :: proc(u: Unit, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.tween: unit is not minted")
-	assert(int(to) >= 1 && int(to) < len(store.units), "niello.tween: target unit is not minted")
-	target := store.units[int(to)].style
+	assert(unit_live(u), "niello.tween: unit is not minted")
+	assert(unit_live(to), "niello.tween: target unit is not minted")
+	target := store.units[unit_index(to)].style
 	start_glide(u, fields, &target, ms)
 }
 
@@ -2041,12 +2126,12 @@ tween :: proc(u: Unit, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
 // style, gated per member by its mask (intersected with fields) and
 // its pins — the same gates as group_set.
 group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
-	assert(int(to) >= 1 && int(to) < len(store.units), "niello.group_tween: target unit is not minted")
+	assert(unit_live(to), "niello.group_tween: target unit is not minted")
 	rec := group_rec(grp)
-	target := store.units[int(to)].style
+	target := store.units[unit_index(to)].style
 	for m in rec.members {
 		eff := fields & m.fields
-		for f in store.units[int(m.unit)].pinned {
+		for f in store.units[unit_index(m.unit)].pinned {
 			eff -= Fields{f}
 		}
 		start_glide(m.unit, eff, &target, ms)
@@ -2062,12 +2147,12 @@ group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) 
 // valid until frame_end; holding it across frames is a contract
 // violation.
 edit :: proc(u: Unit) -> ^Style {
-	assert(int(u) >= 1 && int(u) < len(store.units), "niello.edit: unit is not minted")
+	assert(unit_live(u), "niello.edit: unit is not minted")
 	if es, ok := g.edits[u]; ok {
 		return &es.shadow
 	}
 	es := new(Edit_State)
-	es.base = store.units[int(u)].style
+	es.base = store.units[unit_index(u)].style
 	es.shadow = es.base
 	g.edits[u] = es
 	return &es.shadow
@@ -2084,7 +2169,7 @@ edit :: proc(u: Unit) -> ^Style {
 // with a glide in flight on the target unit is skipped — the glide is
 // the more specific intent; call propagate again after it lands.
 propagate :: proc(proto: Unit, fields: Fields) {
-	assert(int(proto) >= 1 && int(proto) < len(store.units), "niello.propagate: unit is not minted")
+	assert(unit_live(proto), "niello.propagate: unit is not minted")
 	if fields == {} {
 		return
 	}
@@ -2092,7 +2177,7 @@ propagate :: proc(proto: Unit, fields: Fields) {
 	defer delete(updated)
 	for idx in 1 ..< len(store.units) {
 		rec := &store.units[idx]
-		if rec.proto == NO_UNIT {
+		if !rec.live || rec.proto == NO_UNIT {
 			continue
 		}
 		src_unit := rec.proto
@@ -2108,8 +2193,8 @@ propagate :: proc(proto: Unit, fields: Fields) {
 				continue
 			}
 		}
-		u := Unit(idx)
-		src := &store.units[int(src_unit)].style
+		u := unit_handle(idx, rec.generation)
+		src := &store.units[unit_index(src_unit)].style
 		wrote := Fields{}
 		for f in fields {
 			if f in rec.explicit {
@@ -2146,7 +2231,7 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 	if i == 0 {
 		return
 	}
-	assert(int(style) >= 1 && int(style) < len(store.units), "niello.transient: style unit is not minted")
+	assert(unit_live(style), "niello.transient: style unit is not minted")
 	if prev, ok := g.transients[i]; ok {
 		if prev.src == style && prev.in_ms == in_ms && prev.out_ms == out_ms {
 			if _, active := transient_k(&prev); active {
@@ -2154,7 +2239,7 @@ transient :: proc(i: Instance, style: Unit, in_ms, out_ms: u16) {
 			}
 		}
 	}
-	src := &store.units[int(style)]
+	src := &store.units[unit_index(style)]
 	fields := src.explicit & TRANSIENT_FIELDS
 	if fields == {} {
 		return

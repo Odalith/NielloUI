@@ -257,20 +257,20 @@ when NIELLO_DEBUG {
 	// debug_unit_name returns a unit's mint debug name ("" for an
 	// unknown unit) — tree labels for the debugger window.
 	debug_unit_name :: proc(u: Unit) -> string {
-		if int(u) < 0 || int(u) >= len(store.units) {
+		if !unit_live(u) {
 			return ""
 		}
-		return store.units[u].name
+		return store.units[unit_index(u)].name
 	}
 
 	// debug_unit_loc returns where a unit was minted (the
 	// #caller_location mint stores): file path + line. The
 	// Details panel shows it for the selected node's unit.
 	debug_unit_loc :: proc(u: Unit) -> (file: string, line: i32, ok: bool) {
-		if int(u) < 0 || int(u) >= len(store.units) {
+		if !unit_live(u) {
 			return "", 0, false
 		}
-		loc := store.units[u].loc
+		loc := store.units[unit_index(u)].loc
 		return loc.file_path, loc.line, true
 	}
 
@@ -298,7 +298,7 @@ when NIELLO_DEBUG {
 				if nd.has_eff {
 					return ctx.eff[idx], true
 				}
-				return store.units[nd.unit].style, true
+				return store.units[unit_index(nd.unit)].style, true
 			}
 		}
 		return {}, false
@@ -323,14 +323,14 @@ when NIELLO_DEBUG {
 			if px > 0 && .Scroll_X not_in dn.flags {
 				append(
 					&store.debug_ovf_scratch,
-					Overflow_Rec{instance = dn.instance, name = store.units[dn.unit].name, axis = .X, px = px},
+					Overflow_Rec{instance = dn.instance, name = store.units[unit_index(dn.unit)].name, axis = .X, px = px},
 				)
 			}
 			px = max(dn.overfl.y, dn.spill.y)
 			if px > 0 && .Scroll_Y not_in dn.flags {
 				append(
 					&store.debug_ovf_scratch,
-					Overflow_Rec{instance = dn.instance, name = store.units[dn.unit].name, axis = .Y, px = px},
+					Overflow_Rec{instance = dn.instance, name = store.units[unit_index(dn.unit)].name, axis = .Y, px = px},
 				)
 			}
 		}

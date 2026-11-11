@@ -892,7 +892,7 @@ position_and_damage :: proc() {
 			continue
 		}
 		new := Rect{g.lay[i].pos, g.lay[i].size}
-		ugen := store.units[int(nd.unit)].gen
+		ugen := store.units[unit_index(nd.unit)].gen
 		stamp := i < len(g.state_stamp) ? g.state_stamp[i] : 0
 		tr_now := len(g.transients) > 0 && id in g.transients
 		rec := Inst_Rec{rect = new, gen = ugen, digest = nd.digest, stamp = stamp, unit = nd.unit, overfl = g.lay[i].overfl, last_seen = g.frame_index}

@@ -99,8 +99,9 @@ mint_units :: proc(t: Theme) {
 	niello.mint(&ui.title, niello.NO_UNIT, {font_size = 22, font_weight = .SemiBold, font_color = t.ink, groups = ink})
 	niello.mint(&ui.heading, niello.NO_UNIT, {font_size = 15, font_weight = .SemiBold, font_color = t.ink, groups = ink})
 	niello.mint(&ui.body, niello.NO_UNIT, {font_size = 14, font_color = t.ink, groups = ink})
-	// Wrapped text needs a width to wrap at: a Fit-width paragraph
-	// measures unwrapped, so notes grow to their parent's width.
+	// Notes fill their parent's width (a Fit-width paragraph would
+	// wrap at the offered width too; grow just makes every note
+	// span the card).
 	niello.mint(&ui.dim, niello.NO_UNIT, {size = size(grow(), fit()), font_size = 13, font_color = t.dim, wrap = .Word, groups = dim})
 	niello.mint(&ui.small, niello.NO_UNIT, {font_size = 12, font_color = t.dim, groups = dim})
 	niello.mint(&ui.mono, niello.NO_UNIT, {font_size = 13, font_color = t.ink, whitespace = .Preserve, groups = ink})

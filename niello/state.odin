@@ -11,6 +11,12 @@ import "base:intrinsics"
 import "base:runtime"
 
 Unit_Rec :: struct {
+	// Slot bookkeeping (unmint): a handle carries its slot's
+	// generation, so a handle to a freed unit never reaches the unit
+	// that reuses the slot.
+	generation: u32,
+	live:       bool,
+
 	style: Style, // resolved, owned values
 	gen:   u64,   // visual-write generation (§5 stamps): bumped by
 	              // touch/touch_unmarked when a VISUAL_FIELDS field is
@@ -45,6 +51,7 @@ Group_Member :: struct {
 Group_Rec :: struct {
 	members: [dynamic]Group_Member,
 	name:    string, // debug/inspector only
+	deleted: bool,   // group_delete ran; the handle is dead
 }
 
 // Store is the process-global half of the engine state (multi-window
@@ -57,6 +64,7 @@ Store :: struct {
 	// Index 0 is the NO_UNIT sentinel (§8).
 	units:  [dynamic]Unit_Rec,
 	groups: [dynamic]Group_Rec,
+	free_units: [dynamic]u32, // slots freed by unmint, reused by mint
 
 	// Change tracking is the stamp system (§3.26): each unit's
 	// visual generation (Unit_Rec.gen) plus the declare-time
@@ -369,13 +377,8 @@ test_reset :: proc() {
 }
 
 test_teardown :: proc() {
-	if test_ctx != nil {
-		context_destroy(test_ctx)
-		test_ctx = nil
-	}
-	free_store()
-	store = Store{}
-	g = nil
+	shutdown() // destroys test_ctx with every other live context
+	test_ctx = nil
 }
 
 // free_store deletes every heap-owning container in the global store.
@@ -405,6 +408,7 @@ free_store :: proc() {
 		}
 	}
 	delete(store.units)
+	delete(store.free_units)
 	for &gr in store.groups {
 		delete(gr.members)
 	}
@@ -536,7 +540,7 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 // the unit's visual generation — the stamp pass F compares.
 @(private)
 touch :: proc(u: Unit, f: Fields) {
-	rec := &store.units[int(u)]
+	rec := &store.units[unit_index(u)]
 	rec.explicit += f
 	if f & VISUAL_FIELDS != {} {
 		rec.gen += 1
@@ -548,14 +552,36 @@ touch :: proc(u: Unit, f: Fields) {
 // marking them explicit would freeze the unit out of later propagates.
 @(private)
 touch_unmarked :: proc(u: Unit, f: Fields) {
-	rec := &store.units[int(u)]
+	rec := &store.units[unit_index(u)]
 	if f & VISUAL_FIELDS != {} {
 		rec.gen += 1
 	}
 }
 
 style_of :: proc(u: Unit) -> ^Style {
-	return &store.units[int(u)].style
+	return &store.units[unit_index(u)].style
+}
+
+// A Unit handle is a slot index (low 32 bits) plus that slot's
+// generation when the unit was minted (high 32 bits). NO_UNIT is slot 0,
+// generation 0, and is never live.
+unit_index :: #force_inline proc "contextless" (u: Unit) -> int {
+	return int(u64(u) & 0xffff_ffff)
+}
+
+unit_handle :: #force_inline proc "contextless" (index: int, generation: u32) -> Unit {
+	return Unit(u64(generation) << 32 | u64(index))
+}
+
+// unit_live reports that u names a minted unit that has not been
+// unmint-ed: its slot exists, is live, and still has u's generation.
+unit_live :: proc "contextless" (u: Unit) -> bool {
+	i := unit_index(u)
+	if i < 1 || i >= len(store.units) {
+		return false
+	}
+	rec := &store.units[i]
+	return rec.live && rec.generation == u32(u64(u) >> 32)
 }
 
 // ---------------------------------------------------------------------------
