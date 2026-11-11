@@ -21,7 +21,7 @@ Scrolling_State :: struct {
 }
 
 scroll_units: struct {
-	list, inner, smooth, wide, col, row, inner_row, wide_row, sticky: niello.Unit,
+	list, inner, smooth, wide, row, inner_row, wide_row, sticky: niello.Unit,
 }
 
 page_scrolling :: proc(app: ^App) {
@@ -59,14 +59,12 @@ page_scrolling :: proc(app: ^App) {
 scroll_list :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
 	if niello.begin(S.list, out = &s.list_i) {
-		if niello.begin(S.col) {
-			for k in 0 ..< 6 {
-				niello.show(S.row, {text = fmt.tprintf("Row %d", k + 1)})
-			}
-			scroll_inner(s)
-			for k in 6 ..< 30 {
-				niello.show(S.row, {text = fmt.tprintf("Row %d", k + 1)})
-			}
+		for k in 0 ..< 6 {
+			niello.show(S.row, {text = fmt.tprintf("Row %d", k + 1)})
+		}
+		scroll_inner(s)
+		for k in 6 ..< 30 {
+			niello.show(S.row, {text = fmt.tprintf("Row %d", k + 1)})
 		}
 		niello.show(S.sticky, {text = "anchored header — does not scroll", anchored = true})
 		scrollbar(&s.list_bar, s.list_i)
@@ -76,10 +74,8 @@ scroll_list :: proc(s: ^Scrolling_State) {
 scroll_inner :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
 	if niello.begin(S.inner, out = &s.inner_i) {
-		if niello.begin(S.col) {
-			for k in 0 ..< 12 {
-				niello.show(S.inner_row, {text = fmt.tprintf("Nested row %d — wheel here first", k + 1)})
-			}
+		for k in 0 ..< 12 {
+			niello.show(S.inner_row, {text = fmt.tprintf("Nested row %d — wheel here first", k + 1)})
 		}
 		scrollbar(&s.inner_bar, s.inner_i)
 	}
@@ -88,10 +84,8 @@ scroll_inner :: proc(s: ^Scrolling_State) {
 scroll_smooth :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
 	if niello.begin(S.smooth, out = &s.smooth_i) {
-		if niello.begin(S.col) {
-			for k in 0 ..< 30 {
-				niello.show(S.row, {text = fmt.tprintf("Glide row %d", k + 1)})
-			}
+		for k in 0 ..< 30 {
+			niello.show(S.row, {text = fmt.tprintf("Glide row %d", k + 1)})
 		}
 		scrollbar(&s.smooth_bar, s.smooth_i)
 	}
@@ -706,8 +700,8 @@ inspector_shutdown :: proc(app: ^App) {
 mint_pages_more :: proc(app: ^App, t: Theme) {
 	S := &scroll_units
 	list := niello.Style_Decl{
-		layout = .Left_To_Right, // a row reads align the same for flow and the anchored bar
-		size = sz(grow(), fixed(260)), scroll = .Vertical,
+		layout = .Top_To_Bottom, size = sz(grow(), fixed(260)), scroll = .Vertical, gap = 2,
+		// align is [x, y]: the anchored bar sits at the right edge, top.
 		align = [2]niello.Align_Kind{.End, .Start},
 		color = t.bg, corner_radius = 8, padding = [4]u16{6, 30, 16, 6},
 		groups = []niello.Group{groups.bg},
@@ -719,13 +713,14 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	list.padding = [4]u16{6, 6, 16, 6}
 	niello.mint(&S.smooth, niello.NO_UNIT, list)
 	list.smooth_scroll, list.overscroll = false, false
+	list.layout = .Left_To_Right
 	list.size = sz(grow(), fixed(110))
 	list.scroll = .Horizontal
 	list.align = [2]niello.Align_Kind{.Start, .End}
 	list.padding = [4]u16{6, 6, 6, 16}
 	niello.mint(&S.wide, niello.NO_UNIT, list)
 	niello.mint(&S.inner, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), fixed(120)), scroll = .Vertical,
+		layout = .Top_To_Bottom, size = sz(grow(), fixed(120)), scroll = .Vertical, gap = 2,
 		align = [2]niello.Align_Kind{.End, .Start},
 		color = t.raised, corner_radius = 6, padding = [4]u16{6, 6, 16, 6},
 		groups = []niello.Group{groups.raised},
@@ -747,9 +742,6 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 		size = sz(grow(), fixed(24)), padding = pad_xy(10, 5),
 		color = t.accent, font_size = 12, font_color = rgb(0xffffff),
 	})
-	// The vertical scrollers are rows (see shell.content) hosting one
-	// column of content.
-	niello.mint(&S.col, niello.NO_UNIT, {layout = .Top_To_Bottom, size = sz(grow(), fit()), gap = 2})
 
 	A := &anim_units
 	niello.mint(&A.pose_a, niello.NO_UNIT, {size = sz(fixed(120), fixed(56)), color = rgb(0x4082a0), corner_radius = 8})

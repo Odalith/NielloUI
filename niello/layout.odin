@@ -726,21 +726,10 @@ position_and_damage :: proc() {
 			anchored := g.nodes[c].anchored
 			if anchored {
 				// Overlay (§3.20): positioned against the parent's
-				// FULL rect — its origin plus its align, no padding
+				// FULL rect — its origin plus its align, read per
+				// axis [x, y] as for every other child — no padding
 				// inset, NO scroll applied, no flow slot consumed.
-				// (A flow container's align is [main, cross], not
-				// the [x, y] stack_align_offset reads, so the flow
-				// translation is spelled out.)
-				if s.layout == .Stack {
-					p = base + stack_align_offset(s, g.lay[c].size, g.lay[i].size)
-				} else {
-					ma := main_axis(s.layout)
-					ca := 1 - ma
-					off := Vec2{0, 0}
-					off[ma] = align_offset(s.align[0], g.lay[i].size[ma] - g.lay[c].size[ma])
-					off[ca] = align_offset(s.align[1], g.lay[i].size[ca] - g.lay[c].size[ca])
-					p = base + off
-				}
+				p = base + stack_align_offset(s, g.lay[c].size, g.lay[i].size)
 			}
 			g.lay[c].pos = p
 			if s.layout != .Stack && !anchored {
@@ -797,6 +786,12 @@ position_and_damage :: proc() {
 		// value (not this frame's read-clamped scroll), so an offset
 		// set before the first frame survives to be rendered once a
 		// range exists. Pass F never creates an offset entry.
+		// A culled container has no laid-out children, so its range
+		// here is meaningless: it keeps last frame's range and offset
+		// until it is declared again.
+		if nd.culled {
+			continue
+		}
 		if scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
 			g.scroll_max[nd.identity] = g.lay[i].overfl
 		}
@@ -876,10 +871,13 @@ position_and_damage :: proc() {
 			// that keeps the node culled next frame.
 			g.cull_rects[id] = Cull_Rec{rect = Rect{g.lay[i].pos, g.lay[i].size}, last_seen = g.frame_index}
 			cull_writes += 1
+			// Its scroll state stays: a culled scroller keeps its
+			// offset for as long as the cull memory lives, so it
+			// comes back where it was (it is purged with that memory
+			// in the recycle sweep).
 			if old, ok := g.instances[id]; ok {
 				append(&g.damage, Rect{old.rect.pos, old.rect.size + old.overfl})
 				delete_key(&g.instances, id)
-				purge_scroll_state(id)
 			}
 			continue
 		}
@@ -962,6 +960,7 @@ position_and_damage :: proc() {
 		}
 		for id in g.dead_ids {
 			delete_key(&g.cull_rects, id)
+			purge_scroll_state(id)
 		}
 	}
 }

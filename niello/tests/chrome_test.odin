@@ -165,7 +165,7 @@ test_anchored_in_flow_scroller :: proc(t: ^testing.T) {
 		layout = niello.Layout.Top_To_Bottom,
 		size = niello.Size{niello.fixed(200), niello.fixed(100)},
 		scroll = niello.Scroll.Vertical,
-		align = [2]niello.Align_Kind{.Start, .End},
+		align = [2]niello.Align_Kind{.End, .Start}, // [x, y]: right edge, top
 		padding = [4]u16{10, 10, 10, 10},
 	})
 	niello.mint(&fl_row_u, niello.NO_UNIT, {
@@ -193,4 +193,41 @@ test_anchored_in_flow_scroller :: proc(t: ^testing.T) {
 	sr, _ = niello.rect(fl_strip_i)
 	testing.expect(t, abs(sr.pos.y - 0) < EPS && abs(sr.size.y - 100) < EPS,
 		"the strip does not scroll")
+}
+
+// align is [x, y] for every child, flow or anchored, in every layout:
+// the same value places both the same way in a row and in a column.
+al_box_u, al_flow_u, al_over_u: niello.Unit
+al_flow_i, al_over_i: niello.Instance
+
+al_declare :: proc() {
+	if niello.begin(ch_root_u) {
+		if niello.begin(al_box_u) {
+			al_flow_i = niello.show(al_flow_u)
+			al_over_i = niello.show(al_over_u, {anchored = true})
+		}
+	}
+}
+
+@(test)
+test_anchored_align_reads_x_y :: proc(t: ^testing.T) {
+	for layout in ([]niello.Layout{.Top_To_Bottom, .Left_To_Right}) {
+		niello.test_reset()
+		ch_root_u = fixed_root()
+		niello.mint(&al_box_u, niello.NO_UNIT, {
+			layout = layout,
+			size = niello.Size{niello.fixed(200), niello.fixed(100)},
+			align = [2]niello.Align_Kind{.End, .Start}, // x End, y Start
+		})
+		niello.mint(&al_flow_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(20)}})
+		niello.mint(&al_over_u, niello.NO_UNIT, {size = niello.Size{niello.fixed(12), niello.fixed(30)}})
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
+		al_declare()
+		niello.frame_end()
+		fr, _ := niello.rect(al_flow_i)
+		or_, _ := niello.rect(al_over_i)
+		testing.expectf(t, abs(fr.pos.x - 150) < EPS && abs(fr.pos.y) < EPS, "%v: flow child at the right, top (got %v)", layout, fr.pos)
+		testing.expectf(t, abs(or_.pos.x - 188) < EPS && abs(or_.pos.y) < EPS, "%v: anchored child at the right, top (got %v)", layout, or_.pos)
+		niello.test_teardown()
+	}
 }
