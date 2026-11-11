@@ -78,7 +78,7 @@ test_waterfill_ceilings :: proc(t: ^testing.T) {
 	a: niello.Unit
 	niello.mint(&a, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(20)}})
 	b: niello.Unit
-	niello.mint(&b, niello.NO_UNIT, {size = niello.Size{niello.grow(0, 150), niello.fixed(20)}})
+	niello.mint(&b, niello.NO_UNIT, {size = niello.Size{niello.grow(max = 150), niello.fixed(20)}})
 	c: niello.Unit
 	niello.mint(&c, niello.NO_UNIT, {size = niello.Size{niello.grow(), niello.fixed(20)}})
 

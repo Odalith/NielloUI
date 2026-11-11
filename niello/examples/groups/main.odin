@@ -78,7 +78,7 @@ mint_units :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
 		color   = LIGHT_SURFACE,
-		padding = [4]u16{24, 24, 24, 24},
+		padding = niello.pad(24),
 		gap     = 16,
 	})
 	// The window takes only Color from the theme; its layout is its own.
@@ -92,11 +92,11 @@ mint_units :: proc() {
 	})
 	niello.mint(&hint_u, niello.NO_UNIT, {
 		font_size  = 14,
-		font_color = niello.Color{140, 144, 156, 255}, // mid-grey: reads on both themes
+		font_color = niello.rgb(0x8c909c), // mid-grey: reads on both themes
 	})
 	niello.mint(&btn_label_u, niello.NO_UNIT, {
 		font_size  = 16,
-		font_color = niello.Color{230, 232, 238, 255},
+		font_color = niello.rgb(0xe6e8ee),
 	})
 	niello.mint(&card_title_u, niello.NO_UNIT, {
 		font_size  = 17,
@@ -109,28 +109,28 @@ mint_units :: proc() {
 	// Card text follows the theme's Font_Color — and only that.
 	niello.group_add_masked(texts, niello.Fields{.Font_Color}, card_title_u, card_body_u)
 
-	niello.mint(&ov_hover_u, niello.NO_UNIT, {color = niello.Color{76, 82, 100, 255}})
-	niello.mint(&ov_press_u, niello.NO_UNIT, {color = niello.Color{100, 108, 134, 255}})
+	niello.mint(&ov_hover_u, niello.NO_UNIT, {color = niello.rgb(0x4c5264)})
+	niello.mint(&ov_press_u, niello.NO_UNIT, {color = niello.rgb(0x646c86)})
 
 	button := niello.Style_Decl{
 		layout        = .Left_To_Right,
-		color         = niello.Color{58, 62, 74, 255},
+		color         = niello.rgb(0x3a3e4a),
 		corner_radius = 10,
-		align         = [2]niello.Align_Kind{.Center, .Center},
+		align         = niello.CENTER,
 		cursor        = niello.Cursor_Kind.Pointer,
 		hover         = ov_hover_u,
 		press         = ov_press_u,
 	}
 	theme_decl := button
-	theme_decl.size = niello.Size{niello.fixed(210), niello.fixed(48)}
+	theme_decl.size = niello.size(niello.fixed(210), niello.fixed(48))
 	niello.mint(&theme_btn_u, niello.NO_UNIT, theme_decl)
 
 	add_decl := button
-	add_decl.size = niello.Size{niello.fixed(150), niello.fixed(48)}
+	add_decl.size = niello.size(niello.fixed(150), niello.fixed(48))
 	niello.mint(&add_btn_u, niello.NO_UNIT, add_decl)
 
 	danger_decl := button
-	danger_decl.size = niello.Size{niello.grow(), niello.fixed(48)}
+	danger_decl.size = niello.size(niello.grow(), niello.fixed(48))
 	danger_decl.color = DANGER_RED
 	niello.mint(&danger_u, niello.NO_UNIT, danger_decl)
 	// A full surfaces member — but its Color is pinned, so theme
@@ -140,7 +140,7 @@ mint_units :: proc() {
 
 	niello.mint(&row_u, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fixed(48)},
+		size   = niello.size(niello.grow(), niello.fixed(48)),
 		gap    = 12,
 	})
 
@@ -150,9 +150,9 @@ mint_units :: proc() {
 		layout        = .Top_To_Bottom,
 		color         = LIGHT_SURFACE,
 		corner_radius = 10,
-		padding       = [4]u16{14, 14, 14, 14},
+		padding       = niello.pad(14),
 		gap           = 4,
-		size          = niello.Size{niello.grow(), niello.fixed(64)},
+		size          = niello.size(niello.grow(), niello.fixed(64)),
 	})
 	for _ in 0 ..< 3 {
 		card: niello.Unit

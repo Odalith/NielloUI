@@ -8,30 +8,19 @@ import "core:fmt"
 import niello "../.."
 
 // ---- style helpers ---------------------------------------------------------
+//
+// The core's sizing and style shorthands, aliased for brevity.
 
 fixed   :: niello.fixed
 grow    :: niello.grow
 fit     :: niello.fit
 percent :: niello.percent
+size    :: niello.size
+rgb     :: niello.rgb
+pad     :: niello.pad
+pad_xy  :: niello.pad_xy
+CENTER  :: niello.CENTER
 
-rgb :: proc(hex: u32, a: u8 = 255) -> niello.Color {
-	return niello.Color{u8(hex >> 16), u8(hex >> 8), u8(hex), a}
-}
-
-sz :: proc(w, h: niello.Sizing) -> niello.Size {
-	return niello.Size{w, h}
-}
-
-// Padding is [left, top, right, bottom].
-pad :: proc(all: u16) -> [4]u16 {
-	return [4]u16{all, all, all, all}
-}
-
-pad_xy :: proc(x, y: u16) -> [4]u16 {
-	return [4]u16{x, y, x, y}
-}
-
-CENTER       :: [2]niello.Align_Kind{.Center, .Center}
 START_CENTER :: [2]niello.Align_Kind{.Start, .Center}
 
 // ---- theme -----------------------------------------------------------------
@@ -112,21 +101,21 @@ mint_units :: proc(t: Theme) {
 	niello.mint(&ui.body, niello.NO_UNIT, {font_size = 14, font_color = t.ink, groups = ink})
 	// Wrapped text needs a width to wrap at: a Fit-width paragraph
 	// measures unwrapped, so notes grow to their parent's width.
-	niello.mint(&ui.dim, niello.NO_UNIT, {size = sz(grow(), fit()), font_size = 13, font_color = t.dim, wrap = .Word, groups = dim})
+	niello.mint(&ui.dim, niello.NO_UNIT, {size = size(grow(), fit()), font_size = 13, font_color = t.dim, wrap = .Word, groups = dim})
 	niello.mint(&ui.small, niello.NO_UNIT, {font_size = 12, font_color = t.dim, groups = dim})
 	niello.mint(&ui.mono, niello.NO_UNIT, {font_size = 13, font_color = t.ink, whitespace = .Preserve, groups = ink})
 	niello.mint(&ui.accent_text, niello.NO_UNIT, {font_size = 14, font_weight = .SemiBold, font_color = t.accent})
 
-	niello.mint(&ui.column, niello.NO_UNIT, {layout = .Top_To_Bottom, size = sz(grow(), fit()), gap = 10})
-	niello.mint(&ui.row, niello.NO_UNIT, {layout = .Left_To_Right, size = sz(grow(), fit()), gap = 10, align = START_CENTER})
+	niello.mint(&ui.column, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(grow(), fit()), gap = 10})
+	niello.mint(&ui.row, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), fit()), gap = 10, align = START_CENTER})
 	niello.mint(&ui.card, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(grow(), fit()),
+		layout = .Top_To_Bottom, size = size(grow(), fit()),
 		color = t.panel, corner_radius = 10, padding = pad(16), gap = 10,
 		groups = []niello.Group{groups.panel},
 	})
 	niello.mint(&ui.card_row, ui.card, {layout = .Left_To_Right, align = START_CENTER})
 	niello.group_add(groups.panel, ui.card_row)
-	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = sz(fixed(300), fit())})
+	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(fixed(300), fit())})
 
 	niello.mint(&ui.btn_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
 	niello.mint(&ui.btn_press, niello.NO_UNIT, {color = t.press, groups = []niello.Group{groups.press}})
@@ -136,7 +125,7 @@ mint_units :: proc(t: Theme) {
 	// A base unit passes on its style only, not its state overlays,
 	// so the three button kinds share one decl instead.
 	btn := niello.Style_Decl{
-		layout = .Left_To_Right, size = sz(fit(), fixed(36)),
+		layout = .Left_To_Right, size = size(fit(), fixed(36)),
 		padding = pad_xy(16, 0), align = CENTER,
 		color = t.raised, corner_radius = 8, cursor = .Pointer,
 		hover = ui.btn_hover, press = ui.btn_press, focus = ui.focus_ring,
@@ -154,59 +143,59 @@ mint_units :: proc(t: Theme) {
 	niello.mint(&ui.btn_danger, niello.NO_UNIT, btn)
 	niello.pin(ui.btn_danger, niello.Fields{.Color})
 	niello.mint(&ui.btn_label, niello.NO_UNIT, {font_size = 14, font_color = t.ink, groups = ink})
-	niello.mint(&ui.btn_label_on, niello.NO_UNIT, {font_size = 14, font_color = niello.Color{255, 255, 255, 255}})
+	niello.mint(&ui.btn_label_on, niello.NO_UNIT, {font_size = 14, font_color = niello.rgb(0xffffff)})
 
 	niello.mint(&ui.check_row, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(fit(), fixed(28)), gap = 8,
+		layout = .Left_To_Right, size = size(fit(), fixed(28)), gap = 8,
 		align = START_CENTER, cursor = .Pointer, focusable = true,
 		padding = pad_xy(4, 0), corner_radius = 6, focus = ui.focus_ring,
 	})
 	niello.mint(&ui.check_box, niello.NO_UNIT, {
-		size = sz(fixed(18), fixed(18)), corner_radius = 4, align = CENTER,
+		size = size(fixed(18), fixed(18)), corner_radius = 4, align = CENTER,
 		border_width = 2, border_color = t.dim, font_size = 13,
-		font_color = niello.Color{255, 255, 255, 255},
+		font_color = niello.rgb(0xffffff),
 	})
 	niello.mint(&ui.check_box_on, niello.NO_UNIT, {color = t.accent, border_color = t.accent})
 
 	niello.mint(&ui.track, niello.NO_UNIT, {
-		layout = .Stack, size = sz(grow(), fixed(22)),
+		layout = .Stack, size = size(grow(), fixed(22)),
 		color = t.raised, corner_radius = 11, cursor = .Pointer,
 		groups = []niello.Group{groups.raised},
 	})
 
 	niello.mint(&ui.field_focus, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
 	niello.mint(&ui.field, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), fixed(38)),
+		layout = .Left_To_Right, size = size(grow(), fixed(38)),
 		color = t.raised, corner_radius = 6, padding = pad_xy(10, 0),
 		align = START_CENTER, cursor = .Text,
 		focus = ui.field_focus, focusable = true,
 		groups = []niello.Group{groups.raised},
 	})
 	niello.mint(&ui.field_text, niello.NO_UNIT, {font_size = 14, font_color = t.ink, whitespace = .Preserve, groups = ink})
-	niello.mint(&ui.caret, niello.NO_UNIT, {size = sz(fixed(2), fixed(18)), color = t.accent})
+	niello.mint(&ui.caret, niello.NO_UNIT, {size = size(fixed(2), fixed(18)), color = t.accent})
 	niello.mint(&ui.placeholder, niello.NO_UNIT, {font_size = 14, font_color = t.dim, groups = dim})
 
 	niello.mint(&ui.tooltip, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(fit(max = 260), fit()),
-		color = niello.Color{12, 14, 18, 235}, corner_radius = 6, padding = pad_xy(10, 6),
+		layout = .Top_To_Bottom, size = size(fit(max = 260), fit()),
+		color = niello.rgb(0x0c0e12, 235), corner_radius = 6, padding = pad_xy(10, 6),
 	})
-	niello.mint(&ui.tooltip_text, niello.NO_UNIT, {font_size = 12, font_color = niello.Color{240, 240, 245, 255}, wrap = .Word})
+	niello.mint(&ui.tooltip_text, niello.NO_UNIT, {font_size = 12, font_color = niello.rgb(0xf0f0f5), wrap = .Word})
 	niello.mint(&ui.menu, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(fixed(190), fit()),
+		layout = .Top_To_Bottom, size = size(fixed(190), fit()),
 		color = t.panel, corner_radius = 8, border_width = 1, border_color = t.hover,
 		padding = pad(4), gap = 2,
 		groups = []niello.Group{groups.panel},
 	})
 	niello.mint(&ui.menu_item_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
 	niello.mint(&ui.menu_item, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), fixed(30)),
+		layout = .Left_To_Right, size = size(grow(), fixed(30)),
 		corner_radius = 5, padding = pad_xy(10, 0), align = START_CENTER,
 		focusable = true, cursor = .Pointer,
 		hover = ui.menu_item_hover, focus = ui.focus_ring,
 	})
-	niello.mint(&ui.backdrop, niello.NO_UNIT, {size = sz(percent(1), percent(1)), color = niello.Color{0, 0, 0, 120}})
+	niello.mint(&ui.backdrop, niello.NO_UNIT, {size = size(percent(1), percent(1)), color = niello.rgb(0x000000, 120)})
 	niello.mint(&ui.dialog, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(fixed(360), fit()),
+		layout = .Top_To_Bottom, size = size(fixed(360), fit()),
 		color = t.panel, corner_radius = 12, padding = pad(20), gap = 14,
 		border_width = 1, border_color = t.hover,
 		groups = []niello.Group{groups.panel},
@@ -324,7 +313,7 @@ slider :: proc(s: ^Slider, label: string, loc := #caller_location) -> bool {
 			changed = true
 		}
 	}
-	niello.set(s.fill, .Size, sz(percent(s.value), percent(1)))
+	niello.set(s.fill, .Size, size(percent(s.value), percent(1)))
 	w := niello.With{
 		focusable = true, role = .Slider, label = label,
 		value = niello.A11y_Value{num = s.value * 100, has_num = true, min = 0, max = 100},
@@ -340,7 +329,7 @@ progress_bar :: proc(s: ^Slider, label: string, loc := #caller_location) {
 	if s.fill == niello.NO_UNIT {
 		niello.mint(&s.fill, niello.NO_UNIT, {color = SUCCESS, corner_radius = 11})
 	}
-	niello.set(s.fill, .Size, sz(percent(s.value), percent(1)))
+	niello.set(s.fill, .Size, size(percent(s.value), percent(1)))
 	w := niello.With{
 		role = .ProgressBar, label = label,
 		value = niello.A11y_Value{num = s.value * 100, has_num = true, min = 0, max = 100},
@@ -508,7 +497,7 @@ scrollbar_init :: proc(sb: ^Scrollbar, axis: Bar_Axis) {
 	vert := axis == .Vertical
 	niello.mint(&sb.strip_u, niello.NO_UNIT, {
 		layout = vert ? niello.Layout.Top_To_Bottom : niello.Layout.Left_To_Right,
-		size = vert ? sz(fixed(BAR_WIDTH), grow()) : sz(grow(), fixed(BAR_WIDTH)),
+		size = vert ? size(fixed(BAR_WIDTH), grow()) : size(grow(), fixed(BAR_WIDTH)),
 		padding = pad(2),
 	})
 	niello.mint(&sb.spacer_u, niello.NO_UNIT, {})
@@ -574,11 +563,11 @@ scrollbar :: proc(sb: ^Scrollbar, scroller: niello.Instance, loc := #caller_loca
 	}
 
 	if vert {
-		niello.set(sb.spacer_u, .Size, sz(fixed(0), fixed(pos)))
-		niello.set(sb.thumb_u, .Size, sz(grow(), fixed(thumb)))
+		niello.set(sb.spacer_u, .Size, size(fixed(0), fixed(pos)))
+		niello.set(sb.thumb_u, .Size, size(grow(), fixed(thumb)))
 	} else {
-		niello.set(sb.spacer_u, .Size, sz(fixed(pos), fixed(0)))
-		niello.set(sb.thumb_u, .Size, sz(fixed(thumb), grow()))
+		niello.set(sb.spacer_u, .Size, size(fixed(pos), fixed(0)))
+		niello.set(sb.thumb_u, .Size, size(fixed(thumb), grow()))
 	}
 	if niello.begin(sb.strip_u, {anchored = true}, out = &sb.strip_i, loc = loc) {
 		niello.show(sb.spacer_u)

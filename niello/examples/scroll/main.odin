@@ -40,83 +40,83 @@ list_i, panel_i, top_i: niello.Instance
 mint_units :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		color   = niello.Color{30, 32, 40, 255},
-		padding = [4]u16{24, 24, 24, 24},
+		color   = niello.rgb(0x1e2028),
+		padding = niello.pad(24),
 		gap     = 14,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {
 		font_size  = 26,
-		font_color = niello.Color{240, 240, 245, 255},
+		font_color = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&hint_u, niello.NO_UNIT, {
 		font_size  = 14,
-		font_color = niello.Color{150, 154, 168, 255},
+		font_color = niello.rgb(0x969aa8),
 	})
 	niello.mint(&label_u, niello.NO_UNIT, {
 		font_size  = 15,
-		font_color = niello.Color{230, 232, 238, 255},
+		font_color = niello.rgb(0xe6e8ee),
 	})
 
 	niello.mint(&list_u, niello.NO_UNIT, {
 		layout        = .Top_To_Bottom,
-		size          = niello.Size{niello.grow(), niello.grow()},
-		color         = niello.Color{38, 41, 52, 255},
+		size          = niello.size(niello.grow(), niello.grow()),
+		color         = niello.rgb(0x262934),
 		corner_radius = 10,
-		padding       = [4]u16{10, 10, 10, 10},
+		padding       = niello.pad(10),
 		gap           = 8,
 		scroll        = niello.Scroll.Vertical,
 	})
 	row := niello.Style_Decl{
 		layout        = .Left_To_Right,
-		size          = niello.Size{niello.grow(), niello.fixed(36)},
+		size          = niello.size(niello.grow(), niello.fixed(36)),
 		corner_radius = 6,
-		padding       = [4]u16{12, 0, 12, 0},
-		align         = [2]niello.Align_Kind{.Start, .Center},
+		padding       = niello.pad_xy(12, 0),
+		align         = niello.align(.Start, .Center),
 	}
 	row_a := row
-	row_a.color = niello.Color{52, 56, 70, 255}
+	row_a.color = niello.rgb(0x343846)
 	niello.mint(&row_a_u, niello.NO_UNIT, row_a)
 	row_b := row
-	row_b.color = niello.Color{46, 50, 63, 255}
+	row_b.color = niello.rgb(0x2e323f)
 	niello.mint(&row_b_u, niello.NO_UNIT, row_b)
 
 	// The embedded scroller: a warm panel so it reads as a separate
 	// region. Its own content is 6 x 26 = 156 in a 108 viewport.
 	niello.mint(&panel_u, niello.NO_UNIT, {
 		layout        = .Top_To_Bottom,
-		size          = niello.Size{niello.grow(), niello.fixed(108)},
-		color         = niello.Color{84, 62, 44, 255},
+		size          = niello.size(niello.grow(), niello.fixed(108)),
+		color         = niello.rgb(0x543e2c),
 		corner_radius = 6,
-		padding       = [4]u16{8, 8, 8, 8},
+		padding       = niello.pad(8),
 		gap           = 4,
 		scroll        = niello.Scroll.Vertical,
 	})
 	niello.mint(&mini_u, niello.NO_UNIT, {
-		size      = niello.Size{niello.grow(), niello.fixed(26)},
+		size      = niello.size(niello.grow(), niello.fixed(26)),
 		font_size = 13,
-		font_color = niello.Color{245, 238, 228, 255},
+		font_color = niello.rgb(0xf5eee4),
 	})
 
 	niello.mint(&bar_u, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fixed(44)},
+		size   = niello.size(niello.grow(), niello.fixed(44)),
 		gap    = 12,
 	})
-	niello.mint(&ov_hover_u, niello.NO_UNIT, {color = niello.Color{64, 70, 90, 255}})
-	niello.mint(&ov_press_u, niello.NO_UNIT, {color = niello.Color{92, 102, 130, 255}})
+	niello.mint(&ov_hover_u, niello.NO_UNIT, {color = niello.rgb(0x40465a)})
+	niello.mint(&ov_press_u, niello.NO_UNIT, {color = niello.rgb(0x5c6682)})
 	niello.mint(&top_btn_u, niello.NO_UNIT, {
 		layout        = .Left_To_Right,
-		size          = niello.Size{niello.fixed(150), niello.fixed(44)},
-		color         = niello.Color{46, 50, 62, 255},
+		size          = niello.size(niello.fixed(150), niello.fixed(44)),
+		color         = niello.rgb(0x2e323e),
 		corner_radius = 10,
-		align         = [2]niello.Align_Kind{.Center, .Center},
+		align         = niello.CENTER,
 		cursor        = niello.Cursor_Kind.Pointer,
 		hover         = ov_hover_u,
 		press         = ov_press_u,
 	})
 	niello.mint(&status_u, niello.NO_UNIT, {
 		font_size  = 14,
-		font_color = niello.Color{170, 174, 188, 255},
+		font_color = niello.rgb(0xaaaebc),
 	})
 }
 

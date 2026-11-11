@@ -45,65 +45,65 @@ GREY :: niello.Color{90, 94, 104, 255}
 mint_units :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		color   = niello.Color{30, 32, 40, 255},
-		padding = [4]u16{24, 24, 24, 24},
+		color   = niello.rgb(0x1e2028),
+		padding = niello.pad(24),
 		gap     = 16,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {
 		font_size  = 26,
-		font_color = niello.Color{240, 240, 245, 255},
+		font_color = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&hint_u, niello.NO_UNIT, {
 		font_size  = 14,
-		font_color = niello.Color{150, 154, 168, 255},
+		font_color = niello.rgb(0x969aa8),
 	})
 	niello.mint(&label_u, niello.NO_UNIT, {
 		font_size  = 16,
-		font_color = niello.Color{230, 232, 238, 255},
+		font_color = niello.rgb(0xe6e8ee),
 	})
 
 	// State overlays: only the fields they set are merged, with precedence
 	// disabled > press > hover > focus > base.
-	niello.mint(&ov_hover_u, niello.NO_UNIT, {color = niello.Color{64, 70, 90, 255}})
-	niello.mint(&ov_press_u, niello.NO_UNIT, {color = niello.Color{92, 102, 130, 255}})
-	niello.mint(&ov_disabled_u, niello.NO_UNIT, {color = niello.Color{44, 46, 52, 255}})
+	niello.mint(&ov_hover_u, niello.NO_UNIT, {color = niello.rgb(0x40465a)})
+	niello.mint(&ov_press_u, niello.NO_UNIT, {color = niello.rgb(0x5c6682)})
+	niello.mint(&ov_disabled_u, niello.NO_UNIT, {color = niello.rgb(0x2c2e34)})
 
 	button := niello.Style_Decl{
 		layout        = .Left_To_Right,
-		color         = niello.Color{46, 50, 62, 255},
+		color         = niello.rgb(0x2e323e),
 		corner_radius = 10,
-		align         = [2]niello.Align_Kind{.Center, .Center},
+		align         = niello.CENTER,
 		cursor        = niello.Cursor_Kind.Pointer,
 		hover         = ov_hover_u,
 		press         = ov_press_u,
 	}
 	counter_decl := button
-	counter_decl.size = niello.Size{niello.grow(), niello.fixed(56)}
+	counter_decl.size = niello.size(niello.grow(), niello.fixed(56))
 	niello.mint(&counter_u, niello.NO_UNIT, counter_decl)
 
 	niello.mint(&row_u, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fixed(48)},
+		size   = niello.size(niello.grow(), niello.fixed(48)),
 		gap    = 12,
 	})
 	toggle_decl := button
-	toggle_decl.size = niello.Size{niello.fixed(230), niello.fixed(48)}
+	toggle_decl.size = niello.size(niello.fixed(230), niello.fixed(48))
 	niello.mint(&toggle_u, niello.NO_UNIT, toggle_decl)
 
 	niello.mint(&swatch_u, niello.NO_UNIT, {
-		size          = niello.Size{niello.fixed(48), niello.fixed(48)},
+		size          = niello.size(niello.fixed(48), niello.fixed(48)),
 		color         = GREEN,
 		corner_radius = 8,
 	})
 
 	disabled_decl := button
-	disabled_decl.size = niello.Size{niello.grow(), niello.fixed(48)}
+	disabled_decl.size = niello.size(niello.grow(), niello.fixed(48))
 	disabled_decl.disabled = ov_disabled_u
 	niello.mint(&disabled_u, niello.NO_UNIT, disabled_decl)
 
 	niello.mint(&status_u, niello.NO_UNIT, {
 		font_size  = 14,
-		font_color = niello.Color{170, 174, 188, 255},
+		font_color = niello.rgb(0xaaaebc),
 	})
 }
 

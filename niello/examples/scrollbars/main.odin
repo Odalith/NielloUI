@@ -60,8 +60,8 @@ scrollbar_init :: proc(
 ) {
 	sb.axis = axis
 	strip_size := axis == .Vertical \
-		? niello.Size{niello.fixed(width), niello.grow(1)} \
-		: niello.Size{niello.grow(1), niello.fixed(width)}
+		? niello.size(niello.fixed(width), niello.grow()) \
+		: niello.size(niello.grow(), niello.fixed(width))
 	niello.mint(&sb.strip_u, niello.NO_UNIT, {
 		layout = axis == .Vertical ? niello.Layout.Top_To_Bottom : niello.Layout.Left_To_Right,
 		size = strip_size,
@@ -166,11 +166,11 @@ scrollbar_declare :: proc(sb: ^Scrollbar, scroller: niello.Instance, loc := #cal
 	// carries its length. Both sizes are this bar's own units, set
 	// fresh each frame; layout reads them at frame_end.
 	if vert {
-		niello.set_many(sb.spacer_u, {size = niello.Size{niello.fixed(0), niello.fixed(thumb_pos)}})
-		niello.set_many(sb.thumb_u, {size = niello.Size{niello.grow(1), niello.fixed(thumb_len)}})
+		niello.set_many(sb.spacer_u, {size = niello.size(niello.fixed(0), niello.fixed(thumb_pos))})
+		niello.set_many(sb.thumb_u, {size = niello.size(niello.grow(), niello.fixed(thumb_len))})
 	} else {
-		niello.set_many(sb.spacer_u, {size = niello.Size{niello.fixed(thumb_pos), niello.fixed(0)}})
-		niello.set_many(sb.thumb_u, {size = niello.Size{niello.fixed(thumb_len), niello.grow(1)}})
+		niello.set_many(sb.spacer_u, {size = niello.size(niello.fixed(thumb_pos), niello.fixed(0))})
+		niello.set_many(sb.thumb_u, {size = niello.size(niello.fixed(thumb_len), niello.grow())})
 	}
 	if niello.begin(sb.strip_u, {anchored = true}, out = &sb.strip_i, loc = loc) {
 		niello.show(sb.spacer_u)
@@ -211,12 +211,12 @@ status_len: int
 mint :: proc() {
 	niello.mint(&root_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.grow(1), niello.grow(1)},
-		color = BG, padding = [4]u16{16, 16, 16, 16}, gap = 16,
+		size = niello.size(niello.grow(), niello.grow()),
+		color = BG, padding = niello.pad(16), gap = 16,
 	})
 	niello.mint(&col_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.fixed(320), niello.grow(1)},
+		size = niello.size(niello.fixed(320), niello.grow()),
 		gap = 8,
 	})
 	niello.mint(&label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
@@ -225,39 +225,39 @@ mint :: proc() {
 	// bar is an anchored child of it.
 	niello.mint(&list_scroll_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.grow(1), niello.grow(1)},
+		size = niello.size(niello.grow(), niello.grow()),
 		scroll = niello.Scroll.Vertical,
-		align = [2]niello.Align_Kind{.End, .Start},
+		align = niello.align(.End, .Start),
 		color = PANEL, corner_radius = 8,
-		gap = 4, padding = [4]u16{6, 6, 6, 6},
+		gap = 4, padding = niello.pad(6),
 	})
 	niello.mint(&row_u, niello.NO_UNIT, {
-		size = niello.Size{niello.grow(1), niello.fixed(32)},
+		size = niello.size(niello.grow(), niello.fixed(32)),
 		color = ROW, corner_radius = 4,
 		font_size = 14, font_color = INK,
 	})
 	niello.mint(&both_scroll_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.grow(1), niello.fixed(216)},
+		size = niello.size(niello.grow(), niello.fixed(216)),
 		scroll = niello.Scroll.Both,
-		align = [2]niello.Align_Kind{.End, .End},
+		align = niello.align(.End, .End),
 		color = PANEL, corner_radius = 8,
-		gap = 4, padding = [4]u16{6, 6, 6, 6},
+		gap = 4, padding = niello.pad(6),
 	})
 	niello.mint(&wide_row_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(620), niello.fixed(32)},
+		size = niello.size(niello.fixed(620), niello.fixed(32)),
 		color = ROW, corner_radius = 4,
 	})
 	niello.mint(&cust_scroll_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.grow(1), niello.grow(1)},
+		size = niello.size(niello.grow(), niello.grow()),
 		scroll = niello.Scroll.Vertical,
 		smooth_scroll = true, smooth_ms = 150, // wheel glides (§3.21);
 		overscroll = true, overscroll_px = 80, // band + spring (§3.22)
 		// thumb drags stay instant (they go through scroll_to)
-		align = [2]niello.Align_Kind{.End, .Start},
+		align = niello.align(.End, .Start),
 		color = PANEL, corner_radius = 8,
-		gap = 4, padding = [4]u16{6, 6, 6, 6},
+		gap = 4, padding = niello.pad(6),
 	})
 	scrollbar_init(&list_bar, .Vertical, 12, STRIP, THUMB, HOT, 6)
 	scrollbar_init(&both_vbar, .Vertical, 12, STRIP, THUMB, HOT, 6)

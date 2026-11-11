@@ -45,111 +45,111 @@ ROSE  :: niello.Color{148, 76, 84, 255}
 mint_box :: proc(out: ^niello.Unit, color: niello.Color, size: niello.Size) {
 	niello.mint(out, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		align   = [2]niello.Align_Kind{.Center, .Center},
+		align   = niello.CENTER,
 		color   = color,
 		size    = size,
-		padding = [4]u16{8, 4, 8, 4},
+		padding = niello.pad_xy(8, 4),
 	})
 }
 
 mint_units :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		color   = niello.Color{24, 26, 34, 255},
-		padding = [4]u16{18, 18, 18, 18},
+		color   = niello.rgb(0x181a22),
+		padding = niello.pad(18),
 		gap     = 10,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {
 		font_size  = 22,
-		font_color = niello.Color{240, 240, 245, 255},
+		font_color = niello.rgb(0xf0f0f5),
 	})
 	niello.mint(&hdr_u, niello.NO_UNIT, {
 		font_size  = 13,
-		font_color = niello.Color{150, 156, 170, 255},
+		font_color = niello.rgb(0x969caa),
 	})
 	niello.mint(&lbl_u, niello.NO_UNIT, {
 		font_size  = 13,
-		font_color = niello.Color{232, 234, 240, 255},
+		font_color = niello.rgb(0xe8eaf0),
 	})
 
 	// Section 1: a row of Fixed / Fit / Grow.
 	niello.mint(&row1, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fixed(52)},
+		size   = niello.size(niello.grow(), niello.fixed(52)),
 		gap    = 8,
 	})
-	mint_box(&b_fixed, BLUE, niello.Size{niello.fixed(120), niello.grow()})
-	mint_box(&b_fit, TEAL, niello.Size{niello.fit(), niello.grow()})
-	mint_box(&b_grow, PLUM, niello.Size{niello.grow(), niello.grow()})
+	mint_box(&b_fixed, BLUE, niello.size(niello.fixed(120), niello.grow()))
+	mint_box(&b_fit, TEAL, niello.size(niello.fit(), niello.grow()))
+	mint_box(&b_grow, PLUM, niello.size(niello.grow(), niello.grow()))
 
 	// Section 2: a row split by Grow, plus a Percent box.
 	niello.mint(&row2, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fixed(52)},
+		size   = niello.size(niello.grow(), niello.fixed(52)),
 		gap    = 8,
 	})
-	mint_box(&g1, OLIVE, niello.Size{niello.grow(), niello.grow()})
-	mint_box(&g2, SLATE, niello.Size{niello.grow(), niello.grow()})
-	mint_box(&pc, RUST, niello.Size{niello.percent(0.25), niello.grow()})
+	mint_box(&g1, OLIVE, niello.size(niello.grow(), niello.grow()))
+	mint_box(&g2, SLATE, niello.size(niello.grow(), niello.grow()))
+	mint_box(&pc, RUST, niello.size(niello.percent(0.25), niello.grow()))
 
 	// Section 3: a column inside a fixed-height band.
 	niello.mint(&col1, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		size    = niello.Size{niello.grow(), niello.fixed(140)},
+		size    = niello.size(niello.grow(), niello.fixed(140)),
 		color   = BAND,
-		padding = [4]u16{10, 10, 10, 10},
+		padding = niello.pad(10),
 		gap     = 6,
 	})
-	mint_box(&c_fixed, BLUE, niello.Size{niello.grow(), niello.fixed(30)})
-	mint_box(&c_fit, TEAL, niello.Size{niello.grow(), niello.fit()})
-	mint_box(&c_grow, PLUM, niello.Size{niello.grow(), niello.grow()})
+	mint_box(&c_fixed, BLUE, niello.size(niello.grow(), niello.fixed(30)))
+	mint_box(&c_fit, TEAL, niello.size(niello.grow(), niello.fit()))
+	mint_box(&c_grow, PLUM, niello.size(niello.grow(), niello.grow()))
 
 	// Section 4: nesting — a row of two columns.
 	niello.mint(&row3, niello.NO_UNIT, {
 		layout = .Left_To_Right,
-		size   = niello.Size{niello.grow(), niello.fixed(116)},
+		size   = niello.size(niello.grow(), niello.fixed(116)),
 		gap    = 8,
 	})
 	niello.mint(&colA, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		size    = niello.Size{niello.grow(), niello.grow()},
+		size    = niello.size(niello.grow(), niello.grow()),
 		color   = BAND,
-		padding = [4]u16{8, 8, 8, 8},
+		padding = niello.pad(8),
 		gap     = 6,
 	})
 	niello.mint(&colB, niello.NO_UNIT, {
 		layout  = .Top_To_Bottom,
-		size    = niello.Size{niello.grow(), niello.grow()},
+		size    = niello.size(niello.grow(), niello.grow()),
 		color   = BAND,
-		padding = [4]u16{8, 8, 8, 8},
+		padding = niello.pad(8),
 		gap     = 6,
 	})
-	mint_box(&a1, BLUE, niello.Size{niello.grow(), niello.grow()})
-	mint_box(&a2, TEAL, niello.Size{niello.grow(), niello.grow()})
-	mint_box(&bb1, SLATE, niello.Size{niello.grow(), niello.fixed(26)})
-	mint_box(&bb2, OLIVE, niello.Size{niello.grow(), niello.grow()})
-	mint_box(&bb3, ROSE, niello.Size{niello.grow(), niello.fixed(26)})
+	mint_box(&a1, BLUE, niello.size(niello.grow(), niello.grow()))
+	mint_box(&a2, TEAL, niello.size(niello.grow(), niello.grow()))
+	mint_box(&bb1, SLATE, niello.size(niello.grow(), niello.fixed(26)))
+	mint_box(&bb2, OLIVE, niello.size(niello.grow(), niello.grow()))
+	mint_box(&bb3, ROSE, niello.size(niello.grow(), niello.fixed(26)))
 
 	// Section 5: a stack — children overlap, resolved against the full box.
 	niello.mint(&stack1, niello.NO_UNIT, {
 		layout  = .Stack,
-		align   = [2]niello.Align_Kind{.End, .End},
-		size    = niello.Size{niello.grow(), niello.fixed(96)},
+		align   = niello.align(.End, .End),
+		size    = niello.size(niello.grow(), niello.fixed(96)),
 		color   = BAND,
-		padding = [4]u16{10, 10, 10, 10},
+		padding = niello.pad(10),
 	})
-	mint_box(&back, SLATE, niello.Size{niello.grow(), niello.grow()})
-	mint_box(&front, RUST, niello.Size{niello.fixed(230), niello.fixed(44)})
+	mint_box(&back, SLATE, niello.size(niello.grow(), niello.grow()))
+	mint_box(&front, RUST, niello.size(niello.fixed(230), niello.fixed(44)))
 
 	// Section 6: alignment — one small box centered in a wide row.
 	niello.mint(&row4, niello.NO_UNIT, {
 		layout  = .Left_To_Right,
-		align   = [2]niello.Align_Kind{.Center, .Center},
-		size    = niello.Size{niello.grow(), niello.fixed(64)},
+		align   = niello.CENTER,
+		size    = niello.size(niello.grow(), niello.fixed(64)),
 		color   = BAND,
-		padding = [4]u16{10, 10, 10, 10},
+		padding = niello.pad(10),
 	})
-	mint_box(&mid, PLUM, niello.Size{niello.fixed(190), niello.fixed(38)})
+	mint_box(&mid, PLUM, niello.size(niello.fixed(190), niello.fixed(38)))
 }
 
 // A label centered in its box (the box's align does the centering).

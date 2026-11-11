@@ -15,12 +15,12 @@ import "core:fmt"
 import niello "../.."
 import niello_sdl "../../sdl"
 
-BG := niello.Color{24, 26, 34, 255}
-PANEL := niello.Color{42, 46, 60, 255}
-PANEL2 := niello.Color{56, 61, 80, 255}
-INK := niello.Color{232, 234, 240, 255}
-DIM := niello.Color{150, 154, 168, 255}
-ACCENT := niello.Color{84, 120, 200, 255}
+BG := niello.rgb(0x181a22)
+PANEL := niello.rgb(0x2a2e3c)
+PANEL2 := niello.rgb(0x383d50)
+INK := niello.rgb(0xe8eaf0)
+DIM := niello.rgb(0x969aa8)
+ACCENT := niello.rgb(0x5478c8)
 
 root_u, title_u, hint_u, caption_u, value_u: niello.Unit
 track_u, fill_u: niello.Unit
@@ -50,7 +50,7 @@ main :: proc() {
 mint :: proc() {
 	niello.mint(&root_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		color = BG, padding = [4]u16{20, 20, 20, 20}, gap = 10,
+		color = BG, padding = niello.pad(20), gap = 10,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {font_size = 20, font_color = INK})
 	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13, font_color = DIM, wrap = .Word})
@@ -59,7 +59,7 @@ mint :: proc() {
 
 	niello.mint(&track_u, niello.NO_UNIT, {
 		layout = niello.Layout.Stack,
-		size = niello.Size{niello.grow(), niello.fixed(26)},
+		size = niello.size(niello.grow(), niello.fixed(26)),
 		color = PANEL, corner_radius = 6,
 	})
 	niello.mint(&fill_u, niello.NO_UNIT, {
@@ -68,61 +68,61 @@ mint :: proc() {
 
 	niello.mint(&split_row_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.grow(), niello.fixed(150)},
+		size = niello.size(niello.grow(), niello.fixed(150)),
 		gap = 0,
 	})
 	niello.mint(&left_pane_u, niello.NO_UNIT, {
 		layout = niello.Layout.Stack,
 		color = PANEL, corner_radius = 6,
-		padding = [4]u16{10, 8, 10, 8},
+		padding = niello.pad_xy(10, 8),
 	})
 	niello.mint(&right_pane_u, niello.NO_UNIT, {
 		layout = niello.Layout.Stack,
-		size = niello.Size{niello.grow(), niello.grow()},
+		size = niello.size(niello.grow(), niello.grow()),
 		color = PANEL, corner_radius = 6,
-		padding = [4]u16{10, 8, 10, 8},
+		padding = niello.pad_xy(10, 8),
 	})
 	niello.mint(&divider_hov_u, niello.NO_UNIT, {color = ACCENT})
 	niello.mint(&divider_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(10), niello.grow()},
+		size = niello.size(niello.fixed(10), niello.grow()),
 		cursor = niello.Cursor_Kind.Resize_EW,
 		hover = divider_hov_u,
 	})
 	niello.mint(&pane_text_u, niello.NO_UNIT, {font_size = 13, font_color = DIM})
 
 	niello.mint(&btn_hov_u, niello.NO_UNIT, {color = PANEL2})
-	niello.mint(&btn_press_u, niello.NO_UNIT, {color = niello.Color{40, 43, 56, 255}})
+	niello.mint(&btn_press_u, niello.NO_UNIT, {color = niello.rgb(0x282b38)})
 	niello.mint(&btn_u, niello.NO_UNIT, {
 		layout = niello.Layout.Stack,
-		size = niello.Size{niello.fit(), niello.fixed(34)},
+		size = niello.size(niello.fit(), niello.fixed(34)),
 		color = PANEL, corner_radius = 6,
-		padding = [4]u16{14, 0, 14, 0},
-		align = [2]niello.Align_Kind{niello.Align_Kind.Center, niello.Align_Kind.Center},
+		padding = niello.pad_xy(14, 0),
+		align = niello.CENTER,
 		hover = btn_hov_u, press = btn_press_u, focusable = true,
 	})
 	niello.mint(&btn_label_u, niello.NO_UNIT, {font_size = 13.5, font_color = INK})
 
 	niello.mint(&dlg_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		size = niello.Size{niello.fixed(330), niello.fixed(190)},
+		size = niello.size(niello.fixed(330), niello.fixed(190)),
 		color = PANEL, corner_radius = 8,
-		padding = [4]u16{0, 0, 0, 0}, gap = 0,
+		padding = niello.pad(0), gap = 0,
 	})
 	niello.mint(&dlg_header_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.grow(), niello.fixed(40)},
+		size = niello.size(niello.grow(), niello.fixed(40)),
 		color = PANEL2, corner_radius = 8,
-		padding = [4]u16{12, 0, 8, 0},
-		align = [2]niello.Align_Kind{niello.Align_Kind.Start, niello.Align_Kind.Center},
+		padding = niello.pad_each(12, 0, 8, 0),
+		align = niello.align(.Start, .Center),
 		gap = 8,
 	})
 	niello.mint(&dlg_title_u, niello.NO_UNIT, {
 		font_size = 14, font_color = INK,
-		size = niello.Size{niello.grow(), niello.fit()},
+		size = niello.size(niello.grow(), niello.fit()),
 	})
 	niello.mint(&dlg_body_u, niello.NO_UNIT, {
 		font_size = 13, font_color = DIM,
-		padding = [4]u16{12, 12, 12, 12},
+		padding = niello.pad(12),
 	})
 }
 
@@ -145,7 +145,7 @@ declare :: proc() {
 		// root block, silently reparenting everything below into the
 		// track.
 		if niello.begin(track_u, out = &slider_i) {
-			niello.set(fill_u, .Size, niello.Size{niello.percent(slider_value), niello.percent(1)})
+			niello.set(fill_u, .Size, niello.size(niello.percent(slider_value), niello.percent(1)))
 			if niello.begin(fill_u) {}
 		}
 		if niello.pressed(slider_i) || niello.dragging(slider_i) {
@@ -158,7 +158,7 @@ declare :: proc() {
 		// --- splitter ---
 		niello.show(caption_u, {text = "Splitter"})
 		if niello.begin(split_row_u) {
-			niello.set(left_pane_u, .Size, niello.Size{niello.fixed(split_w), niello.percent(1)})
+			niello.set(left_pane_u, .Size, niello.size(niello.fixed(split_w), niello.percent(1)))
 			if niello.begin(left_pane_u) {
 				niello.show(pane_text_u, {text = fmt.tprintf("left pane, %.0f DIP wide", split_w)})
 			}

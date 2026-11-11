@@ -75,27 +75,27 @@ shell: struct {
 
 mint_shell :: proc(t: Theme) {
 	niello.mint(&shell.root, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(percent(1), percent(1)),
+		layout = .Top_To_Bottom, size = size(percent(1), percent(1)),
 		color = t.bg, groups = []niello.Group{groups.bg},
 	})
 	niello.mint(&shell.header, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), fixed(56)),
+		layout = .Left_To_Right, size = size(grow(), fixed(56)),
 		padding = pad_xy(18, 0), gap = 10, align = START_CENTER,
 		color = t.panel, groups = []niello.Group{groups.panel},
 	})
 	niello.mint(&shell.header_title, ui.title, {font_size = 18})
 	niello.group_add(groups.ink, shell.header_title)
-	niello.mint(&shell.spacer, niello.NO_UNIT, {size = sz(grow(), fixed(1))})
-	niello.mint(&shell.body, niello.NO_UNIT, {layout = .Left_To_Right, size = sz(grow(), grow())})
+	niello.mint(&shell.spacer, niello.NO_UNIT, {size = size(grow(), fixed(1))})
+	niello.mint(&shell.body, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), grow())})
 	niello.mint(&shell.sidebar, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(fixed(200), grow()),
+		layout = .Top_To_Bottom, size = size(fixed(200), grow()),
 		padding = pad(10), gap = 2,
 		color = t.panel, groups = []niello.Group{groups.panel},
 	})
 	niello.mint(&shell.nav_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
 	niello.mint(&shell.nav_item_on, niello.NO_UNIT, {color = t.accent})
 	niello.mint(&shell.nav_item, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), fixed(34)),
+		layout = .Left_To_Right, size = size(grow(), fixed(34)),
 		padding = pad_xy(12, 0), align = START_CENTER, corner_radius = 6,
 		cursor = .Pointer, focusable = true,
 		hover = shell.nav_hover, focus = ui.focus_ring,
@@ -105,14 +105,14 @@ mint_shell :: proc(t: Theme) {
 	// The content area scrolls vertically; align [x, y] puts its
 	// anchored scrollbar at the right edge, top.
 	niello.mint(&shell.content, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(grow(), grow()),
+		layout = .Top_To_Bottom, size = size(grow(), grow()),
 		scroll = .Vertical, smooth_scroll = true,
-		align = [2]niello.Align_Kind{.End, .Start},
-		padding = [4]u16{22, 20, 26, 24},
+		align = niello.align(.End, .Start),
+		padding = niello.pad_each(22, 20, 26, 24),
 	})
-	niello.mint(&shell.page, niello.NO_UNIT, {layout = .Top_To_Bottom, size = sz(grow(), fit()), gap = 14})
+	niello.mint(&shell.page, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(grow(), fit()), gap = 14})
 	niello.mint(&shell.status_bar, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), fixed(28)),
+		layout = .Left_To_Right, size = size(grow(), fixed(28)),
 		padding = pad_xy(14, 0), gap = 18, align = START_CENTER,
 		color = t.panel, groups = []niello.Group{groups.panel},
 	})

@@ -134,7 +134,7 @@ show_field :: proc(f: ^Field, placeholder: string, loc := #caller_location) {
 mint :: proc() {
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		color = BG, padding = [4]u16{24, 24, 24, 24}, gap = 10,
+		color = BG, padding = niello.pad(24), gap = 10,
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {font_size = 24, font_color = INK})
 	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13.5, font_color = DIM})
@@ -142,15 +142,15 @@ mint :: proc() {
 	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13.5, font_color = DIM})
 
 	niello.mint(&field_focus_u, niello.NO_UNIT, {
-		color = niello.Color{44, 48, 64, 255},
+		color = niello.rgb(0x2c3040),
 		overlay_border_color = ACCENT, overlay_border_width = 2,
 	})
 	niello.mint(&field_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
-		size = niello.Size{niello.grow(1), niello.fixed(44)},
+		size = niello.size(niello.grow(), niello.fixed(44)),
 		color = PANEL, corner_radius = 6,
-		padding = [4]u16{12, 0, 12, 0}, gap = 0,
-		align = [2]niello.Align_Kind{.Start, .Center},
+		padding = niello.pad_xy(12, 0), gap = 0,
+		align = niello.align(.Start, .Center),
 		focus = field_focus_u, focusable = true,
 	})
 	niello.mint(&field_text_u, niello.NO_UNIT, {
@@ -160,7 +160,7 @@ mint :: proc() {
 		whitespace = niello.Whitespace.Preserve,
 	})
 	niello.mint(&caret_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(2), niello.fixed(22)},
+		size = niello.size(niello.fixed(2), niello.fixed(22)),
 		color = ACCENT,
 	})
 	niello.mint(&placeholder_u, niello.NO_UNIT, {font_size = 16, font_color = DIM})
@@ -171,9 +171,9 @@ mint :: proc() {
 		overlay_border_color = ACCENT, overlay_border_width = 2,
 	})
 	niello.mint(&btn_u, niello.NO_UNIT, {
-		size = niello.Size{niello.fixed(130), niello.fixed(40)},
+		size = niello.size(niello.fixed(130), niello.fixed(40)),
 		color = BTN, corner_radius = 6,
-		align = [2]niello.Align_Kind{.Center, .Center},
+		align = niello.CENTER,
 		hover = btn_hover_u, press = btn_press_u, focus = btn_focus_u,
 		focusable = true, cursor = niello.Cursor_Kind.Pointer,
 	})

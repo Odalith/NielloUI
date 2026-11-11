@@ -169,7 +169,7 @@ page_animation :: proc(app: ^App) {
 			e.corner_radius = u8((s.edit_step * 9) % 32)
 			e.color = ACCENTS[s.edit_step % len(ACCENTS)]
 			e.border_width = u16(s.edit_step % 4)
-			e.size = sz(fixed(f32(160 + (s.edit_step % 3) * 60)), fixed(48))
+			e.size = size(fixed(f32(160 + (s.edit_step % 3) * 60)), fixed(48))
 		}
 		niello.show(A.edit_box, {text = fmt.tprintf("edit step %d", s.edit_step)})
 	}
@@ -344,7 +344,7 @@ page_drag :: proc(app: ^App) {
 		if niello.dragging(s.divider_i) {
 			s.split_w = clamp(s.split_grab + niello.drag_total().x, 80, 600)
 		}
-		niello.set(D.left, .Size, sz(fixed(s.split_w), grow()))
+		niello.set(D.left, .Size, size(fixed(s.split_w), grow()))
 		if niello.begin(D.split_row) {
 			if niello.begin(D.left) {
 				note(fmt.tprintf("left pane, %.0f DIP", s.split_w))
@@ -369,7 +369,7 @@ page_drag :: proc(app: ^App) {
 			}
 		}
 		// The slot's padding is the chip's position inside the area.
-		niello.set(D.chip_slot, .Padding, [4]u16{u16(s.chip_pos.x), u16(s.chip_pos.y), 0, 0})
+		niello.set(D.chip_slot, .Padding, niello.pad_each(u16(s.chip_pos.x), u16(s.chip_pos.y), 0, 0))
 		drag_area(s)
 		if niello.clicked(button("Open a draggable dialog")) {
 			s.dlg_open = true
@@ -700,56 +700,56 @@ inspector_shutdown :: proc(app: ^App) {
 mint_pages_more :: proc(app: ^App, t: Theme) {
 	S := &scroll_units
 	list := niello.Style_Decl{
-		layout = .Top_To_Bottom, size = sz(grow(), fixed(260)), scroll = .Vertical, gap = 2,
+		layout = .Top_To_Bottom, size = size(grow(), fixed(260)), scroll = .Vertical, gap = 2,
 		// align is [x, y]: the anchored bar sits at the right edge, top.
-		align = [2]niello.Align_Kind{.End, .Start},
-		color = t.bg, corner_radius = 8, padding = [4]u16{6, 30, 16, 6},
+		align = niello.align(.End, .Start),
+		color = t.bg, corner_radius = 8, padding = niello.pad_each(6, 30, 16, 6),
 		groups = []niello.Group{groups.bg},
 	}
 	niello.mint(&S.list, niello.NO_UNIT, list)
-	list.size = sz(grow(), fixed(260))
+	list.size = size(grow(), fixed(260))
 	list.smooth_scroll = true
 	list.overscroll = true
-	list.padding = [4]u16{6, 6, 16, 6}
+	list.padding = niello.pad_each(6, 6, 16, 6)
 	niello.mint(&S.smooth, niello.NO_UNIT, list)
 	list.smooth_scroll, list.overscroll = false, false
 	list.layout = .Left_To_Right
-	list.size = sz(grow(), fixed(110))
+	list.size = size(grow(), fixed(110))
 	list.scroll = .Horizontal
-	list.align = [2]niello.Align_Kind{.Start, .End}
-	list.padding = [4]u16{6, 6, 6, 16}
+	list.align = niello.align(.Start, .End)
+	list.padding = niello.pad_each(6, 6, 6, 16)
 	niello.mint(&S.wide, niello.NO_UNIT, list)
 	niello.mint(&S.inner, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(grow(), fixed(120)), scroll = .Vertical, gap = 2,
-		align = [2]niello.Align_Kind{.End, .Start},
-		color = t.raised, corner_radius = 6, padding = [4]u16{6, 6, 16, 6},
+		layout = .Top_To_Bottom, size = size(grow(), fixed(120)), scroll = .Vertical, gap = 2,
+		align = niello.align(.End, .Start),
+		color = t.raised, corner_radius = 6, padding = niello.pad_each(6, 6, 16, 6),
 		groups = []niello.Group{groups.raised},
 	})
 	niello.mint(&S.row, niello.NO_UNIT, {
-		size = sz(grow(), fixed(30)), padding = pad_xy(10, 7),
+		size = size(grow(), fixed(30)), padding = pad_xy(10, 7),
 		font_size = 13, font_color = t.ink, groups = []niello.Group{groups.ink},
 	})
 	niello.mint(&S.inner_row, niello.NO_UNIT, {
-		size = sz(grow(), fixed(26)), padding = pad_xy(10, 5),
+		size = size(grow(), fixed(26)), padding = pad_xy(10, 5),
 		font_size = 12, font_color = t.dim, groups = []niello.Group{groups.dim},
 	})
 	niello.mint(&S.wide_row, niello.NO_UNIT, {
-		size = sz(fixed(110), fixed(70)), padding = pad(10), corner_radius = 6,
+		size = size(fixed(110), fixed(70)), padding = pad(10), corner_radius = 6,
 		color = t.raised, font_size = 13, font_color = t.ink,
 		groups = []niello.Group{groups.raised, groups.ink},
 	})
 	niello.mint(&S.sticky, niello.NO_UNIT, {
-		size = sz(grow(), fixed(24)), padding = pad_xy(10, 5),
+		size = size(grow(), fixed(24)), padding = pad_xy(10, 5),
 		color = t.accent, font_size = 12, font_color = rgb(0xffffff),
 	})
 
 	A := &anim_units
-	niello.mint(&A.pose_a, niello.NO_UNIT, {size = sz(fixed(120), fixed(56)), color = rgb(0x4082a0), corner_radius = 8})
-	niello.mint(&A.pose_b, niello.NO_UNIT, {size = sz(fixed(360), fixed(56)), color = rgb(0xc87840), corner_radius = 28})
+	niello.mint(&A.pose_a, niello.NO_UNIT, {size = size(fixed(120), fixed(56)), color = rgb(0x4082a0), corner_radius = 8})
+	niello.mint(&A.pose_b, niello.NO_UNIT, {size = size(fixed(360), fixed(56)), color = rgb(0xc87840), corner_radius = 28})
 	niello.mint(&A.box, A.pose_a)
 	A.accent_group = niello.group_new("accent")
 	niello.mint(&A.card_proto, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(grow(), fixed(80)), padding = pad(14),
+		layout = .Top_To_Bottom, size = size(grow(), fixed(80)), padding = pad(14),
 		color = ACCENTS[0], corner_radius = 10, cursor = .Pointer,
 	})
 	for k in 0 ..< 3 {
@@ -759,53 +759,53 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	niello.mint(&A.card_text, niello.NO_UNIT, {font_size = 14, font_color = rgb(0xffffff)})
 	niello.mint(&A.flash, niello.NO_UNIT, {color = rgb(0xffffff)})
 	niello.mint(&A.edit_box, niello.NO_UNIT, {
-		size = sz(fixed(160), fixed(48)), padding = pad_xy(12, 15),
+		size = size(fixed(160), fixed(48)), padding = pad_xy(12, 15),
 		color = ACCENTS[0], border_color = rgb(0xffffff),
 		font_size = 13, font_color = rgb(0xffffff),
 	})
 
 	niello.mint(&popup_units.canvas, niello.NO_UNIT, {
-		size = sz(grow(), fixed(140)), padding = pad(14), corner_radius = 8,
+		size = size(grow(), fixed(140)), padding = pad(14), corner_radius = 8,
 		color = t.bg, font_size = 13, font_color = t.dim, cursor = .Crosshair,
 		groups = []niello.Group{groups.bg, groups.dim},
 	})
 	niello.mint(&popup_units.toast, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(fit(), fit()), padding = pad_xy(16, 12),
+		layout = .Left_To_Right, size = size(fit(), fit()), padding = pad_xy(16, 12),
 		color = SUCCESS, corner_radius = 8,
 	})
 
 	D := &drag_units
-	niello.mint(&D.split_row, niello.NO_UNIT, {layout = .Left_To_Right, size = sz(grow(), fixed(110))})
+	niello.mint(&D.split_row, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), fixed(110))})
 	pane := niello.Style_Decl{
-		layout = .Top_To_Bottom, size = sz(grow(), grow()), padding = pad(10),
+		layout = .Top_To_Bottom, size = size(grow(), grow()), padding = pad(10),
 		color = t.raised, corner_radius = 6, groups = []niello.Group{groups.raised},
 	}
 	niello.mint(&D.right, niello.NO_UNIT, pane)
-	pane.size = sz(fixed(240), grow())
+	pane.size = size(fixed(240), grow())
 	niello.mint(&D.left, niello.NO_UNIT, pane)
 	niello.mint(&D.divider_hot, niello.NO_UNIT, {color = t.accent})
 	niello.mint(&D.divider, niello.NO_UNIT, {
-		size = sz(fixed(10), grow()), cursor = .Resize_EW,
+		size = size(fixed(10), grow()), cursor = .Resize_EW,
 		hover = D.divider_hot, press = D.divider_hot, corner_radius = 3,
 	})
 	niello.mint(&D.area, niello.NO_UNIT, {
-		layout = .Stack, size = sz(grow(), fixed(180)),
+		layout = .Stack, size = size(grow(), fixed(180)),
 		color = t.bg, corner_radius = 8, overflow = .Clip,
 		groups = []niello.Group{groups.bg},
 	})
-	niello.mint(&D.chip_slot, niello.NO_UNIT, {layout = .Left_To_Right, size = sz(fit(), fit())})
+	niello.mint(&D.chip_slot, niello.NO_UNIT, {layout = .Left_To_Right, size = size(fit(), fit())})
 	niello.mint(&D.chip, niello.NO_UNIT, {
-		size = sz(fixed(120), fixed(40)), padding = pad_xy(14, 12), corner_radius = 20,
+		size = size(fixed(120), fixed(40)), padding = pad_xy(14, 12), corner_radius = 20,
 		color = t.accent, font_size = 13, font_color = rgb(0xffffff), cursor = .Move,
 	})
 	niello.mint(&D.dlg, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(fixed(340), fit()),
+		layout = .Top_To_Bottom, size = size(fixed(340), fit()),
 		color = t.panel, corner_radius = 10, border_width = 1, border_color = t.hover,
-		padding = [4]u16{0, 0, 0, 14}, gap = 10,
+		padding = niello.pad_each(0, 0, 0, 14), gap = 10,
 		groups = []niello.Group{groups.panel},
 	})
 	niello.mint(&D.dlg_header, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = sz(grow(), fixed(48)),
+		layout = .Left_To_Right, size = size(grow(), fixed(48)),
 		padding = pad_xy(14, 0), align = START_CENTER, gap = 8,
 		color = t.raised, corner_radius = 10, cursor = .Move,
 		groups = []niello.Group{groups.raised},
@@ -818,22 +818,22 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	fits := [4]niello.Image_Fit{.Uniform, .Fill, .Uniform_Fill, .None}
 	for k in 0 ..< 4 {
 		niello.mint(&I.fits[k], niello.NO_UNIT, {
-			size = sz(fixed(180), fixed(120)), color = t.bg, image_fit = fits[k],
+			size = size(fixed(180), fixed(120)), color = t.bg, image_fit = fits[k],
 			groups = []niello.Group{groups.bg},
 		})
 	}
 	niello.mint(&I.caption, ui.small, {})
 	niello.group_add(groups.dim, I.caption)
-	niello.mint(&I.strip, niello.NO_UNIT, {size = sz(grow(), fixed(80)), color = t.bg, groups = []niello.Group{groups.bg}})
-	niello.mint(&I.smooth, niello.NO_UNIT, {size = sz(fixed(160), fixed(160)), image_interp = .High})
-	niello.mint(&I.nearest, niello.NO_UNIT, {size = sz(fixed(160), fixed(160)), image_interp = .None})
+	niello.mint(&I.strip, niello.NO_UNIT, {size = size(grow(), fixed(80)), color = t.bg, groups = []niello.Group{groups.bg}})
+	niello.mint(&I.smooth, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .High})
+	niello.mint(&I.nearest, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .None})
 	niello.mint(&I.bg, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(grow(), fixed(140)), align = CENTER,
+		layout = .Top_To_Bottom, size = size(grow(), fixed(140)), align = CENTER,
 		image_fit = .Uniform_Fill, corner_radius = 8,
 	})
 
 	niello.mint(&inspector_units.root, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = sz(percent(1), percent(1)),
+		layout = .Top_To_Bottom, size = size(percent(1), percent(1)),
 		padding = pad(18), gap = 10, color = t.bg,
 		groups = []niello.Group{groups.bg},
 	})
