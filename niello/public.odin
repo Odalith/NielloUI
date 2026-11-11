@@ -122,6 +122,9 @@ Sizing :: struct {
 	max:    f32, // clamp ceiling, default INF
 	weight: f32, // Grow: share of the leftover relative to sibling growers
 	             // (grow() sets 1; 0 takes no share)
+	priority: i8, // Fit / Grow: when the parent runs short on this axis,
+	              // lower priorities give way first; higher hold their
+	              // size longer. Default 0 (all equal: shared fairly).
 }
 
 Size :: [2]Sizing // indexed by axis
@@ -138,23 +141,25 @@ percent :: proc(v: f32, min: f32 = 0, max: f32 = INF) -> Sizing {
 	return Sizing{kind = .Percent, value = v, min = min, max = max}
 }
 
-fit :: proc(min: f32 = 0, max: f32 = INF) -> Sizing {
+// fit sizes to the content, bounded by min and max. priority decides
+// who gives way when the parent runs short of space (see Sizing).
+fit :: proc(min: f32 = 0, max: f32 = INF, priority: i8 = 0) -> Sizing {
 	assert(min == min && max == max, "niello.fit: sizing values must not be NaN")
 	assert(min <= max, "niello.fit: min must not exceed max")
-	return Sizing{kind = .Fit, min = min, max = max}
+	return Sizing{kind = .Fit, min = min, max = max, priority = priority}
 }
 
 // grow takes a share of the space its parent has left over on the main
 // axis, in proportion to weight: two children grow(2) and grow() split
 // it 2:1. The share comes on top of the child's content size, and stops
-// at max. Shrinking is not weighted: a deficit is taken fairly from
-// every shrinkable child. On the cross axis a grow child fills the
-// parent's inner box.
-grow :: proc(weight: f32 = 1, min: f32 = 0, max: f32 = INF) -> Sizing {
+// at max. Shrinking is not weighted: a deficit is taken fairly from every
+// shrinkable child of the same priority (see Sizing.priority). On the
+// cross axis a grow child fills the parent's inner box.
+grow :: proc(weight: f32 = 1, min: f32 = 0, max: f32 = INF, priority: i8 = 0) -> Sizing {
 	assert(weight == weight && min == min && max == max, "niello.grow: sizing values must not be NaN")
 	assert(weight >= 0, "niello.grow: weight must not be negative")
 	assert(min <= max, "niello.grow: min must not exceed max")
-	return Sizing{kind = .Grow, min = min, max = max, weight = weight}
+	return Sizing{kind = .Grow, min = min, max = max, weight = weight, priority = priority}
 }
 
 // ============ style shorthands ============

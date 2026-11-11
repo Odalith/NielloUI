@@ -437,7 +437,9 @@ waterfill_give :: proc(cands: []int, axis: int, amount: f32) {
 	}
 }
 
-waterfill_take :: proc(cands: []int, axis: int, deficit: f32) {
+// waterfill_take shrinks cands fairly toward their floors and returns
+// the part of the deficit they could not absorb.
+waterfill_take :: proc(cands: []int, axis: int, deficit: f32) -> (left: f32) {
 	active := cands
 	remaining := deficit
 	for len(active) > 0 {
@@ -462,10 +464,51 @@ waterfill_take :: proc(cands: []int, axis: int, deficit: f32) {
 			for c in active {
 				g.lay[c].size[axis] -= share
 			}
-			break
+			return 0
 		}
 	}
-	// Any surviving deficit becomes overflow, recorded in pass F.
+	return max(remaining, 0)
+}
+
+// shrink_by_priority takes a deficit from the shrinkable children in
+// tiers: the lowest Sizing.priority first, fairly within the tier, down
+// to its floors, and only what that tier cannot absorb moves on to the
+// next. With every priority equal (the default) it is one fair pass.
+// Any deficit left after the last tier becomes overflow, recorded in
+// pass F.
+shrink_by_priority :: proc(cands: []int, axis: int, deficit: f32) {
+	prio :: proc(c, axis: int) -> i8 {
+		return node_style(c).size[axis].priority
+	}
+	lo, hi := i8(127), i8(-128)
+	for c in cands {
+		p := prio(c, axis)
+		lo, hi = min(lo, p), max(hi, p)
+	}
+	if lo == hi {
+		waterfill_take(cands, axis, deficit)
+		return
+	}
+	// Insertion sort by priority, lowest first: rows are short.
+	for i in 1 ..< len(cands) {
+		c := cands[i]
+		j := i
+		for j > 0 && prio(cands[j - 1], axis) > prio(c, axis) {
+			cands[j] = cands[j - 1]
+			j -= 1
+		}
+		cands[j] = c
+	}
+	left := deficit
+	for i := 0; i < len(cands) && left > 1e-6; {
+		p := prio(cands[i], axis)
+		j := i
+		for j < len(cands) && prio(cands[j], axis) == p {
+			j += 1
+		}
+		left = waterfill_take(cands[i:j], axis, left)
+		i = j
+	}
 }
 
 distribute_main :: proc(i: int, axis: int, inner: f32) {
@@ -541,7 +584,7 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 		// size inside a squeezed box (a button's label, say). A FIT
 		// container that truly got its content size has remaining == 0
 		// here, so this changes nothing for it.
-		waterfill_take(shrinkables[:], axis, -remaining)
+		shrink_by_priority(shrinkables[:], axis, -remaining)
 	} else if remaining > 0 && len(growers) > 0 && !parent_fit {
 		// The give stays suppressed under FIT: the parent sized itself to
 		// the children's content, so there is no leftover to hand out and

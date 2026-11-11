@@ -97,7 +97,7 @@ Layout_State :: struct {
 
 layout_units: struct {
 	box_row, sized, demo_label, align_cell, align_dot, clip_box, spill_box, wide: niello.Unit,
-	squeeze_row, squeeze_label: niello.Unit,
+	squeeze_row, squeeze_label, squeeze_label_low: niello.Unit,
 	fixed_b, fit_b, grow_b, grow2_b, grow_max_b, percent_b: niello.Unit,
 	align_cells: [9]niello.Unit,
 }
@@ -147,6 +147,12 @@ page_layout :: proc(app: ^App) {
 		niello.set(L.squeeze_row, .Size, size(fixed(w), fixed(34)))
 		if niello.begin(L.squeeze_row) {
 			niello.show(L.squeeze_label, {text = "The first label is fairly long"})
+			niello.show(L.squeeze_label, {text = "Second label"})
+			niello.show(L.squeeze_label, {text = "Third, also somewhat long"})
+		}
+		note("The same row with the first label at fit(priority = -1): it gives way first, and the others only shrink once it reaches its floor.")
+		if niello.begin(L.squeeze_row) {
+			niello.show(L.squeeze_label_low, {text = "The first label is fairly long"})
 			niello.show(L.squeeze_label, {text = "Second label"})
 			niello.show(L.squeeze_label, {text = "Third, also somewhat long"})
 		}
@@ -398,6 +404,11 @@ mint_pages_basic :: proc(t: Theme) {
 	})
 	niello.mint(&L.squeeze_label, niello.NO_UNIT, {
 		size = size(fit(), grow()), padding = pad_xy(8, 4), corner_radius = 4,
+		color = t.raised, font_size = 13, font_color = t.ink,
+		groups = []niello.Group{groups.raised, groups.ink},
+	})
+	niello.mint(&L.squeeze_label_low, niello.NO_UNIT, {
+		size = size(fit(priority = -1), grow()), padding = pad_xy(8, 4), corner_radius = 4,
 		color = t.raised, font_size = 13, font_color = t.ink,
 		groups = []niello.Group{groups.raised, groups.ink},
 	})
