@@ -228,22 +228,21 @@ declare_as :: proc(
 	// With borrows arena memory, never caller scratch. The mirror
 	// (a11y.odin) copies them again into owned storage at frame_end,
 	// since it outlives the frame arena. Only nodes that declare
-	// semantics pay these copies. (Params are immutable, so the
-	// shadow below is what the appended Frame_Node stores.)
-	with := with
-	if lb, ok := with.label.?; ok {
-		with.label = copy_frame_text(lb)
-	}
-	if d, ok := with.description.?; ok {
-		with.description = copy_frame_text(d)
-	}
-	if len(with.value.text) > 0 {
-		with.value.text = copy_frame_text(with.value.text)
-	}
+	// semantics pay these copies, made in the kept copy itself.
 	with_idx := i32(-1)
-	if NIELLO_DEBUG || a11y_declared(&with) {
+	if NIELLO_DEBUG || a11y_declared(with) {
 		with_idx = i32(len(g.withs))
 		append(&g.withs, with)
+		w := &g.withs[with_idx]
+		if lb, ok := w.label.?; ok {
+			w.label = copy_frame_text(lb)
+		}
+		if d, ok := w.description.?; ok {
+			w.description = copy_frame_text(d)
+		}
+		if len(w.value.text) > 0 {
+			w.value.text = copy_frame_text(w.value.text)
+		}
 	}
 	has_text := len(text) > 0
 	text_hash := u64(0)

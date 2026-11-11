@@ -169,7 +169,7 @@ a11y_tree :: proc(ctx: ^Context) -> []A11y_Node {
 // a11y_declared: does this With carry any semantics? A node with
 // none of these does not enter the mirror.
 @(private)
-a11y_declared :: proc(w: ^With) -> bool {
+a11y_declared :: proc(w: With) -> bool {
 	if w.role != .None {
 		return true
 	}
@@ -392,7 +392,7 @@ a11y_mirror_build :: proc() {
 	for i in 0 ..< len(g.nodes) {
 		nd := &g.nodes[i]
 		w := node_with(nd)
-		if w == nil || !a11y_declared(w) {
+		if w == nil || !a11y_declared(w^) {
 			continue
 		}
 		rec, ok := g.instances[nd.identity]
