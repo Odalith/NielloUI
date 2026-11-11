@@ -670,7 +670,10 @@ position_and_damage :: proc() {
 		// was zeroed by pass 0, so the range cannot come from there).
 		// The fresh range computed below re-clamps it for storage.
 		scroll := Vec2{0, 0}
-		stored_off, has_off := g.scroll_off[nd.identity]
+		stored_off, has_off := Vec2{}, false
+		if len(g.scroll_off) > 0 {
+			stored_off, has_off = g.scroll_off[nd.identity]
+		}
 		if has_off {
 			prev_max := g.scroll_max[nd.identity]
 			// An overscroll-enabled scroller (§3.22) renders its
@@ -792,6 +795,9 @@ position_and_damage :: proc() {
 		if scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
 			g.scroll_max[nd.identity] = g.lay[i].overfl
 		}
+		if len(g.scroll_off) == 0 {
+			continue
+		}
 		stored_off, has_off := g.scroll_off[nd.identity]
 		if has_off {
 			eff := Vec2{0, 0}
@@ -800,7 +806,10 @@ position_and_damage :: proc() {
 			// (§3.22). An out-of-range offset with no spring (a
 			// stale one, say) heals back to the legal range here.
 			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
-			gl, has_gl := g.scroll_glides[nd.identity]
+			gl, has_gl := Scroll_Glide{}, false
+			if len(g.scroll_glides) > 0 {
+				gl, has_gl = g.scroll_glides[nd.identity]
+			}
 			for axis in 0 ..< 2 {
 				if scrollable_axis(s, axis) {
 					// Per axis (audit int-8): the band domain
@@ -872,38 +881,41 @@ position_and_damage :: proc() {
 		new := Rect{g.lay[i].pos, g.lay[i].size}
 		ugen := store.units[int(nd.unit)].gen
 		stamp := i < len(g.state_stamp) ? g.state_stamp[i] : 0
-		_, tr_now := g.transients[id]
-		old, ok := g.instances[id] // the one map op per node
-		when NIELLO_DEBUG {
-			if ok && nd.static_values {
-				assert(old.digest == nd.digest,
-					"niello: With.static_values promise broken — a static instance's presented values changed")
-			}
-		}
+		tr_now := len(g.transients) > 0 && id in g.transients
+		rec := Inst_Rec{rect = new, gen = ugen, digest = nd.digest, stamp = stamp, unit = nd.unit, overfl = g.lay[i].overfl, last_seen = g.frame_index}
+		// The one map op per node: an existing record is updated in
+		// place through its pointer; a new one is inserted.
+		old, ok := &g.instances[id]
 		if !ok {
 			r := new
-			r.size.x += g.lay[i].overfl.x
-			r.size.y += g.lay[i].overfl.y
+			r.size += g.lay[i].overfl
 			append(&g.damage, r)
-		} else if old.rect != new || old.gen != ugen || old.stamp != stamp ||
-		          tr_now || (!nd.static_values && old.digest != nd.digest) {
-			// Union of BOTH spill-expanded rects (audit core-H7):
-			// expanding only by the new overflow leaves a shrinking
-			// spill's old outermost pixels undamaged forever.
-			r := rect_union(
-				Rect{old.rect.pos, old.rect.size + old.overfl},
-				Rect{new.pos, new.size + g.lay[i].overfl})
-			append(&g.damage, r)
+			g.instances[id] = rec
+		} else {
+			when NIELLO_DEBUG {
+				if nd.static_values {
+					assert(old.digest == nd.digest,
+						"niello: With.static_values promise broken — a static instance's presented values changed")
+				}
+			}
+			if old.rect != new || old.gen != ugen || old.stamp != stamp ||
+			   tr_now || (!nd.static_values && old.digest != nd.digest) {
+				// Union of BOTH spill-expanded rects (audit core-H7):
+				// expanding only by the new overflow leaves a shrinking
+				// spill's old outermost pixels undamaged forever.
+				append(&g.damage, rect_union(
+					Rect{old.rect.pos, old.rect.size + old.overfl},
+					Rect{new.pos, new.size + g.lay[i].overfl}))
+			}
+			// A static_values instance freezes its baseline digest:
+			// the promise is for the instance's lifetime, so if
+			// detection is ever re-armed (the flag dropped), drift
+			// since birth is what it compares against.
+			if nd.static_values {
+				rec.digest = old.digest
+			}
+			old^ = rec
 		}
-		// A static_values instance freezes its baseline digest: the
-		// promise is for the instance's lifetime, so if detection is
-		// ever re-armed (the flag dropped), drift since birth is
-		// what it compares against.
-		committed_digest := nd.digest
-		if ok && nd.static_values {
-			committed_digest = old.digest
-		}
-		g.instances[id] = Inst_Rec{rect = new, gen = ugen, digest = committed_digest, stamp = stamp, unit = nd.unit, overfl = g.lay[i].overfl, last_seen = g.frame_index}
 		commits += 1
 		if len(g.cull_rects) > 0 {
 			// A live commit retires the node's cull memory.
