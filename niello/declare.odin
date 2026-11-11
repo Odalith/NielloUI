@@ -115,11 +115,11 @@ Site_Count :: struct {
 
 // site_hash names a call site. The file path is a constant string in
 // the binary, so its address identifies the file without hashing the
-// bytes on every declaration.
+// bytes on every declaration. It needs to be distinct, not well mixed:
+// identity_key and identity_of finish with mix64.
 @(private)
-site_hash :: proc(loc: runtime.Source_Code_Location) -> u64 {
-	h := mix64(u64(uintptr(raw_data(loc.file_path))))
-	return mix64(h ~ (u64(u32(loc.line)) << 32 | u64(u32(loc.column))))
+site_hash :: #force_inline proc(loc: runtime.Source_Code_Location) -> u64 {
+	return u64(uintptr(raw_data(loc.file_path))) * 0x9e3779b97f4a7c15 ~ (u64(u32(loc.line)) << 32 | u64(u32(loc.column)))
 }
 
 // next_occurrence counts one declaration of site within counts[base:]
@@ -144,13 +144,12 @@ SITE_KEY_SEED :: u64(0x9e3779b97f4a7c15)
 // identity_key is the k of hash(parent, unit, k): the explicit key, or
 // one derived from the call site and its occurrence.
 @(private)
-identity_key :: proc(key: Key, counts: ^[dynamic]Site_Count, base: int, loc: runtime.Source_Code_Location) -> u64 {
+identity_key :: proc(key: Key, counts: ^[dynamic]Site_Count, base: int, site: u64) -> u64 {
 	if key != 0 {
 		return u64(key)
 	}
-	site := site_hash(loc)
 	occ := next_occurrence(counts, base, site)
-	return mix64(mix64(SITE_KEY_SEED ~ site) ~ u64(occ))
+	return mix64(site ~ SITE_KEY_SEED ~ u64(occ) * 0xd6e8feb86659fd93)
 }
 
 // open_site_region starts a container's site-count region; close_site_region
@@ -167,7 +166,7 @@ close_site_region :: proc() {
 
 // declare appends one node; parents always precede children in the array.
 @(private)
-declare :: proc(unit: Unit, key: Key, with: With, is_container: bool, loc: runtime.Source_Code_Location) -> (Instance, int) {
+declare :: proc(unit: Unit, key: Key, with: With, is_container: bool, site: u64) -> (Instance, int) {
 	parent := -1
 	parent_culled := false
 	parent_id := u64(0)
@@ -177,7 +176,7 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool, loc: runti
 		parent_id = u64(g.nodes[parent].identity)
 	}
 	base := len(g.site_base) > 0 ? g.site_base[len(g.site_base) - 1] : 0
-	k := identity_key(key, &g.site_counts, base, loc)
+	k := identity_key(key, &g.site_counts, base, site)
 	return declare_as(unit, k, with, is_container, parent, parent_id, parent_culled)
 }
 
