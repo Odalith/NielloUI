@@ -160,7 +160,7 @@ validate_captures :: proc() {
 		}
 		if !dead {
 			for c := idx; c != -1; c = g.nodes[c].parent {
-				if g.nodes[c].with.disabled {
+				if g.nodes[c].disabled {
 					dead = true
 					break
 				}
@@ -588,7 +588,7 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	blocked := false
 	hover_len := len(chain_idx)
 	for idx, k in chain_idx {
-		if g.nodes[idx].with.disabled {
+		if g.nodes[idx].disabled {
 			hover_len = k + 1
 			blocked = true
 			break
@@ -910,8 +910,12 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 // otherwise. Declare-time text/span resolution is the exception — it reads
 // the base style, so an overlay cannot rewrite a node's text in v1 (font
 // fields in overlays DO apply: measurement reads node_style).
+//
+// It is the hottest call in layout (every pass reads styles per node),
+// so it is inlined and unchecked: i is always a node index of this
+// frame, and a node's unit was validated when it was minted.
 @(private)
-node_style :: proc(i: int) -> ^Style {
+node_style :: #force_inline proc(i: int) -> ^Style #no_bounds_check {
 	if g.nodes[i].has_eff {
 		return &g.eff[i]
 	}
@@ -924,24 +928,40 @@ resolve_styles :: proc() {
 	resize(&g.eff, n)
 	resize(&g.disabled_flags, n)
 	resize(&g.state_stamp, n)
+	// The few instances interaction state touches this frame — the
+	// hover chain, the press chains and the focus holder — gathered
+	// once, so a node outside them costs one scan of a short list
+	// (and nothing at all when the pointer is away and nothing is
+	// focused).
+	Hit :: struct {
+		id:       Instance,
+		hov, prs: bool,
+	}
+	hits := make([dynamic]Hit, 0, 32, context.temp_allocator)
+	add_hits :: proc(hits: ^[dynamic]Hit, chain: []Instance, hov: bool) {
+		for id in chain {
+			append(hits, Hit{id = id, hov = hov, prs = !hov})
+		}
+	}
+	add_hits(&hits, g.hover_chain[:], true)
+	for b in Mouse_Button {
+		add_hits(&hits, g.press_chains[b][:], false)
+	}
+	add_hits(&hits, g.key_press_chain[:], false)
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
 		p := nd.parent
-		dis := nd.with.disabled || (p >= 0 && g.disabled_flags[p])
+		dis := nd.disabled || (p >= 0 && g.disabled_flags[p])
 		g.disabled_flags[i] = dis
 		nd.has_eff = false
 
 		id := nd.identity
-		hov := chain_contains(g.hover_chain[:], id)
-		prs := false
-		for b in Mouse_Button {
-			if chain_contains(g.press_chains[b][:], id) {
-				prs = true
-				break
+		hov, prs := false, false
+		for h in hits {
+			if h.id == id {
+				hov |= h.hov
+				prs |= h.prs
 			}
-		}
-		if !prs && chain_contains(g.key_press_chain[:], id) {
-			prs = true
 		}
 		foc := g.focus_id != 0 && id == g.focus_id
 		has_tr := false
@@ -958,10 +978,10 @@ resolve_styles :: proc() {
 		// unconditionally.
 		rec := &store.units[int(nd.unit)]
 		stamp := u64(0)
-		if nd.with.variant != NO_UNIT {
+		if nd.variant != NO_UNIT {
 			stamp = hash_mix(stamp, 1)
-			stamp = hash_mix(stamp, u64(nd.with.variant))
-			stamp = hash_mix(stamp, store.units[int(nd.with.variant)].gen)
+			stamp = hash_mix(stamp, u64(nd.variant))
+			stamp = hash_mix(stamp, store.units[int(nd.variant)].gen)
 		}
 		// A layer folds in only when it HAS an overlay unit: with
 		// NO_UNIT the merge is a no-op, the resolved style cannot
@@ -991,11 +1011,11 @@ resolve_styles :: proc() {
 			stamp = hash_mix(stamp, 6)
 		}
 		g.state_stamp[i] = stamp
-		if !hov && !prs && !foc && !dis && nd.with.variant == NO_UNIT && !has_tr {
+		if !hov && !prs && !foc && !dis && nd.variant == NO_UNIT && !has_tr {
 			continue
 		}
 		eff := rec.style
-		apply_overlay(&eff, nd.with.variant) // persistent per-instance overlay
+		apply_overlay(&eff, nd.variant) // persistent per-instance overlay
 		if foc { apply_overlay(&eff, rec.focus) }
 		if hov { apply_overlay(&eff, rec.hover) }
 		if prs { apply_overlay(&eff, rec.press) }

@@ -416,8 +416,8 @@ rects_overlap :: proc(a, b: Rect) -> bool {
 @(private)
 emit_image :: proc(nd: ^Frame_Node, s: ^Style, r: Rect) {
 	img := s.image
-	if v, ok := nd.with.image.?; ok {
-		img = v
+	if nd.image_override {
+		img = nd.image
 	}
 	if img == NO_IMAGE || r.size.x <= 0 || r.size.y <= 0 {
 		return

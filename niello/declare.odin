@@ -14,7 +14,17 @@ Frame_Node :: struct {
 	unit:            Unit,
 	identity:        Instance,
 	parent:          int, // -1 for roots
-	with:            With,
+	// The With fields the per-frame passes read. The full With is kept
+	// only where something reads it later — g.withs[with_idx] for nodes
+	// with accessibility semantics, and for every node in NIELLO_DEBUG
+	// builds (the debugger shows it); -1 otherwise. Most nodes carry
+	// only text, so storing all of it per node was the bulk of the
+	// node's size.
+	with_idx:        i32,
+	variant:         Unit, // With.variant
+	disabled:        bool, // With.disabled (this node's own flag)
+	static_values:   bool, // With.static_values
+	image_override:  bool, // With.image was set (image is that value)
 	text:            string, // resolved at declare time (see resolve_text)
 	text_hash:       u64,    // str_hash(text); the text cache keys on this
 	                        // instead of re-hashing every frame
@@ -34,6 +44,8 @@ Frame_Node :: struct {
 	focusable:       bool, // resolved at declare: With.focusable wins
 	                       // over the unit's Style_Decl.focusable
 	anchored:        bool, // With.anchored, resolved at declare (§3.20)
+	has_anchored:    bool, // some child is anchored: the passes that
+	                       // treat overlays specially look only then
 	is_popup:        bool, // an overlay root (§3.19): parent is the
 	                       // layer (-1), positioned by placement in
 	                       // pass F, never by a parent's layout
@@ -213,31 +225,26 @@ declare_as :: proc(
 		// demo's rows all rendered the buffer's final contents.)
 		text = copy_frame_text(text)
 	}
-	// Invalid UTF-8 is sanitized at this one boundary (audit
-	// txt-6): nothing downstream validates display text, and the
-	// native replay validator rejects the ENTIRE command stream
-	// over one bad byte — one corrupt label (a file tag, a paste)
-	// blanked the window with no Odin-side diagnostic. Valid
-	// text passes through untouched; invalid sequences become
-	// U+FFFD in a frame-arena copy, whichever source the text
-	// came from (With or the unit's style).
-	text = sanitize_frame_text(text)
 	// Accessibility strings (§3.9) get the same treatment as text:
 	// copied into the frame arena at declare time, so the stored
 	// With borrows arena memory, never caller scratch. The mirror
 	// (a11y.odin) copies them again into owned storage at frame_end,
 	// since it outlives the frame arena. Only nodes that declare
-	// semantics pay these copies. (Params are immutable, so the
-	// shadow below is what the appended Frame_Node stores.)
-	with := with
-	if lb, ok := with.label.?; ok {
-		with.label = copy_frame_text(lb)
-	}
-	if d, ok := with.description.?; ok {
-		with.description = copy_frame_text(d)
-	}
-	if len(with.value.text) > 0 {
-		with.value.text = copy_frame_text(with.value.text)
+	// semantics pay these copies, made in the kept copy itself.
+	with_idx := i32(-1)
+	if NIELLO_DEBUG || a11y_declared(with) {
+		with_idx = i32(len(g.withs))
+		append(&g.withs, with)
+		w := &g.withs[with_idx]
+		if lb, ok := w.label.?; ok {
+			w.label = copy_frame_text(lb)
+		}
+		if d, ok := w.description.?; ok {
+			w.description = copy_frame_text(d)
+		}
+		if len(w.value.text) > 0 {
+			w.value.text = copy_frame_text(w.value.text)
+		}
 	}
 	has_text := len(text) > 0
 	text_hash := u64(0)
@@ -247,7 +254,21 @@ declare_as :: proc(
 		// Hash once here; the text cache keys on (font, text_hash) instead
 		// of re-hashing the bytes on every lookup, every frame (Clay hashes
 		// contents for frame-arena-copied text — same requirement, paid once).
-		text_hash = str_hash(text)
+		ascii: bool
+		text_hash, ascii = text_scan(text)
+		// Invalid UTF-8 is sanitized at this one boundary (audit
+		// txt-6): nothing downstream validates display text, and the
+		// native replay validator rejects the ENTIRE command stream
+		// over one bad byte — one corrupt label (a file tag, a paste)
+		// blanked the window with no Odin-side diagnostic. Valid
+		// text passes through untouched; invalid sequences become
+		// U+FFFD in a frame-arena copy, whichever source the text
+		// came from (With or the unit's style). The hash pass already
+		// proved all-ASCII text valid.
+		if !ascii && !utf8.valid_string(text) {
+			text = sanitize_frame_text(text)
+			text_hash = str_hash(text)
+		}
 		spans, spans_hash = resolve_spans(with, style_of(unit))
 	}
 	// The presented-content digest (§5 stamps): three folds over
@@ -263,7 +284,11 @@ declare_as :: proc(
 			unit = unit,
 			identity = id,
 			parent = parent,
-			with = with,
+			with_idx = with_idx,
+			variant = with.variant,
+			disabled = with.disabled,
+			static_values = with.static_values,
+			image_override = with.image != nil,
 			text = text,
 			text_hash = text_hash,
 			digest = digest,
@@ -277,6 +302,9 @@ declare_as :: proc(
 			culled = culled,
 		},
 	)
+	if with.anchored && parent >= 0 {
+		g.nodes[parent].has_anchored = true
+	}
 	return id, len(g.nodes) - 1
 }
 
@@ -338,9 +366,6 @@ copy_frame_text :: proc(text: string) -> string {
 // rewound next frame like every arena gap.
 @(private)
 sanitize_frame_text :: proc(text: string) -> string {
-	if len(text) == 0 || utf8.valid_string(text) {
-		return text
-	}
 	out := frame_text_reserve(3 * len(text))
 	n := 0
 	i := 0
@@ -388,4 +413,14 @@ copy_frame_spans :: proc(src: []Text_Span) -> []Text_Span {
 	copy(dst, src)
 	g.spans_off += need
 	return dst
+}
+
+// node_with returns the node's full With, or nil when the node kept
+// none (no accessibility semantics, prod build).
+@(private)
+node_with :: proc(nd: ^Frame_Node) -> ^With {
+	if nd.with_idx < 0 {
+		return nil
+	}
+	return &g.withs[nd.with_idx]
 }

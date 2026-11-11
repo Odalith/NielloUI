@@ -169,7 +169,7 @@ a11y_tree :: proc(ctx: ^Context) -> []A11y_Node {
 // a11y_declared: does this With carry any semantics? A node with
 // none of these does not enter the mirror.
 @(private)
-a11y_declared :: proc(w: ^With) -> bool {
+a11y_declared :: proc(w: With) -> bool {
 	if w.role != .None {
 		return true
 	}
@@ -292,19 +292,19 @@ a11y_gather_text :: proc(frame_idx: int, buf: []u8) -> string {
 }
 
 @(private)
-a11y_build_entry :: proc(nd: ^Frame_Node, digest: u64, name: string) -> A11y_Entry {
+a11y_build_entry :: proc(nd: ^Frame_Node, w: ^With, digest: u64, name: string) -> A11y_Entry {
 	e: A11y_Entry
 	e.digest = digest
-	e.role = nd.with.role
+	e.role = w.role
 	e.name = strings.clone(name)
-	if d, ok := nd.with.description.?; ok {
+	if d, ok := w.description.?; ok {
 		e.description = strings.clone(d)
 	}
-	e.value = nd.with.value
+	e.value = w.value
 	if len(e.value.text) > 0 {
 		e.value.text = strings.clone(e.value.text)
 	}
-	e.flags = nd.with.a11y_flags
+	e.flags = w.a11y_flags
 	e.unit = nd.unit
 	return e
 }
@@ -391,7 +391,8 @@ a11y_mirror_build :: proc() {
 	buf: [A11Y_NAME_MAX_BYTES]u8
 	for i in 0 ..< len(g.nodes) {
 		nd := &g.nodes[i]
-		if !a11y_declared(&nd.with) {
+		w := node_with(nd)
+		if w == nil || !a11y_declared(w^) {
 			continue
 		}
 		rec, ok := g.instances[nd.identity]
@@ -411,12 +412,12 @@ a11y_mirror_build :: proc() {
 			}
 			p = g.nodes[p].parent
 		}
-		digest := a11y_sem_digest(&nd.with)
+		digest := a11y_sem_digest(w)
 		ent, exists := g.a11y_entries[nd.identity]
 		need := !exists || ent.digest != digest
 		name := ""
 		has_label := false
-		if lb, ok := nd.with.label.?; ok {
+		if lb, ok := w.label.?; ok {
 			name = lb
 			has_label = true
 		}
@@ -436,7 +437,7 @@ a11y_mirror_build :: proc() {
 			if !has_label {
 				name = a11y_gather_text(i, buf[:])
 			}
-			ent = a11y_build_entry(nd, digest, name)
+			ent = a11y_build_entry(nd, w, digest, name)
 		}
 		ent.gen = gen
 		g.a11y_entries[nd.identity] = ent

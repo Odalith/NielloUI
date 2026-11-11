@@ -1283,6 +1283,7 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	// Nodes' span slices live in the frame spans arena (declare.odin);
 	// the cursor rewind below retires them all at once.
 	clear(&g.nodes)
+	clear(&g.withs)
 	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
 	g.text_off = 0
 	g.spans_chunk = 0 // and the spans arena beside it

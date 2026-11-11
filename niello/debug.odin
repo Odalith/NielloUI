@@ -146,7 +146,7 @@ debug_snapshot_build :: proc() {
 			}
 			dw: Debug_With
 			{
-				w := &nd.with
+				w := node_with(nd) // every node keeps its With in debug builds
 				if w.text != nil {
 					dw.present += {.Text}
 					dw.text = nd.text // declare's arena copy
