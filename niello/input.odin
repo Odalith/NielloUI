@@ -1053,6 +1053,7 @@ copy_field :: proc(dst, src: ^Style, f: Field) {
 	case .Text_Wrap:     dst.wrap          = src.wrap
 	case .Whitespace:    dst.whitespace    = src.whitespace
 	case .Ellipsis:      dst.ellipsis      = src.ellipsis
+	case .Justify:       dst.justify       = src.justify
 	case .Padding:       dst.padding       = src.padding
 	case .Gap:           dst.gap           = src.gap
 	case .Corner_Radius: dst.corner_radius = src.corner_radius

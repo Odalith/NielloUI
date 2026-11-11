@@ -517,6 +517,7 @@ explicit_fields :: proc(d: Style_Decl) -> Fields {
 	if d.wrap          != nil { f += {.Text_Wrap} }
 	if d.whitespace    != nil { f += {.Whitespace} }
 	if d.ellipsis      != nil { f += {.Ellipsis} }
+	if d.justify       != nil { f += {.Justify} }
 	if d.overflow      != nil { f += {.Overflow} }
 	if d.overlay_color        != nil { f += {.Overlay_Color} }
 	if d.overlay_border_color  != nil { f += {.Overlay_Border_Color} }

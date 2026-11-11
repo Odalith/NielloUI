@@ -68,11 +68,13 @@ mint_units :: proc() {
 			size      = niello.size(niello.fixed(196), niello.fixed(130)),
 			color     = BAND,
 			image_fit = fit,
+			align     = niello.CENTER, // a leaf's align places its image
 		})
 	}
 	niello.mint(&thumb_u, niello.NO_UNIT, {
 		size  = niello.size(niello.grow(), niello.fixed(56)),
 		color = BAND,
+		align = niello.CENTER,
 	})
 	niello.mint(&bg_u, niello.NO_UNIT, {
 		layout    = niello.Layout.Top_To_Bottom,
@@ -83,10 +85,12 @@ mint_units :: proc() {
 	niello.mint(&interp_hi, niello.NO_UNIT, {
 		size         = niello.size(niello.fixed(150), niello.fixed(150)),
 		image_interp = niello.Image_Interp.High,
+		align        = niello.CENTER,
 	})
 	niello.mint(&interp_no, niello.NO_UNIT, {
 		size         = niello.size(niello.fixed(150), niello.fixed(150)),
 		image_interp = niello.Image_Interp.None,
+		align        = niello.CENTER,
 	})
 }
 

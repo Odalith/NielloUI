@@ -256,18 +256,26 @@ test_image_emit_fit_math :: proc(t: ^testing.T) {
 
 	cases := []struct {
 		fit:        niello.Image_Fit,
+		align:      [2]niello.Align_Kind,
 		dest, src:  niello.Rect,
 	}{
-		// 400x200 into a 100x100 box.
-		{.Uniform, {{0, 25}, {100, 50}}, {{0, 0}, {400, 200}}},
-		{.Uniform_Fill, {{0, 0}, {100, 100}}, {{100, 0}, {200, 200}}},
-		{.Fill, {{0, 0}, {100, 100}}, {{0, 0}, {400, 200}}},
-		{.None, {{0, 0}, {100, 100}}, {{150, 50}, {100, 100}}},
+		// 400x200 into a 100x100 box, centered by the leaf's align.
+		{.Uniform, niello.CENTER, {{0, 25}, {100, 50}}, {{0, 0}, {400, 200}}},
+		{.Uniform_Fill, niello.CENTER, {{0, 0}, {100, 100}}, {{100, 0}, {200, 200}}},
+		{.Fill, niello.CENTER, {{0, 0}, {100, 100}}, {{0, 0}, {400, 200}}},
+		{.None, niello.CENTER, {{0, 0}, {100, 100}}, {{150, 50}, {100, 100}}},
+		// align moves a letterboxed image, and picks which part a crop keeps.
+		{.Uniform, {.Start, .Start}, {{0, 0}, {100, 50}}, {{0, 0}, {400, 200}}},
+		{.Uniform, {.Start, .End}, {{0, 50}, {100, 50}}, {{0, 0}, {400, 200}}},
+		{.Uniform_Fill, {.Start, .Start}, {{0, 0}, {100, 100}}, {{0, 0}, {200, 200}}},
+		{.Uniform_Fill, {.End, .Start}, {{0, 0}, {100, 100}}, {{200, 0}, {200, 200}}},
+		{.None, {.End, .End}, {{0, 0}, {100, 100}}, {{300, 100}, {100, 100}}},
 	}
 	for c in cases {
 		niello.mint(&img_box, niello.NO_UNIT, {
 			size = niello.Size{niello.fixed(100), niello.fixed(100)},
 			image_fit = c.fit,
+			align = c.align,
 		})
 		niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
 		niello.show(img_box, {image = img}, niello.key("only"))

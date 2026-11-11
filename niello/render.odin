@@ -226,6 +226,11 @@ Text_Run :: struct {
 	font_weight: Font_Weight,
 	font_slant:  Font_Slant,
 	font_color:  Color,
+	// Justified lines (Style.justify) start a run per word: lead is the
+	// word's natural gap before it, widened at emission by the line's
+	// share of the leftover width.
+	lead:       f32,
+	gap_before: bool,
 }
 
 @(private)
@@ -249,6 +254,14 @@ same_run_style :: proc(r: Text_Run, f: Text_Frag, f_color: Color) -> bool {
 emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 	e := get_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text)
 	max_w := r.size.x
+	// A leaf's align places its text: align[0] each line across the
+	// box, align[1] the whole block down it. The block is the leaf's
+	// laid-out content less its padding (its lines, wrapped or not).
+	block_y := f32(0)
+	if !nd.is_container {
+		block_h := g.lay[i].content.y - padding_sum(s, Y_AXIS)
+		block_y = align_offset(s.align[1], r.size.y - block_h)
+	}
 
 	// Shared scratch (state.odin): cleared here, reused for every
 	// text node in this call and every later call — no allocation.
@@ -270,7 +283,11 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 			clear(breaks)
 			append(breaks, [2]int{0, len(seg.words)})
 		}
-		for br in breaks^ {
+		for br, bi in breaks^ {
+			// Justify spreads every wrapped line of a paragraph to the
+			// full width except its last one (and lines of one word).
+			justify := s.justify && s.wrap == .Word && bi < len(breaks^) - 1 && br[1] - br[0] > 1
+			lead_next := f32(-1)
 			// Build merged runs: fragments in word order; inter-word gaps
 			// are attributed to the preceding fragment's style (gaps are
 			// invisible, so color is irrelevant; this keeps runs maximal
@@ -286,8 +303,12 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 				if wi > br[0] {
 					gap := preserve ? w.space_before : e.space_w
 					line_w += gap
-					runs^[len(runs^) - 1].end = w.start
-					runs^[len(runs^) - 1].width += gap
+					if justify {
+						lead_next = gap // the word starts its own run
+					} else {
+						runs^[len(runs^) - 1].end = w.start
+						runs^[len(runs^) - 1].width += gap
+					}
 				}
 				for f in w.frags {
 					line_w += f.width
@@ -297,7 +318,7 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 					// (it is not in the cache key), so a Font_Color write
 					// recolors already-cached text on the next frame.
 					f_color := f.span_color.? or_else s.font_color
-					if len(runs) > 0 && same_run_style(runs^[len(runs^) - 1], f, f_color) && runs^[len(runs^) - 1].end == f.start {
+					if lead_next < 0 && len(runs) > 0 && same_run_style(runs^[len(runs^) - 1], f, f_color) && runs^[len(runs^) - 1].end == f.start {
 						runs^[len(runs^) - 1].end = f.end
 						runs^[len(runs^) - 1].width += f.width
 					} else {
@@ -306,7 +327,9 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 							font = f.font, font_size = f.font_size,
 							font_weight = f.font_weight, font_slant = f.font_slant,
 							font_color = f_color,
+							lead = max(lead_next, 0), gap_before = lead_next >= 0,
 						})
+						lead_next = -1
 					}
 				}
 				if preserve && s.wrap == .None && wi == br[0] &&
@@ -331,12 +354,20 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 				align_w += seg.trailing
 			}
 			x0 := align_offset(s.align[0], max_w - align_w)
+			per_gap := f32(0)
+			if justify {
+				x0 = 0
+				per_gap = max(0, max_w - line_w) / f32(br[1] - br[0] - 1)
+			}
 			if trims {
 				x0 = 0
 			}
-			y := r.pos.y + f32(line_idx) * e.line_h
+			y := r.pos.y + block_y + f32(line_idx) * e.line_h
 			x := x0
 			for rn in runs^ {
+				if rn.gap_before {
+					x += rn.lead + per_gap
+				}
 				if trims {
 					if x >= max_w {
 						break // past the edge; drop the rest
@@ -438,7 +469,10 @@ emit_image :: proc(nd: ^Frame_Node, s: ^Style, r: Rect) {
 		return
 	}
 	src_full := Rect{{crop[0], crop[1]}, {crop[2], crop[3]}}
-	dest, src := image_fit_rects(s.image_fit, src_full, r)
+	// A leaf's align places its image in the content box; a
+	// container's image is its background, centered over the rect.
+	a := nd.is_container ? CENTER : s.align
+	dest, src := image_fit_rects(s.image_fit, src_full, r, a)
 	if dest.size.x <= 0 || dest.size.y <= 0 {
 		return
 	}
@@ -457,7 +491,7 @@ emit_image :: proc(nd: ^Frame_Node, s: ^Style, r: Rect) {
 // intersect, and derive the matching source rect (the
 // Uniform_Fill crop lives here, not in the backend).
 @(private)
-image_fit_rects :: proc(fit: Image_Fit, src_full: Rect, view: Rect) -> (dest: Rect, src: Rect) {
+image_fit_rects :: proc(fit: Image_Fit, src_full: Rect, view: Rect, align: [2]Align_Kind = CENTER) -> (dest: Rect, src: Rect) {
 	sw, sh := src_full.size.x, src_full.size.y
 	if sw <= 0 || sh <= 0 {
 		return {}, {}
@@ -476,15 +510,27 @@ image_fit_rects :: proc(fit: Image_Fit, src_full: Rect, view: Rect) -> (dest: Re
 		scale = {1, 1}
 	}
 	scaled := Vec2{sw * scale.x, sh * scale.y}
-	d := Rect{view.pos + (view.size - scaled) * 0.5, scaled}
+	// align places the scaled image in the viewport, per axis: Start
+	// flush with the top-left, End with the bottom-right. When the image
+	// is larger (Uniform_Fill, None) that picks which part is kept.
+	frac :: proc(a: Align_Kind) -> f32 {
+		switch a {
+		case .Start:  return 0
+		case .Center: return 0.5
+		case .End:    return 1
+		}
+		return 0.5
+	}
+	d := Rect{view.pos + (view.size - scaled) * Vec2{frac(align[0]), frac(align[1])}, scaled}
 	// Intersect with the viewport.
 	x0 := max(d.pos.x, view.pos.x)
 	y0 := max(d.pos.y, view.pos.y)
 	x1 := min(d.pos.x + d.size.x, view.pos.x + view.size.x)
 	y1 := min(d.pos.y + d.size.y, view.pos.y + view.size.y)
 	dest = Rect{{x0, y0}, {max(0, x1 - x0), max(0, y1 - y0)}}
-	// The source sub-rect that lands in dest, centered in src_full.
+	// The source sub-rect that lands in dest: where dest starts within
+	// the placed image, back in source pixels.
 	sub := Vec2{dest.size.x / scale.x, dest.size.y / scale.y}
-	src = Rect{src_full.pos + (src_full.size - sub) * 0.5, sub}
+	src = Rect{src_full.pos + (dest.pos - d.pos) / scale, sub}
 	return dest, src
 }
