@@ -7,6 +7,7 @@
 // §8 struct-of-arrays layout — a mechanical perf pass once the API settles.
 package niello
 
+import "base:intrinsics"
 import "base:runtime"
 
 Unit_Rec :: struct {
@@ -561,11 +562,33 @@ style_of :: proc(u: Unit) -> ^Style {
 // Hashing (FNV-1a; identity = hash(parent_id, unit, key))
 
 str_hash :: proc(s: string) -> u64 {
-	h := u64(14695981039346656037)
-	for b in transmute([]u8)(s) {
-		h = (h ~ u64(b)) * 1099511628211
-	}
+	h, _ := text_scan(s)
 	return h
+}
+
+// text_scan hashes s eight bytes at a time (the length seeds the hash,
+// so a zero-padded tail is unambiguous) and reports whether every byte
+// is ASCII — all-ASCII text is valid UTF-8 without further checks.
+text_scan :: proc(s: string) -> (h: u64, ascii: bool) #no_bounds_check {
+	p := raw_data(s)
+	n := len(s)
+	h = mix64(0x9e3779b97f4a7c15 ~ u64(n))
+	bits := u64(0)
+	i := 0
+	for ; i + 8 <= n; i += 8 {
+		w := intrinsics.unaligned_load((^u64)(&p[i]))
+		bits |= w
+		h = mix64(h ~ w)
+	}
+	if i < n {
+		w := u64(0)
+		for k in 0 ..< n - i {
+			w |= u64(p[i + k]) << (8 * u64(k))
+		}
+		bits |= w
+		h = mix64(h ~ w)
+	}
+	return h, bits & 0x8080808080808080 == 0
 }
 
 hash_mix :: proc(h, v: u64) -> u64 {

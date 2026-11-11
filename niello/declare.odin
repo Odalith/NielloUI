@@ -223,15 +223,6 @@ declare_as :: proc(
 		// demo's rows all rendered the buffer's final contents.)
 		text = copy_frame_text(text)
 	}
-	// Invalid UTF-8 is sanitized at this one boundary (audit
-	// txt-6): nothing downstream validates display text, and the
-	// native replay validator rejects the ENTIRE command stream
-	// over one bad byte — one corrupt label (a file tag, a paste)
-	// blanked the window with no Odin-side diagnostic. Valid
-	// text passes through untouched; invalid sequences become
-	// U+FFFD in a frame-arena copy, whichever source the text
-	// came from (With or the unit's style).
-	text = sanitize_frame_text(text)
 	// Accessibility strings (§3.9) get the same treatment as text:
 	// copied into the frame arena at declare time, so the stored
 	// With borrows arena memory, never caller scratch. The mirror
@@ -262,7 +253,21 @@ declare_as :: proc(
 		// Hash once here; the text cache keys on (font, text_hash) instead
 		// of re-hashing the bytes on every lookup, every frame (Clay hashes
 		// contents for frame-arena-copied text — same requirement, paid once).
-		text_hash = str_hash(text)
+		ascii: bool
+		text_hash, ascii = text_scan(text)
+		// Invalid UTF-8 is sanitized at this one boundary (audit
+		// txt-6): nothing downstream validates display text, and the
+		// native replay validator rejects the ENTIRE command stream
+		// over one bad byte — one corrupt label (a file tag, a paste)
+		// blanked the window with no Odin-side diagnostic. Valid
+		// text passes through untouched; invalid sequences become
+		// U+FFFD in a frame-arena copy, whichever source the text
+		// came from (With or the unit's style). The hash pass already
+		// proved all-ASCII text valid.
+		if !ascii && !utf8.valid_string(text) {
+			text = sanitize_frame_text(text)
+			text_hash = str_hash(text)
+		}
 		spans, spans_hash = resolve_spans(with, style_of(unit))
 	}
 	// The presented-content digest (§5 stamps): three folds over
@@ -357,9 +362,6 @@ copy_frame_text :: proc(text: string) -> string {
 // rewound next frame like every arena gap.
 @(private)
 sanitize_frame_text :: proc(text: string) -> string {
-	if len(text) == 0 || utf8.valid_string(text) {
-		return text
-	}
 	out := frame_text_reserve(3 * len(text))
 	n := 0
 	i := 0
