@@ -29,11 +29,11 @@ page_scrolling :: proc(app: ^App) {
 	niello.show(ui.title, niello.key("t"), {text = "Scrolling"})
 	note("n", "The wheel scrolls the deepest scroller under the cursor; leftover delta chains outward to the next one (this page itself scrolls). Scrollbars are a component: an anchored child reading scroll_offset / scroll_range.")
 
-	if _, ok := niello.begin(ui.card_row, niello.key("lists")); ok {
-		if _, cok := niello.begin(ui.column, niello.key("c1")); cok {
+	if niello.begin(ui.card_row, niello.key("lists")) {
+		if niello.begin(ui.column, niello.key("c1")) {
 			heading("List + nested scroller")
 			scroll_list(s)
-			if _, rok := niello.begin(ui.row, niello.key("jump")); rok {
+			if niello.begin(ui.row, niello.key("jump")) {
 				if niello.clicked(button(niello.key("top"), "Top")) {
 					niello.scroll_to(s.list_i, {0, 0})
 				}
@@ -45,7 +45,7 @@ page_scrolling :: proc(app: ^App) {
 			rng := niello.scroll_range(s.list_i)
 			note("off", fmt.tprintf("offset %.0f of %.0f", off.y, rng.y))
 		}
-		if _, cok := niello.begin(ui.column, niello.key("c2")); cok {
+		if niello.begin(ui.column, niello.key("c2")) {
 			heading("Smooth + overscroll")
 			scroll_smooth(s)
 			note("sm", "smooth_scroll glides each wheel tick; overscroll pulls past the ends with resistance and springs back.")
@@ -56,70 +56,55 @@ page_scrolling :: proc(app: ^App) {
 	}
 }
 
-// Each scroller is its own proc: a begin that is not an if-initializer
-// ends when its enclosing scope does, and a proc is the natural scope.
-
 scroll_list :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	li, ok := niello.begin(S.list, niello.key("list"))
-	s.list_i = li
-	if !ok {
-		return
-	}
-	if _, cok := niello.begin(S.col, niello.key("col")); cok {
-		for k in 0 ..< 6 {
-			niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Row %d", k + 1)})
+	if niello.begin(S.list, niello.key("list"), out = &s.list_i) {
+		if niello.begin(S.col, niello.key("col")) {
+			for k in 0 ..< 6 {
+				niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Row %d", k + 1)})
+			}
+			scroll_inner(s)
+			for k in 6 ..< 30 {
+				niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Row %d", k + 1)})
+			}
 		}
-		scroll_inner(s)
-		for k in 6 ..< 30 {
-			niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Row %d", k + 1)})
-		}
+		niello.show(S.sticky, niello.key("sticky"), {text = "anchored header — does not scroll", anchored = true})
+		scrollbar(&s.list_bar, s.list_i)
 	}
-	niello.show(S.sticky, niello.key("sticky"), {text = "anchored header — does not scroll", anchored = true})
-	scrollbar(&s.list_bar, li)
 }
 
 scroll_inner :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	ii, ok := niello.begin(S.inner, niello.key("inner"))
-	s.inner_i = ii
-	if !ok {
-		return
-	}
-	if _, cok := niello.begin(S.col, niello.key("col")); cok {
-		for k in 0 ..< 12 {
-			niello.show(S.inner_row, niello.key_int(k), {text = fmt.tprintf("Nested row %d — wheel here first", k + 1)})
+	if niello.begin(S.inner, niello.key("inner"), out = &s.inner_i) {
+		if niello.begin(S.col, niello.key("col")) {
+			for k in 0 ..< 12 {
+				niello.show(S.inner_row, niello.key_int(k), {text = fmt.tprintf("Nested row %d — wheel here first", k + 1)})
+			}
 		}
+		scrollbar(&s.inner_bar, s.inner_i)
 	}
-	scrollbar(&s.inner_bar, ii)
 }
 
 scroll_smooth :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	si, ok := niello.begin(S.smooth, niello.key("smooth"))
-	s.smooth_i = si
-	if !ok {
-		return
-	}
-	if _, cok := niello.begin(S.col, niello.key("col")); cok {
-		for k in 0 ..< 30 {
-			niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Glide row %d", k + 1)})
+	if niello.begin(S.smooth, niello.key("smooth"), out = &s.smooth_i) {
+		if niello.begin(S.col, niello.key("col")) {
+			for k in 0 ..< 30 {
+				niello.show(S.row, niello.key_int(k), {text = fmt.tprintf("Glide row %d", k + 1)})
+			}
 		}
+		scrollbar(&s.smooth_bar, s.smooth_i)
 	}
-	scrollbar(&s.smooth_bar, si)
 }
 
 scroll_wide :: proc(s: ^Scrolling_State) {
 	S := &scroll_units
-	wi, ok := niello.begin(S.wide, niello.key("wide"))
-	s.wide_i = wi
-	if !ok {
-		return
+	if niello.begin(S.wide, niello.key("wide"), out = &s.wide_i) {
+		for k in 0 ..< 14 {
+			niello.show(S.wide_row, niello.key_int(k), {text = fmt.tprintf("Tile %d", k + 1)})
+		}
+		scrollbar(&s.wide_bar, s.wide_i)
 	}
-	for k in 0 ..< 14 {
-		niello.show(S.wide_row, niello.key_int(k), {text = fmt.tprintf("Tile %d", k + 1)})
-	}
-	scrollbar(&s.wide_bar, wi)
 }
 
 // =====================================================================
@@ -147,7 +132,7 @@ page_animation :: proc(app: ^App) {
 	niello.show(ui.title, niello.key("t"), {text = "Animation"})
 	note("n", "Writes go through units: tween glides a unit toward another unit's style, group_set with a duration glides a whole group, propagate pushes a prototype's values to the units minted from it, and transient pulses one instance.")
 
-	if _, ok := niello.begin(ui.card, niello.key("tween")); ok {
+	if niello.begin(ui.card, niello.key("tween")) {
 		heading("tween — glide toward a pose unit")
 		if niello.clicked(button(niello.key("glide"), "Glide the box")) {
 			s.box_at_b = !s.box_at_b
@@ -156,9 +141,9 @@ page_animation :: proc(app: ^App) {
 		niello.show(A.box, niello.key("box"))
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("cards")); ok {
+	if niello.begin(ui.card, niello.key("cards")) {
 		heading("propagate, group_set with a duration, transient")
-		if _, rok := niello.begin(ui.row, niello.key("btns")); rok {
+		if niello.begin(ui.row, niello.key("btns")) {
 			if niello.clicked(button(niello.key("prop"), "Next accent (propagate)")) {
 				s.accent_idx = (s.accent_idx + 1) % len(ACCENTS)
 				niello.set(A.card_proto, .Color, ACCENTS[s.accent_idx])
@@ -170,21 +155,19 @@ page_animation :: proc(app: ^App) {
 				niello.group_set(A.accent_group, .Color, ACCENTS[s.accent_idx], 600)
 			}
 		}
-		if _, rok := niello.begin(ui.row, niello.key("cards")); rok {
+		if niello.begin(ui.row, niello.key("cards")) {
 			for k in 0 ..< 3 {
-				ci, cok := niello.begin(A.cards[k], niello.key_int(k), {role = .Button, label = fmt.tprintf("Card %d", k + 1)})
-				s.card_i[k] = ci
-				if cok {
+				if niello.begin(A.cards[k], niello.key_int(k), {role = .Button, label = fmt.tprintf("Card %d", k + 1)}, out = &s.card_i[k]) {
 					niello.show(A.card_text, 0, {text = fmt.tprintf("Card %d — click to flash", k + 1)})
 				}
-				if niello.clicked(ci) {
-					niello.transient(ci, A.flash, 100, 350)
+				if niello.clicked(s.card_i[k]) {
+					niello.transient(s.card_i[k], A.flash, 100, 350)
 				}
 			}
 		}
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("edit")); ok {
+	if niello.begin(ui.card, niello.key("edit")) {
 		heading("edit — bulk changes, diffed at frame end")
 		if niello.clicked(button(niello.key("ed"), "Restyle with edit()")) {
 			s.edit_step += 1
@@ -219,9 +202,9 @@ page_popups :: proc(app: ^App) {
 	niello.show(ui.title, niello.key("t"), {text = "Popups"})
 	note("n", "Popups are overlay roots declared after the main tree. The engine owns no open state: it reports dismiss_requested (click outside, Esc) and the app stops declaring.")
 
-	if _, ok := niello.begin(ui.card, niello.key("menus")); ok {
+	if niello.begin(ui.card, niello.key("menus")) {
 		heading("Menu, dialog, toast")
-		if _, rok := niello.begin(ui.row, niello.key("r")); rok {
+		if niello.begin(ui.row, niello.key("r")) {
 			s.menu_btn_i = button(niello.key("menu"), "Open menu ▾")
 			if niello.clicked(s.menu_btn_i) {
 				s.menu_open = !s.menu_open
@@ -237,7 +220,7 @@ page_popups :: proc(app: ^App) {
 		note("d", "The dialog is modal: outside presses are absorbed, Tab stays inside it, and focus returns to the opener when it closes.")
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("canvas")); ok {
+	if niello.begin(ui.card, niello.key("canvas")) {
 		heading("Context menu")
 		s.canvas_i = niello.show(popup_units.canvas, niello.key("c"), {text = "Click anywhere in this area"})
 		if niello.clicked(s.canvas_i) {
@@ -269,9 +252,7 @@ popups_overlay :: proc(app: ^App) {
 	}
 
 	if s.menu_open {
-		pi, open := niello.begin_popup(ui.menu, s.menu_btn_i, .Below, {gap = 4}, key = niello.key("menu"))
-		s.menu_i = pi
-		if open {
+		if niello.begin_popup(ui.menu, s.menu_btn_i, .Below, key = niello.key("menu"), opts = {gap = 4}, out = &s.menu_i) {
 			for text, k in ([]string{"New", "Open…", "Save", "Save as…"}) {
 				if menu_item(niello.key_int(k), text) {
 					status_set(&app.status, "Menu: %s", text)
@@ -281,9 +262,7 @@ popups_overlay :: proc(app: ^App) {
 		}
 	}
 	if s.ctx_open {
-		pi, open := niello.begin_popup(ui.menu, 0, .At, {at = s.ctx_at}, key = niello.key("ctx"))
-		s.ctx_menu_i = pi
-		if open {
+		if niello.begin_popup(ui.menu, 0, .At, key = niello.key("ctx"), opts = {at = s.ctx_at}, out = &s.ctx_menu_i) {
 			for text, k in ([]string{"Cut", "Copy", "Paste"}) {
 				if menu_item(niello.key_int(k), text) {
 					status_set(&app.status, "Context menu: %s at (%.0f, %.0f)", text, s.ctx_at.x, s.ctx_at.y)
@@ -293,13 +272,11 @@ popups_overlay :: proc(app: ^App) {
 		}
 	}
 	if s.dlg_open {
-		if _, bok := niello.begin_popup(ui.backdrop, 0, .At, {stay = true}, key = niello.key("backdrop")); bok {}
-		pi, open := niello.begin_popup(ui.dialog, 0, .Center, {modal = true}, key = niello.key("dialog"))
-		s.dlg_i = pi
-		if open {
+		if niello.begin_popup(ui.backdrop, 0, .At, key = niello.key("backdrop"), opts = {stay = true}) {}
+		if niello.begin_popup(ui.dialog, 0, .Center, key = niello.key("dialog"), opts = {modal = true}, out = &s.dlg_i) {
 			niello.show(ui.title, niello.key("t"), {text = "Discard changes?"})
 			note("b", "Tab cycles between the buttons; Esc or a click on the backdrop cancels.")
-			if _, rok := niello.begin(ui.row, niello.key("btns")); rok {
+			if niello.begin(ui.row, niello.key("btns")) {
 				if niello.clicked(button(niello.key("discard"), "Discard", .Danger)) {
 					s.dlg_open = false
 					status_set(&app.status, "Dialog: discarded")
@@ -319,7 +296,7 @@ popups_overlay :: proc(app: ^App) {
 			// The engine sleeps when nothing changes; ask for the frame
 			// that hides the toast.
 			niello.wake_in(u32(time.duration_milliseconds(left)) + 1)
-			if _, open := niello.begin_popup(popup_units.toast, 0, .At, {stay = true, at = {24, 24}}, key = niello.key("toast")); open {
+			if niello.begin_popup(popup_units.toast, 0, .At, key = niello.key("toast"), opts = {stay = true, at = {24, 24}}) {
 				niello.show(ui.btn_label_on, 0, {text = s.toast})
 			}
 		}
@@ -327,8 +304,8 @@ popups_overlay :: proc(app: ^App) {
 }
 
 menu_item :: proc(key: niello.Key, text: string) -> bool {
-	i, open := niello.begin(ui.menu_item, key, {role = .MenuItem, label = text})
-	if open {
+	i: niello.Instance
+	if niello.begin(ui.menu_item, key, {role = .MenuItem, label = text}, out = &i) {
 		niello.show(ui.body, 0, {text = text})
 	}
 	return niello.clicked(i)
@@ -359,13 +336,13 @@ page_drag :: proc(app: ^App) {
 	niello.show(ui.title, niello.key("t"), {text = "Drag"})
 	note("n", "A drag is a phase of a press: past 4 DIP the press becomes a drag, reported by dragging / drag_started / drag_ended with drag_delta, drag_total and drag_pos.")
 
-	if _, ok := niello.begin(ui.card, niello.key("slider")); ok {
+	if niello.begin(ui.card, niello.key("slider")) {
 		heading("Slider (press to seek, drag to scrub, arrows when focused)")
 		slider(&s.volume, niello.key("vol"), "Volume")
 		note("v", fmt.tprintf("value %.0f%%", s.volume.value * 100))
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("split")); ok {
+	if niello.begin(ui.card, niello.key("split")) {
 		heading("Splitter")
 		if niello.drag_started(s.divider_i) {
 			s.split_grab = s.split_w
@@ -374,20 +351,19 @@ page_drag :: proc(app: ^App) {
 			s.split_w = clamp(s.split_grab + niello.drag_total().x, 80, 600)
 		}
 		niello.set(D.left, .Size, sz(fixed(s.split_w), grow()))
-		if _, rok := niello.begin(D.split_row, niello.key("row")); rok {
-			if _, lok := niello.begin(D.left, niello.key("l")); lok {
+		if niello.begin(D.split_row, niello.key("row")) {
+			if niello.begin(D.left, niello.key("l")) {
 				note("l", fmt.tprintf("left pane, %.0f DIP", s.split_w))
 			}
-			if di, dok := niello.begin(D.divider, niello.key("div")); dok {
-				s.divider_i = di
+			if niello.begin(D.divider, niello.key("div"), out = &s.divider_i) {
 			}
-			if _, rok2 := niello.begin(D.right, niello.key("r")); rok2 {
+			if niello.begin(D.right, niello.key("r")) {
 				note("r", "right pane (grow)")
 			}
 		}
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("free")); ok {
+	if niello.begin(ui.card, niello.key("free")) {
 		heading("Free drag")
 		if niello.drag_started(s.chip_i) {
 			s.chip_grab = s.chip_pos
@@ -409,10 +385,8 @@ page_drag :: proc(app: ^App) {
 
 drag_area :: proc(s: ^Drag_State) {
 	D := &drag_units
-	ai, ok := niello.begin(D.area, niello.key("area"))
-	s.area_i = ai
-	if ok {
-		if _, sok := niello.begin(D.chip_slot, niello.key("slot")); sok {
+	if niello.begin(D.area, niello.key("area"), out = &s.area_i) {
+		if niello.begin(D.chip_slot, niello.key("slot")) {
 			s.chip_i = niello.show(D.chip, niello.key("chip"), {text = "drag me", role = .Thumb, label = "Draggable chip"})
 		}
 	}
@@ -433,11 +407,8 @@ drag_overlay :: proc(app: ^App) {
 	if niello.dragging(s.header_i) && !niello.dragging(s.close_i) {
 		s.dlg_pos = s.dlg_grab + niello.drag_total()
 	}
-	pi, open := niello.begin_popup(D.dlg, 0, .At, {at = s.dlg_pos, stay = true}, key = niello.key("dragdlg"))
-	s.dlg_i = pi
-	if open {
-		if hi, hok := niello.begin(D.dlg_header, niello.key("hdr")); hok {
-			s.header_i = hi
+	if niello.begin_popup(D.dlg, 0, .At, key = niello.key("dragdlg"), opts = {at = s.dlg_pos, stay = true}, out = &s.dlg_i) {
+		if niello.begin(D.dlg_header, niello.key("hdr"), out = &s.header_i) {
 			niello.show(ui.heading, 0, {text = "Drag me by the header"})
 			niello.show(shell.spacer)
 			s.close_i = button(niello.key("x"), "Close")
@@ -485,31 +456,31 @@ page_images :: proc(app: ^App) {
 		note("fail", "The test image did not decode (no backend?) — nothing to show.")
 		return
 	}
-	if _, ok := niello.begin(ui.card, niello.key("fits")); ok {
+	if niello.begin(ui.card, niello.key("fits")) {
 		heading("Fit modes — a 480x320 image in 180x120 boxes")
-		if _, rok := niello.begin(ui.row, niello.key("r")); rok {
+		if niello.begin(ui.row, niello.key("r")) {
 			for k in 0 ..< 4 {
-				if _, cok := niello.begin(ui.column, niello.key_int(k)); cok {
+				if niello.begin(ui.column, niello.key_int(k)) {
 					niello.show(I.fits[k], 0, {image = s.hero})
 					niello.show(I.caption, 0, {text = FIT_NAMES[k]})
 				}
 			}
 		}
 	}
-	if _, ok := niello.begin(ui.card, niello.key("variants")); ok {
+	if niello.begin(ui.card, niello.key("variants")) {
 		heading("One unit, per-instance images: full, crop, decode-to-120")
-		if _, rok := niello.begin(ui.row, niello.key("r")); rok {
+		if niello.begin(ui.row, niello.key("r")) {
 			niello.show(I.strip, niello.key("a"), {image = s.hero})
 			niello.show(I.strip, niello.key("b"), {image = s.crop})
 			niello.show(I.strip, niello.key("c"), {image = s.thumb})
 		}
 		heading("Interpolation (crop upscaled): high vs none")
-		if _, rok := niello.begin(ui.row, niello.key("interp")); rok {
+		if niello.begin(ui.row, niello.key("interp")) {
 			niello.show(I.smooth, niello.key("hi"), {image = s.crop})
 			niello.show(I.nearest, niello.key("no"), {image = s.crop})
 		}
 		heading("Background image behind children")
-		if _, bok := niello.begin(I.bg, niello.key("bg"), {image = s.hero}); bok {
+		if niello.begin(I.bg, niello.key("bg"), {image = s.hero}) {
 			niello.show(ui.btn_label_on, 0, {text = "a container paints its image first"})
 		}
 	}
@@ -618,10 +589,10 @@ page_async :: proc(app: ^App) {
 	s := &app.async
 	niello.show(ui.title, niello.key("t"), {text = "Async & windows"})
 
-	if _, ok := niello.begin(ui.card, niello.key("job")); ok {
+	if niello.begin(ui.card, niello.key("job")) {
 		heading("Background work through an inbox")
 		note("n", "A worker thread sends progress into an inbox; send wakes the UI, and the app drains the inbox once per frame before declaring. Nothing touches app state between drains.")
-		if _, rok := niello.begin(ui.row, niello.key("r")); rok {
+		if niello.begin(ui.row, niello.key("r")) {
 			if niello.clicked(button(niello.key("start"), "Start job", .Primary, disabled = s.running)) {
 				async_start(s)
 			}
@@ -634,7 +605,7 @@ page_async :: proc(app: ^App) {
 		progress_bar(&s.progress, niello.key("bar"), "Job progress")
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("clock")); ok {
+	if niello.begin(ui.card, niello.key("clock")) {
 		heading("Timers: wake_in")
 		note("n", "The loop sleeps at ~0% CPU when nothing changes. A ticking readout asks for its next frame with wake_in.")
 		if toggle(niello.key("clk"), "Run the clock", &s.clock_on) && s.clock_on {
@@ -649,7 +620,7 @@ page_async :: proc(app: ^App) {
 		}
 	}
 
-	if _, ok := niello.begin(ui.card, niello.key("win")); ok {
+	if niello.begin(ui.card, niello.key("win")) {
 		heading("Windows")
 		note("n", "A second window has its own context; units and groups are global, so the theme switch reaches it too. It reads this window's committed tree with the cross-context API (rect_in, instance_count).")
 		if niello.clicked(button(niello.key("insp"), s.insp.open ? "Inspector is open" : "Open inspector window", .Normal, disabled = s.insp.open)) {
@@ -680,7 +651,7 @@ inspector_open :: proc(app: ^App) {
 
 declare_inspector :: proc(s: ^Inspector) {
 	app := s.main
-	if _, ok := niello.begin(inspector_units.root); ok {
+	if niello.begin(inspector_units.root) {
 		niello.show(ui.title, 0, {text = "Inspector"})
 		niello.show(ui.body, niello.key("n"), {text = fmt.tprintf("main window: %d instances, page %s", niello.instance_count(app.ctx), PAGE_NAMES[app.page])})
 		if r, rok := niello.rect_in(app.ctx, app.content_i); rok {

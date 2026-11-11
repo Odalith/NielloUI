@@ -154,7 +154,7 @@ mint_units :: proc() {
 
 // A label centered in its box (the box's align does the centering).
 box :: proc(u: niello.Unit, key: string, text: string) {
-	if _, ok := niello.begin(u, niello.key(key)); ok {
+	if niello.begin(u, niello.key(key)) {
 		niello.show(lbl_u, niello.key(key), {text = text})
 	}
 }
@@ -164,37 +164,37 @@ hdr :: proc(key, text: string) {
 }
 
 declare :: proc() {
-	if _, ok := niello.begin(window_u); ok {
+	if niello.begin(window_u) {
 		niello.show(title_u, niello.key("title"), {text = "Layout gallery — NielloUI"})
 
 		hdr("h1", "1 · Row (Left_To_Right) — Fixed, Fit, Grow")
-		if _, ok := niello.begin(row1); ok {
+		if niello.begin(row1) {
 			box(b_fixed, "b1", "Fixed 120")
 			box(b_fit, "b2", "Fit")
 			box(b_grow, "b3", "Grow — takes what's left")
 		}
 
 		hdr("h2", "2 · Row — Grow split and Percent")
-		if _, ok := niello.begin(row2); ok {
+		if niello.begin(row2) {
 			box(g1, "g1", "Grow")
 			box(g2, "g2", "Grow")
 			box(pc, "pc", "Percent 25%")
 		}
 
 		hdr("h3", "3 · Column (Top_To_Bottom) in a fixed-height band")
-		if _, ok := niello.begin(col1); ok {
+		if niello.begin(col1) {
 			box(c_fixed, "c1", "Fixed 30")
 			box(c_fit, "c2", "Fit")
 			box(c_grow, "c3", "Grow — fills the band")
 		}
 
 		hdr("h4", "4 · Nesting — a Row of two Columns")
-		if _, ok := niello.begin(row3); ok {
-			if _, ok := niello.begin(colA); ok {
+		if niello.begin(row3) {
+			if niello.begin(colA) {
 				box(a1, "a1", "A1 (Grow)")
 				box(a2, "a2", "A2 (Grow)")
 			}
-			if _, ok := niello.begin(colB); ok {
+			if niello.begin(colB) {
 				box(bb1, "bb1", "B1 (Fixed)")
 				box(bb2, "bb2", "B2 (Grow)")
 				box(bb3, "bb3", "B3 (Fixed)")
@@ -202,13 +202,13 @@ declare :: proc() {
 		}
 
 		hdr("h5", "5 · Stack — children overlap, each resolved against the full box")
-		if _, ok := niello.begin(stack1); ok {
+		if niello.begin(stack1) {
 			box(back, "back", "Back (Grow)")
 			box(front, "front", "Front (Fixed, End-aligned)")
 		}
 
 		hdr("h6", "6 · Alignment — Align Center / Center")
-		if _, ok := niello.begin(row4); ok {
+		if niello.begin(row4) {
 			box(mid, "mid", "Centered")
 		}
 	}

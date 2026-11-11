@@ -95,18 +95,18 @@ hdr :: proc(key, text: string) {
 }
 
 fit_cell :: proc(u: niello.Unit, key, caption: string) {
-	if _, ok := niello.begin(col_u, niello.key(key)); ok {
+	if niello.begin(col_u, niello.key(key)) {
 		niello.show(u, niello.key(key), {image = hero})
 		niello.show(lbl_u, niello.key(key), {text = caption})
 	}
 }
 
 declare :: proc() {
-	if _, ok := niello.begin(window_u); ok {
+	if niello.begin(window_u) {
 		niello.show(title_u, niello.key("title"), {text = "Images — NielloUI"})
 
 		hdr("h1", "Fit modes — the 480x320 pattern in 196x130 boxes")
-		if _, ok := niello.begin(row_u, niello.key("fits")); ok {
+		if niello.begin(row_u, niello.key("fits")) {
 			fit_cell(fit_uniform, "c1", "Uniform (letterbox)")
 			fit_cell(fit_fill, "c2", "Fill (distort)")
 			fit_cell(fit_ufill, "c3", "Uniform_Fill (crop)")
@@ -114,20 +114,20 @@ declare :: proc() {
 		}
 
 		hdr("h2", "One unit, per-instance images (With.image) — full, crop, decode-to-120")
-		if _, ok := niello.begin(col_u, niello.key("rows")); ok {
+		if niello.begin(col_u, niello.key("rows")) {
 			niello.show(thumb_u, niello.key("r1"), {image = hero})
 			niello.show(thumb_u, niello.key("r2"), {image = hero_crop})
 			niello.show(thumb_u, niello.key("r3"), {image = hero_tiny})
 		}
 
 		hdr("h3", "Interpolation — the 120x120 checkerboard crop, upscaled: cubic vs nearest")
-		if _, ok := niello.begin(row_u, niello.key("interp")); ok {
+		if niello.begin(row_u, niello.key("interp")) {
 			niello.show(interp_hi, niello.key("hi"), {image = hero_crop})
 			niello.show(interp_no, niello.key("no"), {image = hero_crop})
 		}
 
 		hdr("h4", "Background image — a container with text over it")
-		if _, ok := niello.begin(bg_u, niello.key("bg"), {image = hero}); ok {
+		if niello.begin(bg_u, niello.key("bg"), {image = hero}) {
 			niello.show(lbl_u, niello.key("bgt"), {text = "painted by the container, behind its children"})
 		}
 	}

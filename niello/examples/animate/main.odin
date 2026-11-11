@@ -122,18 +122,19 @@ mint :: proc() {
 	niello.set(btn_u, .Color, DARK_SURFACE)
 }
 
-button :: proc(key: string, text: string) -> niello.Instance {
-	i, _ := niello.begin(btn_u, niello.key(key))
-	niello.show(btn_label_u, 0, {text = text})
-	return i
+button :: proc(key: string, text: string) -> (i: niello.Instance) {
+	if niello.begin(btn_u, niello.key(key), out = &i) {
+		niello.show(btn_label_u, 0, {text = text})
+	}
+	return
 }
 
 declare :: proc() {
-	if _, ok := niello.begin(window_u); ok {
+	if niello.begin(window_u) {
 		niello.show(title_u, niello.key("title"), {text = "Animate — tweens, propagate, transients"})
 		niello.show(hint_u, niello.key("hint"), {text = "Theme crossfades via group_tween. Accent cycles the card proto + propagate. Click a card for a transient flash."})
 
-		if _, ok2 := niello.begin(row_u, niello.key("controls")); ok2 {
+		if niello.begin(row_u, niello.key("controls")) {
 			theme_i := button("theme", "Crossfade theme")
 			if niello.clicked(theme_i) {
 				dark = !dark
@@ -154,10 +155,9 @@ declare :: proc() {
 			}
 		}
 
-		if _, ok3 := niello.begin(row_u, niello.key("cards")); ok3 {
+		if niello.begin(row_u, niello.key("cards")) {
 			for k in 0 ..< 3 {
-				if ci, ok4 := niello.begin(card_units[k], niello.key_int(k)); ok4 {
-					card_inst[k] = ci
+				if niello.begin(card_units[k], niello.key_int(k), out = &card_inst[k]) {
 					niello.show(card_title_u, 0, {text = fmt.tprintf("Card %d", k + 1)})
 					niello.show(card_body_u, 0, {text = "Minted from the proto. Click me."})
 				}
@@ -167,7 +167,7 @@ declare :: proc() {
 			}
 		}
 
-		if _, ok5 := niello.begin(row_u, niello.key("boxrow")); ok5 {
+		if niello.begin(row_u, niello.key("boxrow")) {
 			niello.show(box_u, niello.key("box"))
 		}
 

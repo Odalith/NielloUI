@@ -231,7 +231,7 @@ Button_Kind :: enum {
 	Danger,
 }
 
-button :: proc(key: niello.Key, text: string, kind := Button_Kind.Normal, disabled := false) -> niello.Instance {
+button :: proc(key: niello.Key, text: string, kind := Button_Kind.Normal, disabled := false) -> (i: niello.Instance) {
 	unit := ui.btn
 	label := ui.btn_label
 	switch kind {
@@ -241,11 +241,10 @@ button :: proc(key: niello.Key, text: string, kind := Button_Kind.Normal, disabl
 	case .Danger:
 		unit, label = ui.btn_danger, ui.btn_label_on
 	}
-	i, open := niello.begin(unit, key, {disabled = disabled, role = .Button, label = text})
-	if open {
+	if niello.begin(unit, key, {disabled = disabled, role = .Button, label = text}, out = &i) {
 		niello.show(label, 0, {text = text})
 	}
-	return i
+	return
 }
 
 // toggle is a button whose "on" state is a variant overlay: the same
@@ -255,8 +254,8 @@ toggle :: proc(key: niello.Key, text: string, on: ^bool) -> bool {
 	if on^ {
 		w.variant = ui.btn_on
 	}
-	i, open := niello.begin(ui.btn, key, w)
-	if open {
+	i: niello.Instance
+	if niello.begin(ui.btn, key, w, out = &i) {
 		niello.show(on^ ? ui.btn_label_on : ui.btn_label, 0, {text = text})
 	}
 	if niello.clicked(i) {
@@ -267,10 +266,9 @@ toggle :: proc(key: niello.Key, text: string, on: ^bool) -> bool {
 }
 
 checkbox :: proc(key: niello.Key, text: string, checked: ^bool) -> bool {
-	i, open := niello.begin(ui.check_row, key, {
-		role = .CheckBox, label = text, a11y_flags = checked^ ? {.Checked} : {},
-	})
-	if open {
+	w := niello.With{role = .CheckBox, label = text, a11y_flags = checked^ ? {.Checked} : {}}
+	i: niello.Instance
+	if niello.begin(ui.check_row, key, w, out = &i) {
 		box_w := niello.With{text = checked^ ? "✓" : ""}
 		if checked^ {
 			box_w.variant = ui.check_box_on
@@ -327,13 +325,12 @@ slider :: proc(s: ^Slider, key: niello.Key, label: string) -> bool {
 		}
 	}
 	niello.set(s.fill, .Size, sz(percent(s.value), percent(1)))
-	i, open := niello.begin(ui.track, key, {
+	w := niello.With{
 		focusable = true, role = .Slider, label = label,
 		value = niello.A11y_Value{num = s.value * 100, has_num = true, min = 0, max = 100},
-	})
-	s.inst = i
-	if open {
-		if _, fok := niello.begin(s.fill, 0); fok {}
+	}
+	if niello.begin(ui.track, key, w, out = &s.inst) {
+		if niello.begin(s.fill) {}
 	}
 	return changed
 }
@@ -344,11 +341,12 @@ progress_bar :: proc(s: ^Slider, key: niello.Key, label: string) {
 		niello.mint(&s.fill, niello.NO_UNIT, {color = SUCCESS, corner_radius = 11})
 	}
 	niello.set(s.fill, .Size, sz(percent(s.value), percent(1)))
-	if _, open := niello.begin(ui.track, key, {
+	w := niello.With{
 		role = .ProgressBar, label = label,
 		value = niello.A11y_Value{num = s.value * 100, has_num = true, min = 0, max = 100},
-	}); open {
-		if _, fok := niello.begin(s.fill, 0); fok {}
+	}
+	if niello.begin(ui.track, key, w) {
+		if niello.begin(s.fill) {}
 	}
 }
 
@@ -438,25 +436,23 @@ text_field_input :: proc(f: ^Text_Field) -> (submitted: bool) {
 }
 
 text_field :: proc(f: ^Text_Field, key: niello.Key, placeholder: string) {
-	i, open := niello.begin(ui.field, key, {role = .Edit, label = placeholder, value = {text = string(f.buf[:])}})
-	f.inst = i
-	if !open {
-		return
-	}
-	focused := niello.focused(i)
-	switch {
-	case len(f.buf) == 0 && !focused:
-		niello.show(ui.placeholder, niello.key_int(1), {text = placeholder})
-	case focused:
-		if f.caret > 0 {
-			niello.show(ui.field_text, niello.key_int(1), {text = string(f.buf[:f.caret])})
+	w := niello.With{role = .Edit, label = placeholder, value = {text = string(f.buf[:])}}
+	if niello.begin(ui.field, key, w, out = &f.inst) {
+		focused := niello.focused(f.inst)
+		switch {
+		case len(f.buf) == 0 && !focused:
+			niello.show(ui.placeholder, niello.key_int(1), {text = placeholder})
+		case focused:
+			if f.caret > 0 {
+				niello.show(ui.field_text, niello.key_int(1), {text = string(f.buf[:f.caret])})
+			}
+			niello.show(ui.caret, niello.key_int(2))
+			if f.caret < len(f.buf) {
+				niello.show(ui.field_text, niello.key_int(3), {text = string(f.buf[f.caret:])})
+			}
+		case:
+			niello.show(ui.field_text, niello.key_int(1), {text = string(f.buf[:])})
 		}
-		niello.show(ui.caret, niello.key_int(2))
-		if f.caret < len(f.buf) {
-			niello.show(ui.field_text, niello.key_int(3), {text = string(f.buf[f.caret:])})
-		}
-	case:
-		niello.show(ui.field_text, niello.key_int(1), {text = string(f.buf[:])})
 	}
 }
 
@@ -475,7 +471,7 @@ tooltip :: proc(anchor: niello.Instance, text: string) {
 	if anchor == 0 || niello.hover_duration(anchor) < TOOLTIP_DELAY {
 		return
 	}
-	if _, open := niello.begin_popup(ui.tooltip, anchor, .Below, {gap = 6, stay = true}, key = niello.Key(u64(anchor))); open {
+	if niello.begin_popup(ui.tooltip, anchor, .Below, key = niello.Key(u64(anchor)), opts = {gap = 6, stay = true}) {
 		niello.show(ui.tooltip_text, 0, {text = text})
 	}
 }
@@ -584,8 +580,7 @@ scrollbar :: proc(sb: ^Scrollbar, scroller: niello.Instance) {
 		niello.set(sb.spacer_u, .Size, sz(fixed(pos), fixed(0)))
 		niello.set(sb.thumb_u, .Size, sz(fixed(thumb), grow()))
 	}
-	if si, ok := niello.begin(sb.strip_u, 0, {anchored = true}); ok {
-		sb.strip_i = si
+	if niello.begin(sb.strip_u, 0, {anchored = true}, out = &sb.strip_i) {
 		niello.show(sb.spacer_u)
 		sb.thumb_i = niello.show(sb.thumb_u)
 	} else {

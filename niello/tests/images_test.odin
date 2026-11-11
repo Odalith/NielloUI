@@ -209,7 +209,7 @@ test_image_intrinsic_and_with :: proc(t: ^testing.T) {
 	niello.mint(&img_row, niello.NO_UNIT, {layout = niello.Layout.Left_To_Right})
 	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
 	inst: niello.Instance
-	if _, open := niello.begin(img_row); open {
+	if niello.begin(img_row) {
 		inst = niello.show(img_leaf)
 	}
 	niello.frame_end()
@@ -221,7 +221,7 @@ test_image_intrinsic_and_with :: proc(t: ^testing.T) {
 	// images via With — each FITs its own image.
 	niello.frame_begin(ctx, niello.Input{viewport = {800, 600}}, 0.016)
 	ia, ib: niello.Instance
-	if _, open := niello.begin(img_row); open {
+	if niello.begin(img_row) {
 		ia = niello.show(img_leaf, niello.key("a"))
 		ib = niello.show(img_leaf, niello.key("b"), {image = small})
 	}

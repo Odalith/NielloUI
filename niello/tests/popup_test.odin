@@ -63,22 +63,26 @@ pp_declare :: proc() {
 		pp_open = false
 		pp_modal = false
 	}
-	if _, ok := niello.begin(pp_root_u); ok {
+	if niello.begin(pp_root_u) {
 		pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(1))
 		pp_under_i = niello.show(pp_under_u, niello.key_int(2))
 	}
 	if pp_open {
-		if pi, ok := niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7)); ok {
-			pp_popup_i = pi
+		if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), out = &pp_popup_i) {
 			for k in 0 ..< 3 {
 				pp_item_i[k] = niello.show(pp_item_u, niello.key_int(k + 1))
 			}
 		}
 	}
 	if pp_modal {
-		if pi, ok := niello.begin_popup(pp_dialog_u, pp_anchor_i, .At,
-			{modal = true, stay = pp_modal_stay, at = niello.Vec2{100, 80}}, key = niello.key_int(9)); ok {
-			pp_popup_i = pi
+		if niello.begin_popup(
+			pp_dialog_u,
+			pp_anchor_i,
+			.At,
+			key = niello.key_int(9),
+			opts = {modal = true, stay = pp_modal_stay, at = niello.Vec2{100, 80}},
+			out = &pp_popup_i,
+		) {
 			pp_ok_i = niello.show(pp_ok_u, niello.key_int(1))
 			pp_cancel_i = niello.show(pp_cancel_u, niello.key_int(2))
 		}
@@ -204,10 +208,10 @@ test_popup_anchor_gone_does_not_open :: proc(t: ^testing.T) {
 	// Never declare the main tree: the anchor has no committed rect.
 	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
 	opened := true
-	if _, ok := niello.begin(pp_root_u); ok {
+	if niello.begin(pp_root_u) {
 		// (anchor deliberately not shown)
 	}
-	if _, ok := niello.begin_popup(pp_menu_u, 424242, .Below); ok {
+	if niello.begin_popup(pp_menu_u, 424242, .Below) {
 		opened = true
 	} else {
 		opened = false
@@ -267,8 +271,7 @@ test_popup_placement_center :: proc(t: ^testing.T) {
 	pp_popup_i = 0
 	frame_c :: proc() {
 		niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
-		if pi, ok := niello.begin_popup(pp_menu_u, 0, .Center, key = niello.key_int(7)); ok {
-			pp_popup_i = pi
+		if niello.begin_popup(pp_menu_u, 0, .Center, key = niello.key_int(7), out = &pp_popup_i) {
 			for k in 0 ..< 3 {
 				niello.show(pp_item_u, niello.key_int(k + 1))
 			}
@@ -319,12 +322,11 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 	// A toast: stay = true. Declared via a local pattern — reuse the
 	// menu but keep it open manually.
 	niello.frame_begin(niello.test_context(), pp_idle(), 0.016)
-	if _, ok := niello.begin(pp_root_u); ok {
+	if niello.begin(pp_root_u) {
 		niello.show(pp_anchor_u, niello.key_int(1))
 		niello.show(pp_under_u, niello.key_int(2))
 	}
-	if pi, ok := niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, {stay = true}, key = niello.key_int(7)); ok {
-		pp_popup_i = pi
+	if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), opts = {stay = true}, out = &pp_popup_i) {
 		niello.show(pp_item_u, niello.key_int(1))
 	}
 	niello.frame_end()
@@ -333,12 +335,11 @@ test_popup_stay_ignores_outside_press :: proc(t: ^testing.T) {
 	if pp_popup_i != 0 && niello.dismiss_requested(pp_popup_i) {
 		pp_dismiss_seen = true
 	}
-	if _, ok := niello.begin(pp_root_u); ok {
+	if niello.begin(pp_root_u) {
 		niello.show(pp_anchor_u, niello.key_int(1))
 		niello.show(pp_under_u, niello.key_int(2))
 	}
-	if pi, ok := niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, {stay = true}, key = niello.key_int(7)); ok {
-		pp_popup_i = pi
+	if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), opts = {stay = true}, out = &pp_popup_i) {
 		niello.show(pp_item_u, niello.key_int(1))
 	}
 	niello.frame_end()
@@ -353,23 +354,27 @@ pp_spacer_u: niello.Unit
 pp_flip_mode: int // 0 = Below a bottom anchor, 1 = At a corner point
 
 pp_flip_declare :: proc() {
-	if _, ok := niello.begin(pp_root_u); ok {
+	if niello.begin(pp_root_u) {
 		if pp_flip_mode == 0 {
 			niello.show(pp_spacer_u, niello.key_int(1))
 		}
 		pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(2))
 	}
 	if pp_flip_mode == 0 {
-		if pi, ok := niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7)); ok {
-			pp_popup_i = pi
+		if niello.begin_popup(pp_menu_u, pp_anchor_i, .Below, key = niello.key_int(7), out = &pp_popup_i) {
 			for k in 0 ..< 3 {
 				niello.show(pp_item_u, niello.key_int(k + 1))
 			}
 		}
 	} else {
-		if pi, ok := niello.begin_popup(pp_menu_u, pp_anchor_i, .At,
-			{at = niello.Vec2{390, 290}}, key = niello.key_int(7)); ok {
-			pp_popup_i = pi
+		if niello.begin_popup(
+			pp_menu_u,
+			pp_anchor_i,
+			.At,
+			key = niello.key_int(7),
+			opts = {at = niello.Vec2{390, 290}},
+			out = &pp_popup_i,
+		) {
 			for k in 0 ..< 3 {
 				niello.show(pp_item_u, niello.key_int(k + 1))
 			}
@@ -419,12 +424,17 @@ test_popup_placement_flips_and_clamps :: proc(t: ^testing.T) {
 pp_at_pt: niello.Vec2
 
 pp_at_declare :: proc() {
-	if _, ok := niello.begin(pp_root_u); ok {
+	if niello.begin(pp_root_u) {
 		pp_anchor_i = niello.show(pp_anchor_u, niello.key_int(2))
 	}
-	if pi, ok := niello.begin_popup(pp_menu_u, pp_anchor_i, .At,
-		{at = pp_at_pt}, key = niello.key_int(7)); ok {
-		pp_popup_i = pi
+	if niello.begin_popup(
+		pp_menu_u,
+		pp_anchor_i,
+		.At,
+		key = niello.key_int(7),
+		opts = {at = pp_at_pt},
+		out = &pp_popup_i,
+	) {
 		for k in 0 ..< 3 {
 			niello.show(pp_item_u, niello.key_int(k + 1))
 		}
@@ -474,12 +484,12 @@ test_modal_without_candidates_contains_keyboard :: proc(t: ^testing.T) {
 
 	field_i, anchor_i: niello.Instance
 	declare_mk :: proc(root, field, dialog, label: niello.Unit, field_i, anchor_i: ^niello.Instance, modal: bool) {
-		if _, ok := niello.begin(root); ok {
+		if niello.begin(root) {
 			field_i^ = niello.show(field, niello.key_int(1))
 			anchor_i^ = niello.show(field, niello.key_int(2))
 		}
 		if modal {
-			if _, ok := niello.begin_popup(dialog, anchor_i^, .At, {modal = true, at = niello.Vec2{100, 80}}, niello.key_int(9)); ok {
+			if niello.begin_popup(dialog, anchor_i^, .At, key = niello.key_int(9), opts = {modal = true, at = niello.Vec2{100, 80}}) {
 				niello.show(label)
 			}
 		}

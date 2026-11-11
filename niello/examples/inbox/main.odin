@@ -211,12 +211,11 @@ mint :: proc() {
 	niello.mint(&player_u, niello.NO_UNIT, {font_size = 14, font_color = ACCENT})
 }
 
-button :: proc(key: string, label: string) -> niello.Instance {
-	i, open := niello.begin(btn_u, niello.key(key))
-	if open {
+button :: proc(key: string, label: string) -> (i: niello.Instance) {
+	if niello.begin(btn_u, niello.key(key), out = &i) {
 		niello.show(btn_label_u, 0, {text = label})
 	}
-	return i
+	return
 }
 
 declare :: proc() {
@@ -224,10 +223,10 @@ declare :: proc() {
 	if model.playing {
 		niello.wake_in(250) // the seek readout stays fresh only while playing
 	}
-	if _, ok := niello.begin(window_u); ok {
+	if niello.begin(window_u) {
 		niello.show(title_u)
 		niello.show(hint_u)
-		if _, ok2 := niello.begin(row_u, niello.key("buttons")); ok2 {
+		if niello.begin(row_u, niello.key("buttons")) {
 			index_i = button("index", model.indexing ? "Indexing…" : "Index library")
 			cancel_i = button("cancel", "Cancel")
 			play_i = button("play", model.playing ? "Pause" : "Play")

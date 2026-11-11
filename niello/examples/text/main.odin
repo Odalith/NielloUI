@@ -143,13 +143,13 @@ mint :: proc() {
 
 section :: proc(heading: string, body: proc()) {
 	niello.show(head_u, 0, {text = heading})
-	if _, open := niello.begin(card_u); open {
+	if niello.begin(card_u) {
 		body()
 	}
 }
 
 declare :: proc() {
-	if _, open := niello.begin(window_u); open {
+	if niello.begin(window_u) {
 		niello.show(title_u, 0, {text = "Text spans"})
 		section("STYLE SPANS — baked into the unit", proc() {
 			niello.show(body_u, 0, {text = LINE1})
@@ -162,12 +162,12 @@ declare :: proc() {
 			niello.show(spanned_u, 0, {text = LINE1, text_spans = override_spans})
 		})
 		section("WRAPPED — runs survive line breaking", proc() {
-			if _, open2 := niello.begin(narrow_u); open2 {
+			if niello.begin(narrow_u) {
 				niello.show(wrap_u, 0, {text = LINE3})
 			}
 		})
 		section("TRUNCATION — the ellipsis cuts through runs", proc() {
-			if _, open2 := niello.begin(clipbox_u); open2 {
+			if niello.begin(clipbox_u) {
 				niello.show(clip_u, 0, {text = LINE4})
 			}
 		})

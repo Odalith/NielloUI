@@ -52,11 +52,11 @@ mint_units :: proc() {
 // Hot: declare the UI every frame. The engine diffs and re-renders only
 // what changed.
 declare :: proc() {
-	if _, ok := niello.begin(window); ok {
-		if _, ok := niello.begin(toolbar); ok {
+	if niello.begin(window) {
+		if niello.begin(toolbar) {
 			niello.show(title, niello.key("title"), {text = "Hello, NielloUI"})
 		}
-		if _, ok := niello.begin(card); ok {
+		if niello.begin(card) {
 			niello.show(card_label, niello.key("body"), {
 				text = "A real window, rendered by Skia through Dawn.",
 			})

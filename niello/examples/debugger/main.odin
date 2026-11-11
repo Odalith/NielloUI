@@ -36,18 +36,17 @@ main_ctx: ^niello.Context
 win2_open: bool
 
 declare_main :: proc() {
-	if _, open := niello.begin(root_u); open {
+	if niello.begin(root_u) {
 		niello.show(title_u, 0, {text = "Debugger host — press F12"})
-		if _, open2 := niello.begin(panel_u); open2 {
+		if niello.begin(panel_u) {
 			niello.show(wide_u)
 			niello.show(leaf_u)
 		}
-		if _, open3 := niello.begin(scroll_u); open3 {
+		if niello.begin(scroll_u) {
 			niello.show(tall_u)
 		}
 		btn: niello.Instance
-		if b, open4 := niello.begin(open_btn_u); open4 {
-			btn = b
+		if niello.begin(open_btn_u, out = &btn) {
 			niello.show(open_btn_label_u)
 		}
 		if niello.clicked(btn) && !win2_open {
@@ -59,7 +58,7 @@ declare_main :: proc() {
 }
 
 declare_win2 :: proc() {
-	if _, open := niello.begin(win2_root_u); open {
+	if niello.begin(win2_root_u) {
 		niello.show(win2_box_u)
 		niello.show(title_u, 0, {text = "F12 works here too"})
 	}

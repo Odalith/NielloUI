@@ -301,7 +301,7 @@ tr_box_i: niello.Instance
 tr_fire: bool
 
 declare_tr_tree :: proc() {
-	if _, ok := niello.begin(tr_root); ok {
+	if niello.begin(tr_root) {
 		tr_box_i = niello.show(tr_box)
 		if tr_fire {
 			niello.transient(tr_box_i, tr_flash, 100, 100)
@@ -395,7 +395,7 @@ test_transient_is_paint_only :: proc(t: ^testing.T) {
 tr_fire_always: bool
 
 declare_tr_tree_always :: proc() {
-	if _, ok := niello.begin(tr_root); ok {
+	if niello.begin(tr_root) {
 		tr_box_i = niello.show(tr_box)
 		if tr_fire_always {
 			niello.transient(tr_box_i, tr_flash, 100, 100)
