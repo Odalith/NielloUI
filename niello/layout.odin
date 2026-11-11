@@ -238,6 +238,9 @@ measure_text_all :: proc() {
 	}
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
+		if nd.is_container {
+			continue // containers accumulate their content in passes A/D
+		}
 		s := node_style(i)
 		if nd.has_text {
 			uw, minw := measure_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, s.wrap)
@@ -251,7 +254,7 @@ measure_text_all :: proc() {
 			// this is the ellipsis fold inside measure_text.
 			g.lay[i].min_c = Vec2{minw, uw.y}
 		}
-		if !nd.is_container && nd.image != NO_IMAGE {
+		if nd.image != NO_IMAGE {
 			// An image leaf's intrinsic is the image's size; with
 			// text present the two overlap-paint (image behind
 			// text), so the content is the elementwise max. The
@@ -261,14 +264,20 @@ measure_text_all :: proc() {
 				g.lay[i].content.y = max(g.lay[i].content.y, sz.y)
 			}
 		}
-		if !nd.has_text && !nd.is_container {
-			// Plain leaf: FIXED axes contribute their value as content so FIT
-			// parents can accumulate them; everything else contributes 0.
-			for a in 0 ..< 2 {
-				if s.size[a].kind == .Fixed {
-					g.lay[i].content[a] = s.size[a].value
-					g.lay[i].min_c[a] = s.size[a].value
-				}
+		for a in 0 ..< 2 {
+			if !nd.has_text && s.size[a].kind == .Fixed {
+				// A plain leaf's FIXED axis contributes its value, so FIT
+				// parents can accumulate it. (A text leaf keeps its
+				// intrinsic size: the wrap decision compares it with the
+				// box.)
+				g.lay[i].content[a] = s.size[a].value
+				g.lay[i].min_c[a] = s.size[a].value
+			} else {
+				// The intrinsic content plus the leaf's padding: text
+				// and images sit inside it.
+				pad := padding_sum(s, a)
+				g.lay[i].content[a] += pad
+				g.lay[i].min_c[a] += pad
 			}
 		}
 	}
@@ -672,8 +681,11 @@ wrap_text :: proc() {
 		}
 		nd := &g.nodes[w]
 		s := node_style(w)
-		lines, line_h := wrapped_lines(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, g.lay[w].size.x)
-		g.lay[w].content.y = f32(lines) * line_h
+		// The text wraps inside the content box: the width less the
+		// horizontal padding; the height adds the vertical padding back.
+		inner_w := max(0, g.lay[w].size.x - padding_sum(s, X_AXIS))
+		lines, line_h := wrapped_lines(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text, inner_w)
+		g.lay[w].content.y = f32(lines) * line_h + padding_sum(s, Y_AXIS)
 		// Width stays: content.x keeps its unwrapped meaning ("how wide would
 		// this want to be"); size.x is the truth the rest of the frame uses.
 	}

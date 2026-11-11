@@ -177,10 +177,20 @@ emit_node_open :: proc(i: int, paint_leaves: bool) -> bool {
 	}
 
 	if paint_leaves {
-		emit_image(nd, s, r)
+		// A leaf's image and text sit in its content box (the rect less
+		// its padding); a container's image is its background and
+		// fills the whole rect.
+		content := r
+		if !nd.is_container {
+			content = Rect{
+				r.pos + Vec2{f32(s.padding[0]), f32(s.padding[1])},
+				{max(0, r.size.x - padding_sum(s, X_AXIS)), max(0, r.size.y - padding_sum(s, Y_AXIS))},
+			}
+		}
+		emit_image(nd, s, content)
 
 		if nd.has_text {
-			emit_text(i, nd, s, r)
+			emit_text(i, nd, s, content)
 		}
 	}
 
@@ -235,9 +245,10 @@ same_run_style :: proc(r: Text_Run, f: Text_Frag, f_color: Color) -> bool {
 // Start-aligned (ellipsis + Center/End is a rare combo; fitting text still
 // aligns normally).
 @(private)
+// r is the box the text lays out in: a leaf's content box.
 emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 	e := get_text(s, nd.spans, nd.spans_hash, nd.text_hash, nd.text)
-	max_w := g.lay[i].size.x
+	max_w := r.size.x
 
 	// Shared scratch (state.odin): cleared here, reused for every
 	// text node in this call and every later call — no allocation.
