@@ -921,8 +921,16 @@ clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 //		if niello.begin(btn_u, out = &i, loc = loc) { ... }
 //		return
 //	}
-show :: proc(unit: Unit, with: With = {}, key: Key = 0, loc := #caller_location) -> Instance {
-	inst, _ := declare(unit, key, with, false, loc)
+//
+// show, begin and begin_popup are inlined at the call site so the
+// location folds there and only its hash reaches the engine.
+show :: #force_inline proc(unit: Unit, with: With = {}, key: Key = 0, loc := #caller_location) -> Instance {
+	return show_at(unit, with, key, site_hash(loc))
+}
+
+@(private)
+show_at :: proc(unit: Unit, with: With, key: Key, site: u64) -> Instance {
+	inst, _ := declare(unit, key, with, false, site)
 	return inst
 }
 
@@ -986,7 +994,7 @@ child_clip_for :: proc(unit: Unit, inst: Instance, inherited: Rect) -> Rect {
 // Inside the block, current() returns the same instance. Identity and
 // loc work as for show.
 @(deferred_out = end)
-begin :: proc(
+begin :: #force_inline proc(
 	unit: Unit,
 	with: With = {},
 	key: Key = 0,
@@ -994,7 +1002,12 @@ begin :: proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
-	i, idx := declare(unit, key, with, true, loc)
+	return begin_at(unit, with, key, flags, out, site_hash(loc))
+}
+
+@(private)
+begin_at :: proc(unit: Unit, with: With, key: Key, flags: Begin_Flags, out: ^Instance, site: u64) -> (open: bool) {
+	i, idx := declare(unit, key, with, true, site)
 	if out != nil {
 		out^ = i
 	}
@@ -1099,7 +1112,7 @@ Popup_Opts :: struct {
 //
 //	if niello.begin_popup(menu_u, file_btn, .Below, opts = {gap = 4}, out = &app.menu_i) { ... }
 @(deferred_out = end)
-begin_popup :: proc(
+begin_popup :: #force_inline proc(
 	unit: Unit,
 	anchor: Instance,
 	placement: Placement,
@@ -1109,13 +1122,27 @@ begin_popup :: proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
+	return begin_popup_at(unit, anchor, placement, with, key, opts, out, site_hash(loc))
+}
+
+@(private)
+begin_popup_at :: proc(
+	unit: Unit,
+	anchor: Instance,
+	placement: Placement,
+	with: With,
+	key: Key,
+	opts: Popup_Opts,
+	out: ^Instance,
+	site: u64,
+) -> (open: bool) {
 	anchor_ok := placement == .At || placement == .Center || anchor in g.instances
 	// A popup declared from inside a culled subtree stays culled,
 	// like any other declaration there.
 	decl_culled := len(g.stack) > 0 && g.nodes[g.stack[len(g.stack) - 1]].culled
 	// Popup roots belong to the layer, not the declaring container:
 	// their call-site occurrences count across the whole frame.
-	k := identity_key(key, &g.popup_sites, 0, loc)
+	k := identity_key(key, &g.popup_sites, 0, site)
 	i, idx := declare_as(
 		unit, k, with, true, -1, POPUP_PARENT_SEED, decl_culled || !anchor_ok,
 	)
