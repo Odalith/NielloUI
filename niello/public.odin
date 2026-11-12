@@ -448,7 +448,15 @@ Style_Decl :: struct {
 	                                     // Maybe so set_many can tell "unset" from
 	                                     // an explicit false (audit core-H5)
 
-	groups: []Group,
+	groups: []Group,          // join these groups for every field (mint only)
+	group_masks: []Group_Mask, // join these groups for the given fields only (mint only)
+}
+
+// Group_Mask scopes a membership: the unit joins group, and broadcasts
+// through it reach only these fields (§3.7).
+Group_Mask :: struct {
+	group:  Group,
+	fields: Fields,
 }
 
 // ============ per-frame overrides ============
@@ -709,6 +717,9 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	// half of mint (§3.7). Nothing is applied by joining.
 	for gr in decl.groups {
 		group_add_member(gr, u, ALL_FIELDS)
+	}
+	for gm in decl.group_masks {
+		group_add_member(gm.group, u, gm.fields)
 	}
 }
 
@@ -2008,6 +2019,44 @@ group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 			target := store.units[unit_index(m.unit)].style
 			style_set_any(&target, f, v)
 			start_glide(m.unit, Fields{f}, &target, ms)
+		}
+	}
+}
+
+// group_apply broadcasts a whole Style_Decl: every field the decl sets
+// is written to every member whose mask includes it and whose unit has
+// not pinned it — the many-field form of group_set (a theme switch in
+// one call per role). ms == 0 lands the values at once (an equal value
+// is a no-op, as with set); ms > 0 glides each member there. The decl's
+// overlays, focusable and group fields are ignored: only style values
+// broadcast.
+group_apply :: proc(grp: Group, decl: Style_Decl, ms: u32 = 0) {
+	fields := explicit_fields(decl)
+	if fields == {} {
+		return
+	}
+	// Resolve the decl once into a scratch unit's style: its owned text
+	// and spans are cloned by the member writes, then freed with it.
+	d := decl
+	d.groups, d.group_masks = nil, nil
+	d.hover, d.press, d.focus, d.disabled = NO_UNIT, NO_UNIT, NO_UNIT, NO_UNIT
+	tmp: Unit
+	mint(&tmp, NO_UNIT, d)
+	defer unmint(tmp)
+	src := &store.units[unit_index(tmp)].style
+	rec := group_rec(grp)
+	for m in rec.members {
+		mrec := &store.units[unit_index(m.unit)]
+		eff := fields & m.fields - mrec.pinned
+		if ms > 0 {
+			start_glide(m.unit, eff, src, ms)
+			continue
+		}
+		for f in eff {
+			if field_gliding(m.unit, f) || !field_equal(&mrec.style, src, f) {
+				cancel_glide_fields(m.unit, Fields{f})
+				write_field(m.unit, f, src)
+			}
 		}
 	}
 }

@@ -189,3 +189,44 @@ test_group_last_write_wins :: proc(t: ^testing.T) {
 	grp_frame()
 	expect_width(t, grp_a_i, 70, "the next broadcast overwrites it: call order decides")
 }
+
+// group_apply broadcasts a whole decl; masks and pins gate it per member.
+@(test)
+test_group_apply_broadcasts_a_decl :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	grp := niello.group_new("theme")
+	full, colors, pinned: niello.Unit
+	niello.mint(&full, niello.NO_UNIT, {groups = []niello.Group{grp}})
+	// Joined through group_masks: only Color reaches it.
+	niello.mint(&colors, niello.NO_UNIT, {group_masks = []niello.Group_Mask{{grp, {.Color}}}})
+	niello.mint(&pinned, niello.NO_UNIT, {groups = []niello.Group{grp}})
+	niello.pin(pinned, {.Gap})
+
+	niello.group_apply(grp, {color = niello.rgb(0x112233), gap = 7, text = "themed"})
+	testing.expect(t, niello.style_of(full).color == niello.rgb(0x112233) && niello.style_of(full).gap == 7, "a full member takes every field")
+	testing.expect_value(t, niello.style_of(full).text, "themed")
+	testing.expect(t, niello.style_of(colors).color == niello.rgb(0x112233), "a masked member takes its fields")
+	testing.expect(t, niello.style_of(colors).gap == 0 && niello.style_of(colors).text == "", "and nothing else")
+	testing.expect(t, niello.style_of(pinned).gap == 0 && niello.style_of(pinned).color == niello.rgb(0x112233), "a pinned field is passed by")
+
+	gen := niello.test_visual_gen(full)
+	niello.group_apply(grp, {color = niello.rgb(0x112233), gap = 7})
+	testing.expect(t, niello.test_visual_gen(full) == gen, "re-applying equal values writes nothing")
+}
+
+@(test)
+test_group_apply_glides :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	grp := niello.group_new("theme")
+	u: niello.Unit
+	niello.mint(&u, niello.NO_UNIT, {color = niello.rgb(0x000000), groups = []niello.Group{grp}})
+	niello.group_apply(grp, {color = niello.rgb(0xffffff)}, 100)
+	testing.expect(t, niello.style_of(u).color == niello.rgb(0x000000), "a glide starts where the member is")
+	for _ in 0 ..< 12 {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {100, 100}}, 0.016)
+		niello.frame_end()
+	}
+	testing.expect(t, niello.style_of(u).color == niello.rgb(0xffffff), "and lands on the decl's value")
+}
