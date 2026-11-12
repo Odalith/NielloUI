@@ -123,25 +123,19 @@ mint_units :: proc(t: Theme) {
 	niello.mint(&ui.btn_on, niello.NO_UNIT, {color = t.accent})
 	niello.mint(&ui.btn_disabled, niello.NO_UNIT, {color = t.panel, cursor = .Not_Allowed, groups = []niello.Group{groups.panel}})
 	niello.mint(&ui.focus_ring, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
-	// A base unit passes on its style only, not its state overlays,
-	// so the three button kinds share one decl instead.
-	btn := niello.Style_Decl{
+	niello.mint(&ui.btn, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fit(), fixed(36)),
 		padding = pad_xy(16, 0), align = CENTER,
 		color = t.raised, corner_radius = 8, cursor = .Pointer,
 		hover = ui.btn_hover, press = ui.btn_press, focus = ui.focus_ring,
 		disabled = ui.btn_disabled, focusable = true,
 		groups = []niello.Group{groups.raised},
-	}
-	niello.mint(&ui.btn, niello.NO_UNIT, btn)
-	btn.groups = nil
-	btn.color = t.accent
-	niello.mint(&ui.btn_primary, niello.NO_UNIT, btn)
-	// The danger button joins the raised group but pins its color, so
-	// theme broadcasts pass it by.
-	btn.color = DANGER
-	btn.groups = []niello.Group{groups.raised}
-	niello.mint(&ui.btn_danger, niello.NO_UNIT, btn)
+	})
+	// Variants inherit the base's overlays and focusability; group
+	// memberships are explicit. The danger button joins the raised group
+	// but pins its color, so theme broadcasts pass it by.
+	niello.mint(&ui.btn_primary, ui.btn, {color = t.accent})
+	niello.mint(&ui.btn_danger, ui.btn, {color = DANGER, groups = []niello.Group{groups.raised}})
 	niello.pin(ui.btn_danger, niello.Fields{.Color})
 	niello.mint(&ui.btn_label, niello.NO_UNIT, {font_size = 14, font_color = t.ink, groups = ink})
 	niello.mint(&ui.btn_label_on, niello.NO_UNIT, {font_size = 14, font_color = niello.rgb(0xffffff)})

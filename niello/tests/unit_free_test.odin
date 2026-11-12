@@ -154,3 +154,25 @@ test_shutdown_leaves_nothing_allocated :: proc(t: ^testing.T) {
 	testing.expect(t, niello.unit_live(again), "mint works on the fresh store")
 	niello.shutdown()
 }
+
+// A variant minted from a base shares its state overlays and
+// focusability (TODO #53), not its group memberships.
+@(test)
+test_mint_from_base_inherits_overlays :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	hov, prs, base, variant, other_hov: niello.Unit
+	niello.mint(&hov, niello.NO_UNIT, {color = niello.rgb(0x111111)})
+	niello.mint(&prs, niello.NO_UNIT, {color = niello.rgb(0x222222)})
+	niello.mint(&other_hov, niello.NO_UNIT, {color = niello.rgb(0x333333)})
+	grp := niello.group_new("theme")
+	niello.mint(&base, niello.NO_UNIT, {hover = hov, press = prs, focusable = true, groups = []niello.Group{grp}})
+	niello.mint(&variant, base, {color = niello.rgb(0xff0000), hover = other_hov})
+	testing.expect(t, niello.test_overlay(variant, .Press) == prs, "the press overlay is inherited")
+	testing.expect(t, niello.test_overlay(variant, .Hover) == other_hov, "the decl replaces an inherited overlay")
+	testing.expect(t, niello.test_focusable(variant), "focusability is inherited")
+	niello.clear_overlay(variant, .Press)
+	testing.expect(t, niello.test_overlay(base, .Press) == prs, "clearing the variant's overlay leaves the base's")
+	niello.group_set(grp, .Gap, u16(5))
+	testing.expect(t, niello.style_of(base).gap == 5 && niello.style_of(variant).gap == 0, "the variant did not join the base's group")
+}

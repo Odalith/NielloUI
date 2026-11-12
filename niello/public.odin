@@ -650,9 +650,11 @@ Frame_Result :: struct {
 // ============ cold path ============
 
 // mint creates a unit. base is a SNAPSHOT copy, never a live link: the new
-// unit starts with base's current style and never follows later writes to
-// base. Pass NO_UNIT (the default case for fresh units) to start from
-// default_style(). decl applies on top via set_many.
+// unit starts with base's current style, state overlays (hover, press,
+// focus, disabled) and focusability, and never follows later writes to
+// base. A variant is therefore one line: mint(&primary, btn, {color = accent}).
+// Group memberships are not copied — joining stays explicit. Pass NO_UNIT
+// to start from default_style(). decl applies on top via set_many.
 mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
              name := #caller_expression(out), loc := #caller_location) {
 	if len(store.units) == 0 {
@@ -668,7 +670,14 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	rec := Unit_Rec{style = default_style(), name = nm, loc = loc, proto = base, live = true}
 	if base != NO_UNIT {
 		assert(unit_live(base), "niello.mint: base is not a minted unit")
-		rec.style = store.units[unit_index(base)].style
+		src := &store.units[unit_index(base)]
+		rec.style = src.style
+		// A variant is the base's whole look, so it shares the base's
+		// state overlays and focusability too (the decl below may
+		// replace any of them). Group memberships are not inherited:
+		// joining a group stays explicit.
+		rec.hover, rec.press, rec.focus, rec.disabled = src.hover, src.press, src.focus, src.disabled
+		rec.focusable = src.focusable
 		// The base copy is a snapshot: clone the reference-typed
 		// fields so the new unit owns its copies (see store_spans).
 		rec.style.text_spans = clone_spans(rec.style.text_spans)
