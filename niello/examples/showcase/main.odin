@@ -159,7 +159,7 @@ declare_sidebar :: proc(app: ^App) {
 				w.variant = shell.nav_item_on
 			}
 			if niello.begin(shell.nav_item, w, out = &app.nav_i[p]) {
-				niello.show(on ? ui.btn_label_on : shell.nav_label, {text = PAGE_NAMES[p]})
+				niello.show(on ? ui.button.label_on : shell.nav_label, {text = PAGE_NAMES[p]})
 			}
 			if niello.clicked(app.nav_i[p]) && p != app.page {
 				app.page = p
