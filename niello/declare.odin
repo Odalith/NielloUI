@@ -21,6 +21,7 @@ Frame_Node :: struct {
 	// only text, so storing all of it per node was the bulk of the
 	// node's size.
 	with_idx:        i32,
+	size_idx:        i32, // index into g.size_overrides (With.size), -1 none
 	variant:         Unit, // With.variant
 	disabled:        bool, // With.disabled (this node's own flag)
 	static_values:   bool, // With.static_values
@@ -234,6 +235,11 @@ declare_as :: proc(
 	// (a11y.odin) copies them again into owned storage at frame_end,
 	// since it outlives the frame arena. Only nodes that declare
 	// semantics pay these copies, made in the kept copy itself.
+	size_idx := i32(-1)
+	if sz, ok := with.size.?; ok {
+		size_idx = i32(len(g.size_overrides))
+		append(&g.size_overrides, sz)
+	}
 	with_idx := i32(-1)
 	if NIELLO_DEBUG || a11y_declared(with) {
 		with_idx = i32(len(g.withs))
@@ -288,6 +294,7 @@ declare_as :: proc(
 			identity = id,
 			parent = parent,
 			with_idx = with_idx,
+			size_idx = size_idx,
 			variant = with.variant,
 			disabled = with.disabled,
 			static_values = with.static_values,

@@ -1011,7 +1011,7 @@ resolve_styles :: proc() {
 			stamp = hash_mix(stamp, 6)
 		}
 		g.state_stamp[i] = stamp
-		if !hov && !prs && !foc && !dis && nd.variant == NO_UNIT && !has_tr {
+		if !hov && !prs && !foc && !dis && nd.variant == NO_UNIT && !has_tr && nd.size_idx < 0 {
 			continue
 		}
 		eff := rec.style
@@ -1021,6 +1021,9 @@ resolve_styles :: proc() {
 		if prs { apply_overlay(&eff, rec.press) }
 		if dis { apply_overlay(&eff, rec.disabled) }
 		if has_tr { apply_transient(&eff, id) } // the pulse rides on top (§3.16)
+		// A per-instance size (With.size) wins over every overlay, as
+		// With.text wins over the unit's text.
+		if nd.size_idx >= 0 { eff.size = g.size_overrides[nd.size_idx] }
 		g.eff[i] = eff
 		nd.has_eff = true
 	}

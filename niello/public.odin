@@ -465,6 +465,10 @@ With :: struct {
 	image: Maybe(Image), // per-instance image swap; wins over
 	                     // Style.image, and Maybe(NO_IMAGE) clears
 	                     // the base image for this instance (§3.25)
+	size: Maybe(Size), // per-instance size; wins over the unit's size
+	                   // and over state overlays. Lets one unit serve
+	                   // every instance of a part whose geometry varies
+	                   // (a slider's fill, a scrollbar's thumb).
 	static_values: bool, // the presented values above (text, spans,
 	                     // image) never change for this instance's
 	                     // lifetime; the engine skips their change
@@ -1362,6 +1366,7 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	// the cursor rewind below retires them all at once.
 	clear(&g.nodes)
 	clear(&g.withs)
+	clear(&g.size_overrides)
 	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
 	g.text_off = 0
 	g.spans_chunk = 0 // and the spans arena beside it
