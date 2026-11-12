@@ -67,3 +67,20 @@ test_style :: proc(u: Unit) -> Style {
 test_context :: proc() -> ^Context {
 	return test_ctx
 }
+
+// test_overlay reads a unit's state-overlay slot.
+test_overlay :: proc(u: Unit, kind: Overlay_Kind) -> Unit {
+	rec := &store.units[unit_index(u)]
+	switch kind {
+	case .Hover:    return rec.hover
+	case .Press:    return rec.press
+	case .Focus:    return rec.focus
+	case .Disabled: return rec.disabled
+	}
+	return NO_UNIT
+}
+
+// test_focusable reads a unit's traversal flag.
+test_focusable :: proc(u: Unit) -> bool {
+	return store.units[unit_index(u)].focusable
+}

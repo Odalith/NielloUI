@@ -14,9 +14,10 @@
 // The component (below, up to the demo marker) is written to be
 // copied: scrollbar_init mints a bar's units with the colors and
 // width you pass — restyling is choosing different mint arguments,
-// never fighting a theme system. Each bar owns its units, so two
-// bars never share style state (the spacer and thumb sizes are set
-// per frame from the live geometry).
+// never fighting a theme system. Each bar here owns its units because
+// the demo styles its bars differently; bars that look alike can share
+// one set, since the per-frame geometry (thumb length and position)
+// travels on With.size, not on the units.
 //
 // Host contract: the bar is declared inside its scroller, after
 // the content, anchored. The scroller's own align places it,
@@ -162,19 +163,13 @@ scrollbar_declare :: proc(sb: ^Scrollbar, scroller: niello.Instance, loc := #cal
 		sb.track_down = down
 	}
 
-	// Paint: spacer carries the thumb position, the thumb unit
-	// carries its length. Both sizes are this bar's own units, set
-	// fresh each frame; layout reads them at frame_end.
-	if vert {
-		niello.set_many(sb.spacer_u, {size = niello.size(niello.fixed(0), niello.fixed(thumb_pos))})
-		niello.set_many(sb.thumb_u, {size = niello.size(niello.grow(), niello.fixed(thumb_len))})
-	} else {
-		niello.set_many(sb.spacer_u, {size = niello.size(niello.fixed(thumb_pos), niello.fixed(0))})
-		niello.set_many(sb.thumb_u, {size = niello.size(niello.fixed(thumb_len), niello.grow())})
-	}
+	// Paint: the spacer carries the thumb position, the thumb its
+	// length — per-instance geometry, carried by With.size.
+	spacer_size := vert ? niello.size(niello.fixed(0), niello.fixed(thumb_pos)) : niello.size(niello.fixed(thumb_pos), niello.fixed(0))
+	thumb_size := vert ? niello.size(niello.grow(), niello.fixed(thumb_len)) : niello.size(niello.fixed(thumb_len), niello.grow())
 	if niello.begin(sb.strip_u, {anchored = true}, out = &sb.strip_i, loc = loc) {
-		niello.show(sb.spacer_u)
-		sb.thumb_i = niello.show(sb.thumb_u)
+		niello.show(sb.spacer_u, {size = spacer_size})
+		sb.thumb_i = niello.show(sb.thumb_u, {size = thumb_size})
 	} else {
 		sb.strip_i = 0
 		sb.thumb_i = 0

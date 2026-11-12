@@ -90,3 +90,35 @@ test_justify_leaves_paragraph_ends :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 	testing.expectf(t, len(ta_texts()) == 2, "both lines end a paragraph: one run each (got %d)", len(ta_texts()))
 }
+
+// Text set on the unit is hashed once per write, not per frame: the
+// cached facts must follow every write (TODO mint-side step 3).
+@(test)
+test_unit_text_cache_follows_writes :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	@(static) root, label: niello.Unit
+	@(static) inst: niello.Instance
+	niello.mint(&root, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(800), niello.fixed(600))})
+	niello.mint(&label, niello.NO_UNIT, {text = "abc"})
+	frame :: proc() {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0.016)
+		if niello.begin(root) {
+			inst = niello.show(label)
+		}
+		niello.frame_end()
+	}
+	frame()
+	r, _ := niello.rect(inst)
+	testing.expect_value(t, r.size.x, f32(24))
+	niello.set(label, .Text, "abcdef")
+	frame()
+	r, _ = niello.rect(inst)
+	testing.expect_value(t, r.size.x, f32(48))
+	// Invalid UTF-8 written into the unit is still sanitized: one bad
+	// byte becomes U+FFFD (3 bytes, 24 px in the mock).
+	niello.set(label, .Text, "a\xffb")
+	frame()
+	r, _ = niello.rect(inst)
+	testing.expect_value(t, r.size.x, f32(8 + 24 + 8))
+}

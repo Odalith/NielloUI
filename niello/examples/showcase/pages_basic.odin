@@ -373,7 +373,7 @@ mint_pages_basic :: proc(t: Theme) {
 		niello.mint(&cursor_units[k], niello.NO_UNIT, {
 			size = size(fit(), fixed(28)), padding = pad_xy(10, 6), corner_radius = 6,
 			color = t.raised, font_size = 12, font_color = t.ink, cursor = k,
-			hover = ui.btn_hover,
+			hover = ui.button.hover,
 			groups = []niello.Group{groups.raised, groups.ink},
 		})
 	}

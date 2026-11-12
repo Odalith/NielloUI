@@ -1,7 +1,15 @@
 // components.odin — the showcase's reusable pieces: style helpers,
 // the shared units, and small components (button, toggle, checkbox,
-// slider, text field, scrollbar, tooltip). Each component is plain
-// declare code over units minted once in mint_units.
+// slider, text field, scrollbar, tooltip).
+//
+// The component convention: a component's units are its PARTS — public
+// fields of a struct minted once (button_mint, slider_mint, …). A
+// consumer restyles a part directly (niello.set(ui.button.label, …)),
+// every part of a family through the theme's groups, and one instance
+// through With (variant, size). There is no selector syntax because
+// there is nothing hidden to select. Per-instance state (a slider's
+// value, a scrollbar's drag) lives in a separate small struct the app
+// owns; it holds no units, so every instance shares the parts.
 package main
 
 import "core:fmt"
@@ -72,15 +80,13 @@ Units :: struct {
 	title, heading, body, dim, small, mono, accent_text: niello.Unit,
 	// containers
 	column, row, card, card_row, wrap_box: niello.Unit,
-	// buttons
-	btn, btn_primary, btn_danger, btn_label, btn_label_on: niello.Unit,
-	btn_hover, btn_press, btn_on, btn_disabled, focus_ring: niello.Unit,
-	// checkbox
-	check_row, check_box, check_box_on: niello.Unit,
-	// slider
-	track: niello.Unit,
-	// text field
-	field, field_focus, field_text, caret, placeholder: niello.Unit,
+	focus_ring: niello.Unit, // the shared focus overlay
+	// components, by their parts
+	button, button_primary, button_danger: Button,
+	check:     Checkbox,
+	slider:    Slider_Parts,
+	field:     Field,
+	scrollbar: Scrollbar_Parts,
 	// popups
 	tooltip, tooltip_text, menu, menu_item, menu_item_hover, backdrop, dialog: niello.Unit,
 }
@@ -118,63 +124,18 @@ mint_units :: proc(t: Theme) {
 	niello.group_add(groups.panel, ui.card_row)
 	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(fixed(300), fit())})
 
-	niello.mint(&ui.btn_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
-	niello.mint(&ui.btn_press, niello.NO_UNIT, {color = t.press, groups = []niello.Group{groups.press}})
-	niello.mint(&ui.btn_on, niello.NO_UNIT, {color = t.accent})
-	niello.mint(&ui.btn_disabled, niello.NO_UNIT, {color = t.panel, cursor = .Not_Allowed, groups = []niello.Group{groups.panel}})
 	niello.mint(&ui.focus_ring, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
-	// A base unit passes on its style only, not its state overlays,
-	// so the three button kinds share one decl instead.
-	btn := niello.Style_Decl{
-		layout = .Left_To_Right, size = size(fit(), fixed(36)),
-		padding = pad_xy(16, 0), align = CENTER,
-		color = t.raised, corner_radius = 8, cursor = .Pointer,
-		hover = ui.btn_hover, press = ui.btn_press, focus = ui.focus_ring,
-		disabled = ui.btn_disabled, focusable = true,
-		groups = []niello.Group{groups.raised},
-	}
-	niello.mint(&ui.btn, niello.NO_UNIT, btn)
-	btn.groups = nil
-	btn.color = t.accent
-	niello.mint(&ui.btn_primary, niello.NO_UNIT, btn)
-	// The danger button joins the raised group but pins its color, so
-	// theme broadcasts pass it by.
-	btn.color = DANGER
-	btn.groups = []niello.Group{groups.raised}
-	niello.mint(&ui.btn_danger, niello.NO_UNIT, btn)
-	niello.pin(ui.btn_danger, niello.Fields{.Color})
-	niello.mint(&ui.btn_label, niello.NO_UNIT, {font_size = 14, font_color = t.ink, groups = ink})
-	niello.mint(&ui.btn_label_on, niello.NO_UNIT, {font_size = 14, font_color = niello.rgb(0xffffff)})
-
-	niello.mint(&ui.check_row, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = size(fit(), fixed(28)), gap = 8,
-		align = START_CENTER, cursor = .Pointer, focusable = true,
-		padding = pad_xy(4, 0), corner_radius = 6, focus = ui.focus_ring,
-	})
-	niello.mint(&ui.check_box, niello.NO_UNIT, {
-		size = size(fixed(18), fixed(18)), corner_radius = 4, align = CENTER,
-		border_width = 2, border_color = t.dim, font_size = 13,
-		font_color = niello.rgb(0xffffff),
-	})
-	niello.mint(&ui.check_box_on, niello.NO_UNIT, {color = t.accent, border_color = t.accent})
-
-	niello.mint(&ui.track, niello.NO_UNIT, {
-		layout = .Stack, size = size(grow(), fixed(22)),
-		color = t.raised, corner_radius = 11, cursor = .Pointer,
-		groups = []niello.Group{groups.raised},
-	})
-
-	niello.mint(&ui.field_focus, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
-	niello.mint(&ui.field, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = size(grow(), fixed(38)),
-		color = t.raised, corner_radius = 6, padding = pad_xy(10, 0),
-		align = START_CENTER, cursor = .Text,
-		focus = ui.field_focus, focusable = true,
-		groups = []niello.Group{groups.raised},
-	})
-	niello.mint(&ui.field_text, niello.NO_UNIT, {font_size = 14, font_color = t.ink, whitespace = .Preserve, groups = ink})
-	niello.mint(&ui.caret, niello.NO_UNIT, {size = size(fixed(2), fixed(18)), color = t.accent})
-	niello.mint(&ui.placeholder, niello.NO_UNIT, {font_size = 14, font_color = t.dim, groups = dim})
+	ui.button = button_mint(t)
+	// Variants inherit the base's overlays and focusability; group
+	// memberships are explicit. The danger button joins the raised group
+	// but pins its color, so theme broadcasts pass it by.
+	ui.button_primary = button_variant(ui.button, {color = t.accent}, on_accent = true)
+	ui.button_danger = button_variant(ui.button, {color = DANGER, groups = []niello.Group{groups.raised}}, on_accent = true)
+	niello.pin(ui.button_danger.root, niello.Fields{.Color})
+	ui.check = checkbox_mint(t)
+	ui.slider = slider_mint(t)
+	ui.field = field_mint(t)
+	ui.scrollbar = scrollbar_mint()
 
 	niello.mint(&ui.tooltip, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fit(max = 260), fit()),
@@ -215,38 +176,75 @@ note :: proc(text: string, loc := #caller_location) {
 
 // ---- button ----------------------------------------------------------------
 
+// Button's parts: the box and its label, the state overlays the box
+// uses, and the "on" pair a toggle switches to.
+Button :: struct {
+	root, label:                   niello.Unit,
+	hover, press, focus, disabled: niello.Unit,
+	on, label_on:                  niello.Unit, // a toggle's on state (root variant, label)
+}
+
+button_mint :: proc(t: Theme) -> (b: Button) {
+	niello.mint(&b.hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
+	niello.mint(&b.press, niello.NO_UNIT, {color = t.press, groups = []niello.Group{groups.press}})
+	niello.mint(&b.disabled, niello.NO_UNIT, {color = t.panel, cursor = .Not_Allowed, groups = []niello.Group{groups.panel}})
+	b.focus = ui.focus_ring
+	niello.mint(&b.on, niello.NO_UNIT, {color = t.accent})
+	niello.mint(&b.root, niello.NO_UNIT, {
+		layout = .Left_To_Right, size = size(fit(), fixed(36)),
+		padding = pad_xy(16, 0), align = CENTER,
+		color = t.raised, corner_radius = 8, cursor = .Pointer,
+		hover = b.hover, press = b.press, focus = b.focus, disabled = b.disabled,
+		focusable = true,
+		groups = []niello.Group{groups.raised},
+	})
+	niello.mint(&b.label, niello.NO_UNIT, {font_size = 14, font_color = t.ink, groups = []niello.Group{groups.ink}})
+	niello.mint(&b.label_on, niello.NO_UNIT, {font_size = 14, font_color = niello.rgb(0xffffff)})
+	return
+}
+
+// button_variant mints a sibling family: the root from base.root (its
+// overlays come along), restyled by root_decl. on_accent gives it the
+// light label of the accent-colored buttons.
+button_variant :: proc(base: Button, root_decl: niello.Style_Decl, on_accent := false) -> (b: Button) {
+	b = base
+	niello.mint(&b.root, base.root, root_decl)
+	if on_accent {
+		b.label = base.label_on
+	}
+	return
+}
+
+button :: proc(text: string, kind := Button_Kind.Normal, disabled := false, loc := #caller_location) -> (i: niello.Instance) {
+	b := &ui.button
+	switch kind {
+	case .Normal:
+	case .Primary: b = &ui.button_primary
+	case .Danger:  b = &ui.button_danger
+	}
+	if niello.begin(b.root, {disabled = disabled, role = .Button, label = text}, out = &i, loc = loc) {
+		niello.show(b.label, {text = text})
+	}
+	return
+}
+
 Button_Kind :: enum {
 	Normal,
 	Primary,
 	Danger,
 }
 
-button :: proc(text: string, kind := Button_Kind.Normal, disabled := false, loc := #caller_location) -> (i: niello.Instance) {
-	unit := ui.btn
-	label := ui.btn_label
-	switch kind {
-	case .Normal:
-	case .Primary:
-		unit, label = ui.btn_primary, ui.btn_label_on
-	case .Danger:
-		unit, label = ui.btn_danger, ui.btn_label_on
-	}
-	if niello.begin(unit, {disabled = disabled, role = .Button, label = text}, out = &i, loc = loc) {
-		niello.show(label, {text = text})
-	}
-	return
-}
-
 // toggle is a button whose "on" state is a variant overlay: the same
 // unit, a persistent per-instance restyle.
 toggle :: proc(text: string, on: ^bool, loc := #caller_location) -> bool {
+	b := &ui.button
 	w := niello.With{role = .Button, label = text, a11y_flags = on^ ? {.Checked} : {}}
 	if on^ {
-		w.variant = ui.btn_on
+		w.variant = b.on
 	}
 	i: niello.Instance
-	if niello.begin(ui.btn, w, out = &i, loc = loc) {
-		niello.show(on^ ? ui.btn_label_on : ui.btn_label, {text = text})
+	if niello.begin(b.root, w, out = &i, loc = loc) {
+		niello.show(on^ ? b.label_on : b.label, {text = text})
 	}
 	if niello.clicked(i) {
 		on^ = !on^
@@ -255,15 +253,37 @@ toggle :: proc(text: string, on: ^bool, loc := #caller_location) -> bool {
 	return false
 }
 
+// ---- checkbox --------------------------------------------------------------
+
+Checkbox :: struct {
+	row, box, box_on: niello.Unit, // box_on: the checked variant of box
+}
+
+checkbox_mint :: proc(t: Theme) -> (c: Checkbox) {
+	niello.mint(&c.row, niello.NO_UNIT, {
+		layout = .Left_To_Right, size = size(fit(), fixed(28)), gap = 8,
+		align = START_CENTER, cursor = .Pointer, focusable = true,
+		padding = pad_xy(4, 0), corner_radius = 6, focus = ui.focus_ring,
+	})
+	niello.mint(&c.box, niello.NO_UNIT, {
+		size = size(fixed(18), fixed(18)), corner_radius = 4, align = CENTER,
+		border_width = 2, border_color = t.dim, font_size = 13,
+		font_color = niello.rgb(0xffffff),
+	})
+	niello.mint(&c.box_on, niello.NO_UNIT, {color = t.accent, border_color = t.accent})
+	return
+}
+
 checkbox :: proc(text: string, checked: ^bool, loc := #caller_location) -> bool {
+	c := &ui.check
 	w := niello.With{role = .CheckBox, label = text, a11y_flags = checked^ ? {.Checked} : {}}
 	i: niello.Instance
-	if niello.begin(ui.check_row, w, out = &i, loc = loc) {
+	if niello.begin(c.row, w, out = &i, loc = loc) {
 		box_w := niello.With{text = checked^ ? "✓" : ""}
 		if checked^ {
-			box_w.variant = ui.check_box_on
+			box_w.variant = c.box_on
 		}
-		niello.show(ui.check_box, box_w)
+		niello.show(c.box, box_w)
 		niello.show(ui.body, {text = text})
 	}
 	if niello.clicked(i) {
@@ -275,18 +295,30 @@ checkbox :: proc(text: string, checked: ^bool, loc := #caller_location) -> bool 
 
 // ---- slider ----------------------------------------------------------------
 
-// Slider owns its fill unit: the fill's width is the value, set fresh
-// each frame, so two sliders must never share it.
+// Slider_Parts are shared by every slider and progress bar: the fill's
+// length is per instance, carried by With.size.
+Slider_Parts :: struct {
+	track, fill, progress_fill: niello.Unit,
+}
+
+// Slider is one slider's state.
 Slider :: struct {
 	value: f32, // 0..1
-	fill:  niello.Unit,
 	inst:  niello.Instance,
 }
 
+slider_mint :: proc(t: Theme) -> (p: Slider_Parts) {
+	niello.mint(&p.track, niello.NO_UNIT, {
+		layout = .Stack, size = size(grow(), fixed(22)),
+		color = t.raised, corner_radius = 11, cursor = .Pointer,
+		groups = []niello.Group{groups.raised},
+	})
+	niello.mint(&p.fill, niello.NO_UNIT, {color = t.accent, corner_radius = 11})
+	niello.mint(&p.progress_fill, niello.NO_UNIT, {color = SUCCESS, corner_radius = 11})
+	return
+}
+
 slider :: proc(s: ^Slider, label: string, loc := #caller_location) -> bool {
-	if s.fill == niello.NO_UNIT {
-		niello.mint(&s.fill, niello.NO_UNIT, {color = DARK_THEME.accent, corner_radius = 11})
-	}
 	changed := false
 	if niello.pressed(s.inst) || niello.dragging(s.inst) {
 		if r, ok := niello.rect(s.inst); ok && r.size.x > 0 {
@@ -314,33 +346,47 @@ slider :: proc(s: ^Slider, label: string, loc := #caller_location) -> bool {
 			changed = true
 		}
 	}
-	niello.set(s.fill, .Size, size(percent(s.value), percent(1)))
 	w := niello.With{
 		focusable = true, role = .Slider, label = label,
 		value = niello.A11y_Value{num = s.value * 100, has_num = true, min = 0, max = 100},
 	}
-	if niello.begin(ui.track, w, out = &s.inst, loc = loc) {
-		if niello.begin(s.fill) {}
+	if niello.begin(ui.slider.track, w, out = &s.inst, loc = loc) {
+		niello.show(ui.slider.fill, {size = size(percent(s.value), percent(1))})
 	}
 	return changed
 }
 
 // progress_bar draws a slider's track and fill with no interaction.
 progress_bar :: proc(s: ^Slider, label: string, loc := #caller_location) {
-	if s.fill == niello.NO_UNIT {
-		niello.mint(&s.fill, niello.NO_UNIT, {color = SUCCESS, corner_radius = 11})
-	}
-	niello.set(s.fill, .Size, size(percent(s.value), percent(1)))
 	w := niello.With{
 		role = .ProgressBar, label = label,
 		value = niello.A11y_Value{num = s.value * 100, has_num = true, min = 0, max = 100},
 	}
-	if niello.begin(ui.track, w, loc = loc) {
-		if niello.begin(s.fill) {}
+	if niello.begin(ui.slider.track, w, loc = loc) {
+		niello.show(ui.slider.progress_fill, {size = size(percent(s.value), percent(1))})
 	}
 }
 
 // ---- text field ------------------------------------------------------------
+
+Field :: struct {
+	box, focus, text, caret, placeholder: niello.Unit,
+}
+
+field_mint :: proc(t: Theme) -> (f: Field) {
+	niello.mint(&f.focus, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
+	niello.mint(&f.box, niello.NO_UNIT, {
+		layout = .Left_To_Right, size = size(grow(), fixed(38)),
+		color = t.raised, corner_radius = 6, padding = pad_xy(10, 0),
+		align = START_CENTER, cursor = .Text,
+		focus = f.focus, focusable = true,
+		groups = []niello.Group{groups.raised},
+	})
+	niello.mint(&f.text, niello.NO_UNIT, {font_size = 14, font_color = t.ink, whitespace = .Preserve, groups = []niello.Group{groups.ink}})
+	niello.mint(&f.caret, niello.NO_UNIT, {size = size(fixed(2), fixed(18)), color = t.accent})
+	niello.mint(&f.placeholder, niello.NO_UNIT, {font_size = 14, font_color = t.dim, groups = []niello.Group{groups.dim}})
+	return
+}
 
 // Text_Field: the app owns the buffer and the caret; the engine routes
 // committed text and key events to whichever instance holds focus.
@@ -427,21 +473,22 @@ text_field_input :: proc(f: ^Text_Field) -> (submitted: bool) {
 
 text_field :: proc(f: ^Text_Field, placeholder: string, loc := #caller_location) {
 	w := niello.With{role = .Edit, label = placeholder, value = {text = string(f.buf[:])}}
-	if niello.begin(ui.field, w, out = &f.inst, loc = loc) {
+	p := &ui.field
+	if niello.begin(p.box, w, out = &f.inst, loc = loc) {
 		focused := niello.focused(f.inst)
 		switch {
 		case len(f.buf) == 0 && !focused:
-			niello.show(ui.placeholder, {text = placeholder})
+			niello.show(p.placeholder, {text = placeholder})
 		case focused:
 			if f.caret > 0 {
-				niello.show(ui.field_text, {text = string(f.buf[:f.caret])})
+				niello.show(p.text, {text = string(f.buf[:f.caret])})
 			}
-			niello.show(ui.caret)
+			niello.show(p.caret)
 			if f.caret < len(f.buf) {
-				niello.show(ui.field_text, {text = string(f.buf[f.caret:])})
+				niello.show(p.text, {text = string(f.buf[f.caret:])})
 			}
 		case:
-			niello.show(ui.field_text, {text = string(f.buf[:])})
+			niello.show(p.text, {text = string(f.buf[:])})
 		}
 	}
 }
@@ -477,36 +524,45 @@ Bar_Axis :: enum {
 	Horizontal,
 }
 
+// Scrollbar_Parts are shared by every bar: the thumb's length and its
+// offset (the spacer) are per instance, carried by With.size.
+Scrollbar_Parts :: struct {
+	strip:               [Bar_Axis]niello.Unit,
+	spacer, thumb, hot:  niello.Unit,
+}
+
+// Scrollbar is one bar's state: its axis, and its drag.
 Scrollbar :: struct {
-	axis:                       Bar_Axis,
-	strip_u, spacer_u, thumb_u: niello.Unit,
-	hot_u:                      niello.Unit,
-	strip_i, thumb_i:           niello.Instance,
-	dragging:                   bool,
-	grab:                       f32,
-	track_down:                 bool,
+	axis:             Bar_Axis,
+	strip_i, thumb_i: niello.Instance,
+	dragging:         bool,
+	grab:             f32,
+	track_down:       bool,
 }
 
 BAR_WIDTH     :: 10
 BAR_MIN_THUMB :: f32(24)
 
-scrollbar_init :: proc(sb: ^Scrollbar, axis: Bar_Axis) {
-	if sb.strip_u != niello.NO_UNIT {
-		return
+scrollbar_mint :: proc() -> (p: Scrollbar_Parts) {
+	for axis in Bar_Axis {
+		vert := axis == .Vertical
+		niello.mint(&p.strip[axis], niello.NO_UNIT, {
+			layout = vert ? niello.Layout.Top_To_Bottom : niello.Layout.Left_To_Right,
+			size = vert ? size(fixed(BAR_WIDTH), grow()) : size(grow(), fixed(BAR_WIDTH)),
+			padding = pad(2),
+		})
 	}
-	sb.axis = axis
-	vert := axis == .Vertical
-	niello.mint(&sb.strip_u, niello.NO_UNIT, {
-		layout = vert ? niello.Layout.Top_To_Bottom : niello.Layout.Left_To_Right,
-		size = vert ? size(fixed(BAR_WIDTH), grow()) : size(grow(), fixed(BAR_WIDTH)),
-		padding = pad(2),
-	})
-	niello.mint(&sb.spacer_u, niello.NO_UNIT, {})
-	niello.mint(&sb.hot_u, niello.NO_UNIT, {color = rgb(0xa0aac0)})
-	niello.mint(&sb.thumb_u, niello.NO_UNIT, {
+	niello.mint(&p.spacer, niello.NO_UNIT, {})
+	niello.mint(&p.hot, niello.NO_UNIT, {color = rgb(0xa0aac0)})
+	niello.mint(&p.thumb, niello.NO_UNIT, {
 		color = rgb(0x6a7488, 200), corner_radius = 3,
-		hover = sb.hot_u, press = sb.hot_u,
+		hover = p.hot, press = p.hot,
 	})
+	return
+}
+
+scrollbar_init :: proc(sb: ^Scrollbar, axis: Bar_Axis) {
+	sb.axis = axis
 }
 
 scrollbar :: proc(sb: ^Scrollbar, scroller: niello.Instance, loc := #caller_location) {
@@ -563,16 +619,13 @@ scrollbar :: proc(sb: ^Scrollbar, scroller: niello.Instance, loc := #caller_loca
 		sb.track_down = down
 	}
 
-	if vert {
-		niello.set(sb.spacer_u, .Size, size(fixed(0), fixed(pos)))
-		niello.set(sb.thumb_u, .Size, size(grow(), fixed(thumb)))
-	} else {
-		niello.set(sb.spacer_u, .Size, size(fixed(pos), fixed(0)))
-		niello.set(sb.thumb_u, .Size, size(fixed(thumb), grow()))
-	}
-	if niello.begin(sb.strip_u, {anchored = true}, out = &sb.strip_i, loc = loc) {
-		niello.show(sb.spacer_u)
-		sb.thumb_i = niello.show(sb.thumb_u)
+	// The parts are shared; this bar's geometry rides on With.size.
+	spacer_size := vert ? size(fixed(0), fixed(pos)) : size(fixed(pos), fixed(0))
+	thumb_size := vert ? size(grow(), fixed(thumb)) : size(fixed(thumb), grow())
+	p := &ui.scrollbar
+	if niello.begin(p.strip[sb.axis], {anchored = true}, out = &sb.strip_i, loc = loc) {
+		niello.show(p.spacer, {size = spacer_size})
+		sb.thumb_i = niello.show(p.thumb, {size = thumb_size})
 	} else {
 		sb.strip_i, sb.thumb_i = 0, 0
 	}

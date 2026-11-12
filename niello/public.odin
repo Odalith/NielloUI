@@ -448,7 +448,15 @@ Style_Decl :: struct {
 	                                     // Maybe so set_many can tell "unset" from
 	                                     // an explicit false (audit core-H5)
 
-	groups: []Group,
+	groups: []Group,          // join these groups for every field (mint only)
+	group_masks: []Group_Mask, // join these groups for the given fields only (mint only)
+}
+
+// Group_Mask scopes a membership: the unit joins group, and broadcasts
+// through it reach only these fields (§3.7).
+Group_Mask :: struct {
+	group:  Group,
+	fields: Fields,
 }
 
 // ============ per-frame overrides ============
@@ -465,6 +473,10 @@ With :: struct {
 	image: Maybe(Image), // per-instance image swap; wins over
 	                     // Style.image, and Maybe(NO_IMAGE) clears
 	                     // the base image for this instance (§3.25)
+	size: Maybe(Size), // per-instance size; wins over the unit's size
+	                   // and over state overlays. Lets one unit serve
+	                   // every instance of a part whose geometry varies
+	                   // (a slider's fill, a scrollbar's thumb).
 	static_values: bool, // the presented values above (text, spans,
 	                     // image) never change for this instance's
 	                     // lifetime; the engine skips their change
@@ -650,9 +662,11 @@ Frame_Result :: struct {
 // ============ cold path ============
 
 // mint creates a unit. base is a SNAPSHOT copy, never a live link: the new
-// unit starts with base's current style and never follows later writes to
-// base. Pass NO_UNIT (the default case for fresh units) to start from
-// default_style(). decl applies on top via set_many.
+// unit starts with base's current style, state overlays (hover, press,
+// focus, disabled) and focusability, and never follows later writes to
+// base. A variant is therefore one line: mint(&primary, btn, {color = accent}).
+// Group memberships are not copied — joining stays explicit. Pass NO_UNIT
+// to start from default_style(). decl applies on top via set_many.
 mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
              name := #caller_expression(out), loc := #caller_location) {
 	if len(store.units) == 0 {
@@ -668,7 +682,14 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	rec := Unit_Rec{style = default_style(), name = nm, loc = loc, proto = base, live = true}
 	if base != NO_UNIT {
 		assert(unit_live(base), "niello.mint: base is not a minted unit")
-		rec.style = store.units[unit_index(base)].style
+		src := &store.units[unit_index(base)]
+		rec.style = src.style
+		// A variant is the base's whole look, so it shares the base's
+		// state overlays and focusability too (the decl below may
+		// replace any of them). Group memberships are not inherited:
+		// joining a group stays explicit.
+		rec.hover, rec.press, rec.focus, rec.disabled = src.hover, src.press, src.focus, src.disabled
+		rec.focusable = src.focusable
 		// The base copy is a snapshot: clone the reference-typed
 		// fields so the new unit owns its copies (see store_spans).
 		rec.style.text_spans = clone_spans(rec.style.text_spans)
@@ -696,6 +717,9 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	// half of mint (§3.7). Nothing is applied by joining.
 	for gr in decl.groups {
 		group_add_member(gr, u, ALL_FIELDS)
+	}
+	for gm in decl.group_masks {
+		group_add_member(gm.group, u, gm.fields)
 	}
 }
 
@@ -1353,6 +1377,7 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	// the cursor rewind below retires them all at once.
 	clear(&g.nodes)
 	clear(&g.withs)
+	clear(&g.size_overrides)
 	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
 	g.text_off = 0
 	g.spans_chunk = 0 // and the spans arena beside it
@@ -1994,6 +2019,44 @@ group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 			target := store.units[unit_index(m.unit)].style
 			style_set_any(&target, f, v)
 			start_glide(m.unit, Fields{f}, &target, ms)
+		}
+	}
+}
+
+// group_apply broadcasts a whole Style_Decl: every field the decl sets
+// is written to every member whose mask includes it and whose unit has
+// not pinned it — the many-field form of group_set (a theme switch in
+// one call per role). ms == 0 lands the values at once (an equal value
+// is a no-op, as with set); ms > 0 glides each member there. The decl's
+// overlays, focusable and group fields are ignored: only style values
+// broadcast.
+group_apply :: proc(grp: Group, decl: Style_Decl, ms: u32 = 0) {
+	fields := explicit_fields(decl)
+	if fields == {} {
+		return
+	}
+	// Resolve the decl once into a scratch unit's style: its owned text
+	// and spans are cloned by the member writes, then freed with it.
+	d := decl
+	d.groups, d.group_masks = nil, nil
+	d.hover, d.press, d.focus, d.disabled = NO_UNIT, NO_UNIT, NO_UNIT, NO_UNIT
+	tmp: Unit
+	mint(&tmp, NO_UNIT, d)
+	defer unmint(tmp)
+	src := &store.units[unit_index(tmp)].style
+	rec := group_rec(grp)
+	for m in rec.members {
+		mrec := &store.units[unit_index(m.unit)]
+		eff := fields & m.fields - mrec.pinned
+		if ms > 0 {
+			start_glide(m.unit, eff, src, ms)
+			continue
+		}
+		for f in eff {
+			if field_gliding(m.unit, f) || !field_equal(&mrec.style, src, f) {
+				cancel_glide_fields(m.unit, Fields{f})
+				write_field(m.unit, f, src)
+			}
 		}
 	}
 }

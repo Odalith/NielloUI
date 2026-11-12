@@ -291,7 +291,7 @@ popups_overlay :: proc(app: ^App) {
 			// that hides the toast.
 			niello.wake_in(u32(time.duration_milliseconds(left)) + 1)
 			if niello.begin_popup(popup_units.toast, 0, .At, opts = {stay = true, at = {24, 24}}) {
-				niello.show(ui.btn_label_on, {text = s.toast})
+				niello.show(ui.button.label_on, {text = s.toast})
 			}
 		}
 	}
@@ -475,7 +475,7 @@ page_images :: proc(app: ^App) {
 		}
 		heading("Background image behind children")
 		if niello.begin(I.bg, {image = s.hero}) {
-			niello.show(ui.btn_label_on, {text = "a container paints its image first"})
+			niello.show(ui.button.label_on, {text = "a container paints its image first"})
 		}
 	}
 }
