@@ -51,7 +51,7 @@ Key      :: distinct u64 // explicit identity (list items); 0 = the call site
 
 Field :: enum u8 {
 	Color, Font_Color, Border_Color,
-	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Whitespace, Ellipsis,
+	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Whitespace, Ellipsis, Justify,
 	Padding, Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
@@ -76,7 +76,7 @@ Fields :: bit_set[Field]
 // a field added later; the tests iterate Field and check membership.
 ALL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
-	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
 	.Padding, .Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
@@ -94,7 +94,7 @@ ALL_FIELDS :: Fields{
 // VISUAL_FIELDS writes. Written out in full, like ALL_FIELDS.
 VISUAL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
-	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
 	.Padding, .Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
@@ -341,6 +341,7 @@ Style :: struct {
 	wrap:          Text_Wrap,     // default .None
 	whitespace:    Whitespace,    // default .Collapse (§3.18)
 	ellipsis:      bool,          // default true; paint-time trim when no-wrap text overflows
+	justify:       bool,          // wrapped text: spread each line but a paragraph's last to the full width
 	overflow:      Overflow,      // default .Spill
 
 	// Debug/focus overlay, painted on top of the instance's own rect after its
@@ -424,6 +425,7 @@ Style_Decl :: struct {
 	wrap:          Maybe(Text_Wrap), // default .None
 	whitespace:    Maybe(Whitespace), // default .Collapse (§3.18)
 	ellipsis:      Maybe(bool),      // default true; paint-time trim when no-wrap text overflows
+	justify:       Maybe(bool),      // default false; spread wrapped lines to the full width
 	overflow:      Maybe(Overflow),  // default .Spill
 
 	overlay_color:        Maybe(Color),
@@ -728,6 +730,7 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	case .Text_Wrap:     s.wrap          = must(v, Text_Wrap)
 	case .Whitespace:    s.whitespace    = must(v, Whitespace)
 	case .Ellipsis:      s.ellipsis      = must(v, bool)
+	case .Justify:       s.justify       = must(v, bool)
 	case .Padding:       s.padding       = must(v, [4]u16)
 	case .Gap:           s.gap           = must(v, u16)
 	case .Corner_Radius: s.corner_radius = must(v, u8)
@@ -900,6 +903,7 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	apply_decl_field(u, .Text_Wrap, decl.wrap, &changed)
 	apply_decl_field(u, .Whitespace, decl.whitespace, &changed)
 	apply_decl_field(u, .Ellipsis, decl.ellipsis, &changed)
+	apply_decl_field(u, .Justify, decl.justify, &changed)
 	apply_decl_field(u, .Overflow, decl.overflow, &changed)
 	apply_decl_field(u, .Overlay_Color, decl.overlay_color, &changed)
 	apply_decl_field(u, .Overlay_Border_Color, decl.overlay_border_color, &changed)

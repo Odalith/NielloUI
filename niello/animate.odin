@@ -151,7 +151,7 @@ lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
 			}
 		}
 	case .Text, .Font, .Font_Weight, .Font_Slant, .Text_Spans,
-	     .Text_Wrap, .Whitespace, .Ellipsis, .Layout, .Align, .Scroll, .Overflow,
+	     .Text_Wrap, .Whitespace, .Ellipsis, .Justify, .Layout, .Align, .Scroll, .Overflow,
 	     .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
 	     .Overscroll, .Overscroll_Px, .Image, .Image_Fit, .Image_Interp:
 		copy_field(dst, b, f)
@@ -184,6 +184,7 @@ field_equal :: proc(a, b: ^Style, f: Field) -> bool {
 	case .Text_Wrap:     return a.wrap == b.wrap
 	case .Whitespace:    return a.whitespace == b.whitespace
 	case .Ellipsis:      return a.ellipsis == b.ellipsis
+	case .Justify:       return a.justify == b.justify
 	case .Padding:       return a.padding == b.padding
 	case .Gap:           return a.gap == b.gap
 	case .Corner_Radius: return a.corner_radius == b.corner_radius

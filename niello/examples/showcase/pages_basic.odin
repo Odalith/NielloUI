@@ -185,7 +185,8 @@ text_units: struct {
 	sizes:   [5]niello.Unit,
 	weights: [len(niello.Font_Weight)]niello.Unit,
 	slants:  [len(niello.Font_Slant)]niello.Unit,
-	spans, wrapped, collapse, preserve, ws_box, ellipsis, no_ellipsis, trim_box: niello.Unit,
+	spans, wrapped, justified, collapse, preserve, ws_box, ellipsis, no_ellipsis, trim_box: niello.Unit,
+	valign: [3]niello.Unit,
 }
 
 TEXT_SIZES := [5]f32{11, 14, 18, 24, 32}
@@ -234,7 +235,20 @@ page_text :: proc(app: ^App) {
 		w := 160 + s.width.value * 500
 		niello.set(T.wrapped, .Size, size(fixed(w), fit()))
 		niello.show(T.wrapped, {text = WRAP_TEXT})
+		note("The same paragraph with justify: every line but the last spreads to the full width.")
+		niello.set(T.justified, .Size, size(fixed(w), fit()))
+		niello.show(T.justified, {text = WRAP_TEXT})
 		note(fmt.tprintf("width %.0f DIP", w))
+	}
+
+	if niello.begin(ui.card) {
+		heading("Alignment inside a leaf")
+		note("A leaf's align places its text: align[0] each line across the box, align[1] the block down it — inside the padding. One leaf makes a centered button.")
+		if niello.begin(ui.row) {
+			niello.show(T.valign[0], {text = "Start, Start"})
+			niello.show(T.valign[1], {text = "Center, Center"})
+			niello.show(T.valign[2], {text = "End, End"})
+		}
 	}
 
 	if niello.begin(ui.card) {
@@ -465,6 +479,18 @@ mint_pages_basic :: proc(t: Theme) {
 		color = t.raised, padding = pad(10), corner_radius = 6,
 		groups = []niello.Group{groups.ink, groups.raised},
 	})
+	niello.mint(&T.justified, T.wrapped, {justify = true})
+	niello.group_add(groups.ink, T.justified)
+	niello.group_add(groups.raised, T.justified)
+	aligns := [3]niello.Align_Kind{.Start, .Center, .End}
+	for k in 0 ..< 3 {
+		niello.mint(&T.valign[k], niello.NO_UNIT, {
+			size = size(fixed(170), fixed(70)), padding = pad(8), corner_radius = 6,
+			color = t.raised, font_size = 13, font_color = t.ink,
+			align = niello.align(aligns[k], aligns[k]),
+			groups = []niello.Group{groups.raised, groups.ink},
+		})
+	}
 	niello.mint(&T.ws_box, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fit(), fit()),
 		color = t.bg, corner_radius = 4, groups = []niello.Group{groups.bg},

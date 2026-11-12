@@ -818,15 +818,15 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	fits := [4]niello.Image_Fit{.Uniform, .Fill, .Uniform_Fill, .None}
 	for k in 0 ..< 4 {
 		niello.mint(&I.fits[k], niello.NO_UNIT, {
-			size = size(fixed(180), fixed(120)), color = t.bg, image_fit = fits[k],
+			size = size(fixed(180), fixed(120)), color = t.bg, image_fit = fits[k], align = CENTER,
 			groups = []niello.Group{groups.bg},
 		})
 	}
 	niello.mint(&I.caption, ui.small, {})
 	niello.group_add(groups.dim, I.caption)
-	niello.mint(&I.strip, niello.NO_UNIT, {size = size(grow(), fixed(80)), color = t.bg, groups = []niello.Group{groups.bg}})
-	niello.mint(&I.smooth, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .High})
-	niello.mint(&I.nearest, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .None})
+	niello.mint(&I.strip, niello.NO_UNIT, {size = size(grow(), fixed(80)), color = t.bg, align = CENTER, groups = []niello.Group{groups.bg}})
+	niello.mint(&I.smooth, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .High, align = CENTER})
+	niello.mint(&I.nearest, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .None, align = CENTER})
 	niello.mint(&I.bg, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), fixed(140)), align = CENTER,
 		image_fit = .Uniform_Fill, corner_radius = 8,

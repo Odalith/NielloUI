@@ -110,6 +110,7 @@ mint_units :: proc() {
 		size      = niello.size(niello.fixed(150), niello.fixed(100)),
 		color     = BAND,
 		image_fit = niello.Image_Fit.Uniform,
+		align     = niello.CENTER,
 	})
 }
 
