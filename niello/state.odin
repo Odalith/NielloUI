@@ -9,6 +9,7 @@ package niello
 
 import "base:intrinsics"
 import "base:runtime"
+import "core:unicode/utf8"
 
 Unit_Rec :: struct {
 	// Slot bookkeeping (unmint): a handle carries its slot's
@@ -32,6 +33,16 @@ Unit_Rec :: struct {
 	// Warm: read when resolving interaction state (overlays not yet applied).
 	hover, press, focus, disabled: Unit,
 	focusable: bool,
+
+	// Derived from style, cached for declare: facts every frame would
+	// otherwise recompute for every instance of the unit. Valid while
+	// derived_gen == gen (any write to text or spans moves gen); see
+	// unit_derived.
+	derived_valid: bool,
+	derived_gen:   u64,
+	text_hash:     u64,  // text_scan of style.text
+	text_valid:    bool, // style.text is valid UTF-8
+	spans_hash:    u64,  // spans_hash_of(style.text_spans)
 
 	// Cold: debug/inspector only.
 	name: string,
@@ -559,6 +570,21 @@ touch_unmarked :: proc(u: Unit, f: Fields) {
 	if f & VISUAL_FIELDS != {} {
 		rec.gen += 1
 	}
+}
+
+// unit_derived returns u's record with its derived facts current:
+// recomputed only when the unit's style has been written since.
+unit_derived :: proc(u: Unit) -> ^Unit_Rec {
+	rec := &store.units[unit_index(u)]
+	if !rec.derived_valid || rec.derived_gen != rec.gen {
+		ascii: bool
+		rec.text_hash, ascii = text_scan(rec.style.text)
+		rec.text_valid = ascii || utf8.valid_string(rec.style.text)
+		rec.spans_hash = spans_hash_of(rec.style.text_spans)
+		rec.derived_gen = rec.gen
+		rec.derived_valid = true
+	}
+	return rec
 }
 
 style_of :: proc(u: Unit) -> ^Style {

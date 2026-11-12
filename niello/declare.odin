@@ -79,16 +79,28 @@ resolve_text :: proc(with: With, s: ^Style) -> string {
 // heap copy + a next-frame free PER NODE was the second-biggest churn in
 // the 2026-10-21 perf analysis) so the caller keeps no borrow contract,
 // and hashed once for the text cache key.
+//
+// style_hash is the unit's cached spans hash (unit_derived), used when
+// the spans come from the unit; per-instance spans are hashed here.
 @(private)
-resolve_spans :: proc(with: With, s: ^Style) -> (spans: []Text_Span, hash: u64) {
-	src := s.text_spans
+resolve_spans :: proc(with: With, s: ^Style, style_hash: u64) -> (spans: []Text_Span, hash: u64) {
 	if w, ok := with.text_spans.?; ok {
-		src = w
+		if len(w) == 0 {
+			return nil, 0
+		}
+		return copy_frame_spans(w), spans_hash_of(w)
 	}
-	if len(src) == 0 {
+	if len(s.text_spans) == 0 {
 		return nil, 0
 	}
-	spans = copy_frame_spans(src)
+	return copy_frame_spans(s.text_spans), style_hash
+}
+
+// spans_hash_of hashes a span list for the text cache key (0 for none).
+spans_hash_of :: proc(spans: []Text_Span) -> (hash: u64) {
+	if len(spans) == 0 {
+		return 0
+	}
 	hash = 14695981039346656037 // FNV-1a offset basis
 	for sp in spans {
 		hash = hash_mix(hash, u64(sp.start))
@@ -100,7 +112,7 @@ resolve_spans :: proc(with: With, s: ^Style) -> (spans: []Text_Span, hash: u64) 
 		fc := sp.font_color.? or_else Color{0, 0, 0, 0}
 		hash = hash_mix(hash, u64(fc[0]) | u64(fc[1]) << 8 | u64(fc[2]) << 16 | u64(fc[3]) << 24)
 	}
-	return spans, hash
+	return
 }
 
 // Popup roots hash against a fixed seed instead of a parent
@@ -263,8 +275,17 @@ declare_as :: proc(
 		// Hash once here; the text cache keys on (font, text_hash) instead
 		// of re-hashing the bytes on every lookup, every frame (Clay hashes
 		// contents for frame-arena-copied text — same requirement, paid once).
-		ascii: bool
-		text_hash, ascii = text_scan(text)
+		// Text from the unit (no With text) uses the unit's cached hash
+		// and validity: a label minted once is not rescanned per frame.
+		rec := unit_derived(unit)
+		valid: bool
+		if with.text == nil && with.text_no_copy == nil {
+			text_hash, valid = rec.text_hash, rec.text_valid
+		} else {
+			ascii: bool
+			text_hash, ascii = text_scan(text)
+			valid = ascii || utf8.valid_string(text)
+		}
 		// Invalid UTF-8 is sanitized at this one boundary (audit
 		// txt-6): nothing downstream validates display text, and the
 		// native replay validator rejects the ENTIRE command stream
@@ -274,11 +295,11 @@ declare_as :: proc(
 		// U+FFFD in a frame-arena copy, whichever source the text
 		// came from (With or the unit's style). The hash pass already
 		// proved all-ASCII text valid.
-		if !ascii && !utf8.valid_string(text) {
+		if !valid {
 			text = sanitize_frame_text(text)
 			text_hash = str_hash(text)
 		}
-		spans, spans_hash = resolve_spans(with, style_of(unit))
+		spans, spans_hash = resolve_spans(with, &rec.style, rec.spans_hash)
 	}
 	// The presented-content digest (§5 stamps): three folds over
 	// values already computed above — the text and span hashes the
