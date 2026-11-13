@@ -1135,7 +1135,7 @@ section_of :: proc(host: int) -> Section {
 		}
 	}
 	return Section{
-		host = g.nodes[host].identity, rect = r, content = content,
+		host = g.nodes[host].identity, unit = g.nodes[host].unit, rect = r, content = content,
 		visible = vis, offset = g.lay[host].scroll,
 	}
 }

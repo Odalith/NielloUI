@@ -1143,6 +1143,8 @@ current :: proc() -> Instance {
 //     never built.
 Section :: struct {
 	host:    Instance,
+	unit:    Unit, // the host's unit (its layout direction and gap
+	               // are what a list helper needs)
 	rect:    Rect, // the host's rect this frame
 	content: Rect, // rect less padding: where the flow starts
 	visible: Rect, // the host's rect clipped by its ancestors (and the
