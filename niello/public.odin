@@ -528,11 +528,6 @@ key :: proc{key_int, key_str, key_ptr}
 
 // ============ containers ============
 
-Begin_Flag :: enum u8 {
-	No_Cull, // declare children even when off-screen
-}
-Begin_Flags :: bit_set[Begin_Flag]
-
 // ============ frames ============
 
 Mouse_Button :: enum u8 {
@@ -1027,41 +1022,6 @@ show_at :: proc(unit: Unit, with: With, key: Key, site: u64) -> Instance {
 	return inst
 }
 
-// child_clip_for computes the clip a container's children inherit:
-// the inherited clip, narrowed by the container's own last-frame
-// committed rect when the container clips — Overflow.Clip or any
-// scrolling, the same predicate pass F uses for pick_clip. The
-// style read is the unit's base style: With carries no
-// overflow/scroll override, and state overlays resolve at
-// frame_end — the same base-style limitation declare-time text
-// resolution already has in v1. A container with no committed rect (first
-// frame, or it was culled) cannot narrow; its children inherit the
-// clip unchanged, and having no committed rects under a new/moved
-// parent they cannot be culled either.
-// last_rect_for returns an identity's last known rect: the
-// committed instance rect when it has one, else its cull-memory
-// rect (BL-3) — a culled container still clips and tests against
-// the rect it would have had.
-@(private)
-last_rect_for :: proc(inst: Instance) -> (Rect, bool) {
-	if rec, ok := g.instances[inst]; ok {
-		return rec.rect, true
-	}
-	rec, ok := g.cull_rects[inst]
-	return rec.rect, ok
-}
-
-@(private)
-child_clip_for :: proc(unit: Unit, inst: Instance, inherited: Rect) -> Rect {
-	s := style_of(unit)
-	if s.overflow == .Clip || s.scroll != .None {
-		if r, ok := last_rect_for(inst); ok {
-			return rect_intersect(inherited, r)
-		}
-	}
-	return inherited
-}
-
 // begin declares a container: every show/begin until its block closes
 // declares a child of it. Write it as an if-initializer — the matching
 // end runs when the if statement's scope closes:
@@ -1070,12 +1030,15 @@ child_clip_for :: proc(unit: Unit, inst: Instance, inherited: Rect) -> Rect {
 //		niello.show(label_u, 0, {text = "inside"})
 //	}
 //
-// The result is the cull signal: false when the container lies
-// entirely outside its ancestors' clips (off-screen in a scroller), so
-// its children can be skipped. It is advisory — declaring them anyway
-// is always correct, just slower. Culled subtrees produce no instances
-// this frame, so rect() on them returns ok = false. The first frame
-// never culls (no last-frame geometry to test against).
+// The result is true for every container that is laid out this frame —
+// off-screen ones included: culling is a paint and hit-test
+// optimization (draw_list skips what lies outside the clips), never a
+// layout one, so an off-screen subtree keeps its size, its instances,
+// its focus targets and its accessibility nodes. It is false only
+// inside a popup that is not shown (begin_popup: no committed anchor);
+// its children may be skipped then, and produce no instances if
+// declared anyway. Long lists that should not be declared in full want
+// virtualization (TODO), not culling.
 //
 // out, when given, receives the container's instance — written on
 // every call, culled or not, so a handle kept for later queries
@@ -1091,53 +1054,32 @@ begin :: #force_inline proc(
 	unit: Unit,
 	with: With = {},
 	key: Key = 0,
-	flags: Begin_Flags = {},
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
-	return begin_at(unit, with, key, flags, out, site_hash(loc))
+	return begin_at(unit, with, key, out, site_hash(loc))
 }
 
 @(private)
-begin_at :: proc(unit: Unit, with: With, key: Key, flags: Begin_Flags, out: ^Instance, site: u64) -> (open: bool) {
+begin_at :: proc(unit: Unit, with: With, key: Key, out: ^Instance, site: u64) -> (open: bool) {
 	i, idx := declare(unit, key, with, true, site)
 	if out != nil {
 		out^ = i
 	}
-
-	// Real culling (audit BL-3): a container is culled when its
-	// last-frame committed rect misses its ancestors' accumulated
-	// clip entirely — the intersection pass F computes for picking
-	// (pick_clip), evaluated at declare time against last frame's
-	// instances, because this frame's layout does not exist yet.
-	// The decision is one frame latent by construction: a
-	// container scrolled into view was culled last frame and has
-	// no committed rect, so it is never culled this frame — it
-	// declares, commits, and can be culled again once it scrolls
-	// out. The first frame never culls (no committed rects).
-	// No_Cull opts this container out of the rect test; a culled
-	// ancestor still culls the whole subtree.
-	cull := g.nodes[idx].culled // inherited: an ancestor was culled
+	// No rect culling (decided 2026-11-13): a container is closed only
+	// when its subtree is not presented at all — inside a popup that
+	// is not shown (declare inherits the flag) — or by the test hook.
+	cull := g.nodes[idx].culled
 	if g.test_force_cull {
 		cull = true
 		g.test_force_cull = false
+		g.nodes[idx].culled = true
 	}
-	inherited_clip := len(g.clip_stack) > 0 ? g.clip_stack[len(g.clip_stack) - 1] : Rect{{0, 0}, g.viewport}
-	if !cull && .No_Cull not_in flags {
-		if r, ok := last_rect_for(i); ok {
-			inter := rect_intersect(r, inherited_clip)
-			if inter.size.x <= 0 || inter.size.y <= 0 {
-				cull = true
-			}
-		}
-	}
-	g.nodes[idx].culled = cull
 
 	// Push even when closed: end() must pop symmetrically, and children declared
 	// while ignoring `open` are still correctly parented (just culled).
 	append(&g.stack, idx)
 	open_site_region()
-	append(&g.clip_stack, child_clip_for(unit, i, inherited_clip))
 	return !cull
 }
 
@@ -1146,7 +1088,6 @@ begin_at :: proc(unit: Unit, with: With, key: Key, flags: Begin_Flags, out: ^Ins
 end :: proc(open: bool) {
 	pop(&g.stack)
 	close_site_region()
-	pop(&g.clip_stack)
 }
 
 // current returns the innermost open container's instance (0 outside
@@ -1200,8 +1141,8 @@ Popup_Opts :: struct {
 //
 // The result and out work exactly as for begin. The result is false
 // when the anchor instance has no committed rect (it was never shown,
-// or left the tree): declare children anyway or not — the subtree is
-// culled either way.
+// or left the tree): the popup is not presented, so declare children
+// anyway or not — the subtree produces no instances either way.
 //
 //	if niello.begin_popup(menu_u, file_btn, .Below, opts = {gap = 4}, out = &app.menu_i) { ... }
 @(deferred_out = end)
@@ -1230,8 +1171,8 @@ begin_popup_at :: proc(
 	site: u64,
 ) -> (open: bool) {
 	anchor_ok := placement == .At || placement == .Center || anchor in g.instances
-	// A popup declared from inside a culled subtree stays culled,
-	// like any other declaration there.
+	// A popup declared from inside a popup that is not shown is not
+	// shown either.
 	decl_culled := len(g.stack) > 0 && g.nodes[g.stack[len(g.stack) - 1]].culled
 	// Popup roots belong to the layer, not the declaring container:
 	// their call-site occurrences count across the whole frame.
@@ -1251,10 +1192,6 @@ begin_popup_at :: proc(
 	append(&g.popups, Popup_Rec{root_idx = idx, id = i, modal = opts.modal, stay = opts.stay})
 	append(&g.stack, idx)
 	open_site_region()
-	// Popup children escape the declaring ancestors' clips: their
-	// inherited clip restarts at the viewport, narrowed only by
-	// the popup's own rect when the popup itself clips.
-	append(&g.clip_stack, child_clip_for(unit, i, Rect{{0, 0}, g.viewport}))
 	return anchor_ok && !decl_culled
 }
 
@@ -1285,7 +1222,6 @@ context_create :: proc() -> ^Context {
 	// inside pass F — and no read site needs a nil-map guard for
 	// a live context ever again.
 	ctx.instances = make(map[Instance]Inst_Rec)
-	ctx.cull_rects = make(map[Instance]Cull_Rec)
 	ctx.a11y_entries = make(map[Instance]A11y_Entry)
 	ctx.scroll_off = make(map[Instance]Vec2)
 	ctx.scroll_max = make(map[Instance]Vec2)
@@ -1387,7 +1323,6 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	clear(&g.site_counts)
 	clear(&g.site_base)
 	clear(&g.popup_sites)
-	clear(&g.clip_stack)
 	clear(&g.lay)
 	clear(&g.pick_clip)
 	clear(&g.wrap_list)

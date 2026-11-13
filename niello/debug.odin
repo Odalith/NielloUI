@@ -35,7 +35,7 @@ DEBUG_HIGHLIGHT_COLOR :: Color{255, 170, 40, 64}
 
 Debug_Flag :: enum {
 	Popup,   // an overlay root (§3.19)
-	Culled,  // declared but culled: no instance, zero rect
+	Culled,  // declared but not presented (a popup not shown): no instance, zero rect
 	Scroll_X, // scrollable on X: overfl.x is a range, not a defect
 	Scroll_Y,
 	Clip,    // Overflow.Clip: the excess is cut by design

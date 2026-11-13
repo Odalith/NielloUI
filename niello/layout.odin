@@ -851,9 +851,8 @@ position_and_damage :: proc() {
 		// value (not this frame's read-clamped scroll), so an offset
 		// set before the first frame survives to be rendered once a
 		// range exists. Pass F never creates an offset entry.
-		// A culled container has no laid-out children, so its range
-		// here is meaningless: it keeps last frame's range and offset
-		// until it is declared again.
+		// A culled container (a popup not shown) has no laid-out
+		// children, so its range here is meaningless.
 		if nd.culled {
 			continue
 		}
@@ -917,32 +916,21 @@ position_and_damage :: proc() {
 	// state stamp from resolve_styles. A live transient damages
 	// unconditionally: its blend factor moves every frame without
 	// any stamp moving.
-	commits := 0     // pass-F commits this frame (non-culled nodes)
-	cull_writes := 0 // cull_rects writes this frame (culled nodes)
+	commits := 0 // pass-F commits this frame (presented nodes)
 	for i in 0 ..< n {
 		nd := &g.nodes[i]
 		id := nd.identity
 		if nd.culled {
-			// Culled (audit BL-3): no instance is committed and the
-			// node adds no damage of its own — but a node committed
-			// last frame has now vanished, so its old rect is
-			// damage and its instance goes away (rect() reports
-			// ok=false for culled subtrees, as begin documents).
-			// The instance deletion also means the recycle sweep
-			// below cannot rely on the map-outgrew-the-tree signal
-			// alone. The node's layout rect is remembered in
-			// cull_rects: the culler tests last-frame rects, and
-			// deleting the instance must not erase the evidence
-			// that keeps the node culled next frame.
-			g.cull_rects[id] = Cull_Rec{rect = Rect{g.lay[i].pos, g.lay[i].size}, last_seen = g.frame_index}
-			cull_writes += 1
-			// Its scroll state stays: a culled scroller keeps its
-			// offset for as long as the cull memory lives, so it
-			// comes back where it was (it is purged with that memory
-			// in the recycle sweep).
+			// Not presented (a popup with no committed anchor, and
+			// its subtree): no instance is committed and the node
+			// adds no damage of its own — but a node committed last
+			// frame has now vanished, so its old rect is damage and
+			// its instance, with its scroll state, goes away
+			// (rect() reports ok=false, as begin_popup documents).
 			if old, ok := g.instances[id]; ok {
 				append(&g.damage, Rect{old.rect.pos, old.rect.size + old.overfl})
 				delete_key(&g.instances, id)
+				purge_scroll_state(id)
 			}
 			continue
 		}
@@ -985,10 +973,6 @@ position_and_damage :: proc() {
 			old^ = rec
 		}
 		commits += 1
-		if len(g.cull_rects) > 0 {
-			// A live commit retires the node's cull memory.
-			delete_key(&g.cull_rects, id)
-		}
 	}
 	// Recycle: an instance that was committed before but not declared
 	// this frame is gone, and its last rect is damage — otherwise its
@@ -1000,10 +984,9 @@ position_and_damage :: proc() {
 	// once this frame, so a map larger than the commit count holds a
 	// stale record — including the swap case the heuristic missed (a
 	// death and a birth in one frame, balanced in the node count by
-	// declared-but-culled nodes). Stale cull_rects entries are counted
-	// the same way against this frame's cull writes. A steady-state
-	// frame pays two size comparisons.
-	if len(g.instances) > commits || len(g.cull_rects) > cull_writes {
+	// nodes that are not presented). A steady-state frame pays one
+	// size comparison.
+	if len(g.instances) > commits {
 		clear(&g.dead_ids)
 		for id, rec in g.instances {
 			if rec.last_seen != g.frame_index {
@@ -1013,18 +996,6 @@ position_and_damage :: proc() {
 		}
 		for id in g.dead_ids {
 			delete_key(&g.instances, id)
-			purge_scroll_state(id)
-		}
-		// Cull memory for identities no longer declared is dead
-		// too (no damage: they were never visible).
-		clear(&g.dead_ids)
-		for id, rec in g.cull_rects {
-			if rec.last_seen != g.frame_index {
-				append(&g.dead_ids, id)
-			}
-		}
-		for id in g.dead_ids {
-			delete_key(&g.cull_rects, id)
 			purge_scroll_state(id)
 		}
 	}

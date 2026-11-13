@@ -91,7 +91,9 @@ settles :: proc(t: ^testing.T, app: ^App, label: string) {
 			seen[n.instance] = true
 		}
 		for n in niello.debug_tree(app.ctx) {
-			if n.unit == layout_units.spill_box || n.unit == layout_units.clip_box {
+			// The spill demo overflows on purpose; a clipping box cuts its
+			// excess by design (.Clip), so neither draws outside by mistake.
+			if n.unit == layout_units.spill_box || .Clip in n.flags {
 				continue
 			}
 			ox := n.overfl.x > 0.5 && .Scroll_X not_in n.flags

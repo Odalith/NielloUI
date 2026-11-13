@@ -4,7 +4,7 @@
 // holds the node append, identity hashing, key fallback, and text resolution.
 // begin uses @(deferred_out=end): `if begin(u) { ... }` closes the container
 // when the if statement ends, LIFO for nesting, and end() still runs when the
-// container is culled or on early return.
+// container is closed (a popup not shown) or on early return.
 package niello
 
 import "base:runtime"
@@ -55,7 +55,9 @@ Frame_Node :: struct {
 	popup_at:        Vec2,
 	popup_gap:       f32,
 	is_container:    bool,
-	culled:          bool,
+	culled:          bool, // not presented this frame: a popup with no
+	                       // committed anchor, and its subtree (never a
+	                       // rect test — culling is paint-only)
 	has_eff:         bool, // frame_end resolved an effective style into
 	                       // g.eff[idx] (interaction state or variant present)
 }

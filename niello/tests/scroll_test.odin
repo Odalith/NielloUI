@@ -694,8 +694,9 @@ test_clipping_child_overflow_does_not_leak :: proc(t: ^testing.T) {
 	testing.expect_value(t, niello.scroll_range(sc_outer_i), niello.Vec2{0, 0})
 }
 
-// A scroller that is culled — scrolled out of its parent's clip — keeps
-// its offset, and comes back where it was.
+// A scroller scrolled out of its parent's clip keeps its offset, and
+// comes back where it was: off-screen subtrees stay declared and live
+// (culling is paint-only).
 cs_outer_u, cs_inner_u, cs_row_u, cs_filler_u: niello.Unit
 cs_outer_i, cs_inner_i: niello.Instance
 
@@ -713,7 +714,7 @@ cs_declare :: proc() {
 }
 
 @(test)
-test_culled_scroller_keeps_its_offset :: proc(t: ^testing.T) {
+test_offscreen_scroller_keeps_its_offset :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 	sc_root = fixed_root()
@@ -742,7 +743,8 @@ test_culled_scroller_keeps_its_offset :: proc(t: ^testing.T) {
 		frame()
 	}
 	_, live := niello.rect(cs_inner_i)
-	testing.expect(t, !live, "the nested scroller is culled")
+	testing.expect(t, live, "the off-screen nested scroller stays live")
+	testing.expect(t, niello.scroll_offset(cs_inner_i) == niello.Vec2{0, 90}, "with its offset")
 	niello.scroll_to(cs_outer_i, {0, 0})
 	for _ in 0 ..< 3 {
 		frame()
