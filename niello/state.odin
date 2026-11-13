@@ -365,6 +365,34 @@ Context :: struct {
 	ring_painted:  Ring_Paint, // the ring the last frame painted (damage)
 	ring_idx:      int,        // node that paints the ring this frame
 	                           // (frame_end sets it for draw_list), -1 none
+
+	// Deferred sections (begin_section): the hosts declared this frame,
+	// queued at declare and built in frame_end after the main layout
+	// (run_sections). section_host is the host whose build is running,
+	// -1 otherwise; section_lo is the first node index of that build.
+	sections:     [dynamic]Section_Rec,
+	section_host: int,
+	section_lo:   int,
+	// reorder_tree's buffers: the frame's node-indexed arrays in tree
+	// order, swapped with the live ones once a section has run.
+	reorder_new_idx: [dynamic]int,
+	reorder_nodes:   [dynamic]Frame_Node,
+	reorder_lay:     [dynamic]Lay,
+	reorder_eff:     [dynamic]Style,
+	reorder_dis:     [dynamic]bool,
+	reorder_stamp:   [dynamic]u64,
+}
+
+// Section_Build is a section's build proc in its untyped form
+// (begin_section's typed form transmutes to it: both take a pointer).
+Section_Build :: proc(data: rawptr, s: Section)
+
+// Section_Rec is one queued section (begin_section): its host node
+// and the build that declares the host's flow children.
+Section_Rec :: struct {
+	host:  int,
+	build: Section_Build,
+	data:  rawptr,
 }
 
 @(private)
@@ -486,6 +514,13 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.instances)
 	delete(ctx.damage)
 	delete(ctx.popups)
+	delete(ctx.sections)
+	delete(ctx.reorder_new_idx)
+	delete(ctx.reorder_nodes)
+	delete(ctx.reorder_lay)
+	delete(ctx.reorder_eff)
+	delete(ctx.reorder_dis)
+	delete(ctx.reorder_stamp)
 	delete(ctx.dismiss_flags)
 	delete(ctx.scroll_off)
 	delete(ctx.scroll_max)

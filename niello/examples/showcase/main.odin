@@ -26,6 +26,7 @@ Page :: enum {
 	Text,
 	Input,
 	Scrolling,
+	Virtual,
 	Animation,
 	Popups,
 	Drag,
@@ -39,6 +40,7 @@ PAGE_NAMES := [Page]string{
 	.Text          = "Text",
 	.Input         = "Keyboard & focus",
 	.Scrolling     = "Scrolling",
+	.Virtual       = "Virtual lists",
 	.Animation     = "Animation",
 	.Popups        = "Popups",
 	.Drag          = "Drag",
@@ -60,6 +62,7 @@ App :: struct {
 	text:         Text_State,
 	input:        Input_State,
 	scrolling:    Scrolling_State,
+	virt:         Virtual_State,
 	anim:         Anim_State,
 	popups:       Popups_State,
 	drag:         Drag_State,
@@ -182,6 +185,7 @@ declare_content :: proc(app: ^App) {
 			case .Text:          page_text(app)
 			case .Input:         page_input(app)
 			case .Scrolling:     page_scrolling(app)
+			case .Virtual:       page_virtual(app)
 			case .Animation:     page_animation(app)
 			case .Popups:        page_popups(app)
 			case .Drag:          page_drag(app)

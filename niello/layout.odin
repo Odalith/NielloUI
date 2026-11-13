@@ -2,13 +2,17 @@
 // Faithful to UI_API_Design.md §9. Deviations from the doc are marked DEVIATION
 // and collected in the test report.
 //
-//   pass 0: measure_text_all   (text leaves -> content/min_c via word cache)
+//   pass 0: measure_text_range (text leaves -> content/min_c via word cache)
 //   pass A: accumulate(X)      (bottom-up intrinsic widths)
 //   pass B: distribute(X)      (top-down widths + waterfill)
 //   pass C: wrap_text          (pack words into resolved widths)
 //   pass D: accumulate(Y)      (bottom-up heights)
 //   pass E: distribute(Y)      (top-down heights)
-//   pass F: position_and_damage(positions, instance rects, damage, overflow)
+//   pass F: position_range (positions, overflow, scroll ranges), then
+//           pick_clips_and_commit (pick clips, instance rects, damage)
+//
+// Every pass runs over an index range [lo, hi): the whole tree for the
+// main layout, a section's appended nodes for a section pass.
 package niello
 
 
@@ -230,13 +234,14 @@ build_child_lists :: proc() {
 	}
 }
 
-measure_text_all :: proc() {
-	n := len(g.nodes)
-	resize(&g.lay, n)
-	for i in 0 ..< n {
+// measure_text_range is pass 0 over the nodes [lo, hi): the whole tree
+// for the main layout, a section's new nodes for a section pass.
+measure_text_range :: proc(lo, hi: int) {
+	resize(&g.lay, len(g.nodes))
+	for i in lo ..< hi {
 		g.lay[i] = Lay{}
 	}
-	for i in 0 ..< n {
+	for i in lo ..< hi {
 		nd := &g.nodes[i]
 		if nd.is_container {
 			continue // containers accumulate their content in passes A/D
@@ -308,9 +313,9 @@ accum_min :: proc(c: int, axis: int) -> f32 {
 // ---------------------------------------------------------------------------
 // Passes A/D: bottom-up intrinsic accumulation (reverse walk)
 
-accumulate :: proc(axis: int) {
-	n := len(g.nodes)
-	for i := n - 1; i >= 0; i -= 1 {
+// accumulate is passes A/D over [lo, hi), children before parents.
+accumulate :: proc(axis: int, lo, hi: int) {
+	for i := hi - 1; i >= lo; i -= 1 {
 		nd := &g.nodes[i]
 		if !nd.is_container {
 			continue
@@ -604,9 +609,56 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	// at position time handles it.
 }
 
-distribute :: proc(axis: int, viewport_extent: f32) {
-	n := len(g.nodes)
-	for i in 0 ..< n {
+// distribute_node hands container i's children their sizes on axis.
+distribute_node :: #force_inline proc(i: int, axis: int) {
+	nd := &g.nodes[i]
+	if !nd.is_container {
+		return
+	}
+	s := node_style(i)
+	inner := g.lay[i].size[axis] - padding_sum(s, axis)
+	if inner < 0 {
+		inner = 0
+	}
+	scrolls := scrollable_axis(s, axis)
+	// Anchored overlays (§3.20) resolve against the parent's FULL
+	// rect on every axis, whatever the layout: padding insets flow
+	// content, never overlays (a scrollbar hugs the panel edge).
+	if nd.has_anchored {
+		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				resolve_cross(c, axis, g.lay[i].size[axis], scrolls)
+			}
+		}
+	}
+	if s.layout == .Stack {
+		// Stack children are excluded from the waterfill: each resolves
+		// independently against the full content box.
+		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+			if !g.nodes[c].anchored {
+				resolve_cross(c, axis, inner, scrolls)
+			}
+		}
+		return
+	}
+	if axis == main_axis(s.layout) {
+		distribute_main(i, axis, inner)
+	} else {
+		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+			if !g.nodes[c].anchored {
+				resolve_cross(c, axis, inner, scrolls)
+			}
+		}
+	}
+}
+
+// distribute is passes B/E over [lo, hi): roots resolve against the
+// viewport, then every container hands its children their sizes,
+// parents before children. host >= 0 is a section pass: the host's
+// size is already final, and it distributes to its (new) children
+// before the range's own containers.
+distribute :: proc(axis: int, viewport_extent: f32, host, lo, hi: int) {
+	for i in lo ..< hi {
 		if g.nodes[i].parent == -1 {
 			if g.nodes[i].is_popup {
 				g.lay[i].size[axis] = resolve_popup_root(i, axis, viewport_extent)
@@ -615,46 +667,11 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 			}
 		}
 	}
-	for i in 0 ..< n {
-		nd := &g.nodes[i]
-		if !nd.is_container {
-			continue
-		}
-		s := node_style(i)
-		inner := g.lay[i].size[axis] - padding_sum(s, axis)
-		if inner < 0 {
-			inner = 0
-		}
-		scrolls := scrollable_axis(s, axis)
-		// Anchored overlays (§3.20) resolve against the parent's FULL
-		// rect on every axis, whatever the layout: padding insets flow
-		// content, never overlays (a scrollbar hugs the panel edge).
-		if nd.has_anchored {
-			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				if g.nodes[c].anchored {
-					resolve_cross(c, axis, g.lay[i].size[axis], scrolls)
-				}
-			}
-		}
-		if s.layout == .Stack {
-			// Stack children are excluded from the waterfill: each resolves
-			// independently against the full content box.
-			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				if !g.nodes[c].anchored {
-					resolve_cross(c, axis, inner, scrolls)
-				}
-			}
-			continue
-		}
-		if axis == main_axis(s.layout) {
-			distribute_main(i, axis, inner)
-		} else {
-			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				if !g.nodes[c].anchored {
-					resolve_cross(c, axis, inner, scrolls)
-				}
-			}
-		}
+	if host >= 0 {
+		distribute_node(host, axis)
+	}
+	for i in lo ..< hi {
+		distribute_node(i, axis)
 	}
 	// DEVIATION (bug fix vs the doc's pseudocode): the doc appends text nodes to
 	// wrap_list inside distribute_main, which also runs for the Y axis — so text
@@ -662,7 +679,7 @@ distribute :: proc(axis: int, viewport_extent: f32) {
 	// Wrapping needs the resolved X width, which exists after distribute(X)
 	// regardless of parent direction, so collection happens here, on X only.
 	if axis == X_AXIS {
-		for i in 0 ..< n {
+		for i in lo ..< hi {
 			nd := &g.nodes[i]
 			if nd.has_text && node_style(i).wrap == .Word {
 				append(&g.wrap_list, i)
@@ -718,9 +735,17 @@ rect_union :: proc(a, b: Rect) -> Rect {
 	return Rect{min_p, max_p - min_p}
 }
 
-position_and_damage :: proc() {
-	n := len(g.nodes)
-	for r in 0 ..< n {
+// position_range is pass F's positioning over [lo, hi): roots take
+// their place, every container places its children (parents before
+// children), then overflow closes bottom-up and scroll ranges publish.
+// host >= 0 is a section pass: the host re-places its children (the
+// new flow content and its chrome) first and closes last. A section
+// host met inside a range (the main layout, or an enclosing section)
+// places its chrome but does not publish its scroll range: its content
+// arrives in its own section pass, and an empty host would clamp the
+// stored offset to nothing.
+position_range :: proc(host, lo, hi: int) {
+	for r in lo ..< hi {
 		if g.nodes[r].parent == -1 {
 			if g.nodes[r].is_popup {
 				g.lay[r].pos = popup_position(r)
@@ -729,78 +754,11 @@ position_and_damage :: proc() {
 			}
 		}
 	}
-	for i in 0 ..< n {
-		nd := &g.nodes[i]
-		if !nd.is_container {
-			continue
-		}
-		s := node_style(i)
-		// The live scroll offset: the stored value, clamped per
-		// scrollable axis to last frame's range (g.scroll_max — g.lay
-		// was zeroed by pass 0, so the range cannot come from there).
-		// The fresh range computed below re-clamps it for storage.
-		scroll := Vec2{0, 0}
-		stored_off, has_off := Vec2{}, false
-		if len(g.scroll_off) > 0 {
-			stored_off, has_off = g.scroll_off[nd.identity]
-		}
-		if has_off {
-			prev_max := g.scroll_max[nd.identity]
-			// An overscroll-enabled scroller (§3.22) renders its
-			// offset inside the widened band domain; the spring
-			// in scroll_glides owns positions out there.
-			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
-			for axis in 0 ..< 2 {
-				if scrollable_axis(s, axis) {
-					scroll[axis] = clamp(stored_off[axis], -allow, prev_max[axis] + allow)
-				}
-			}
-		}
-		base := g.lay[i].pos
-		pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
-		axis := main_axis(s.layout) if s.layout != .Stack else X_AXIS
-		g.lay[i].scroll = scroll
-		cursor := base + pad - scroll
-		if s.layout != .Stack {
-			// Main-axis alignment: shift the whole row/column in leftover space.
-			used := f32(0)
-			nchild := 0
-			for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-				if g.nodes[c].anchored {
-					continue // overlays take no flow slot (§3.20)
-				}
-				used += g.lay[c].size[axis]
-				nchild += 1
-			}
-			if nchild > 0 {
-				used += f32(nchild-1) * f32(s.gap)
-			}
-			free := (g.lay[i].size[axis] - padding_sum(s, axis)) - used
-			cursor[axis] += align_offset(s.align[axis], free)
-		}
-		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
-			p := cursor
-			if s.layout == .Stack {
-				inner := g.lay[i].size - Vec2{padding_sum(s, X_AXIS), padding_sum(s, Y_AXIS)}
-				p = base + pad - scroll + stack_align_offset(s, g.lay[c].size, inner)
-			} else {
-				cross := 1 - axis
-				free := (g.lay[i].size[cross] - padding_sum(s, cross)) - g.lay[c].size[cross]
-				p[cross] += align_offset(s.align[cross], free)
-			}
-			anchored := g.nodes[c].anchored
-			if anchored {
-				// Overlay (§3.20): positioned against the parent's
-				// FULL rect — its origin plus its align, read per
-				// axis [x, y] as for every other child — no padding
-				// inset, NO scroll applied, no flow slot consumed.
-				p = base + stack_align_offset(s, g.lay[c].size, g.lay[i].size)
-			}
-			g.lay[c].pos = p
-			if s.layout != .Stack && !anchored {
-				cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
-			}
-		}
+	if host >= 0 {
+		place_children(host)
+	}
+	for i in lo ..< hi {
+		place_children(i)
 	}
 	// Overflow, bottom-up (audit core-H7): a container's content
 	// extent includes each child's own overflow — a grandchild
@@ -810,88 +768,183 @@ position_and_damage :: proc() {
 	// every child's overfl is final before its parent reads it. The
 	// scroll-range publish and offset write-back ride along: both
 	// consume the final overflow.
-	for i := n - 1; i >= 0; i -= 1 {
-		nd := &g.nodes[i]
-		if !nd.is_container {
-			continue
+	for i := hi - 1; i >= lo; i -= 1 {
+		close_overflow(i, !g.nodes[i].is_section)
+	}
+	if host >= 0 {
+		close_overflow(host, true)
+	}
+}
+
+// place_children positions container i's children (pass F, top-down).
+@(private)
+place_children :: #force_inline proc(i: int) {
+	nd := &g.nodes[i]
+	if !nd.is_container {
+		return
+	}
+	s := node_style(i)
+	// The live scroll offset: the stored value, clamped per
+	// scrollable axis to last frame's range (g.scroll_max — g.lay
+	// was zeroed by pass 0, so the range cannot come from there).
+	// The fresh range computed below re-clamps it for storage.
+	scroll := Vec2{0, 0}
+	stored_off, has_off := Vec2{}, false
+	if len(g.scroll_off) > 0 {
+		stored_off, has_off = g.scroll_off[nd.identity]
+	}
+	if has_off {
+		prev_max := g.scroll_max[nd.identity]
+		// An overscroll-enabled scroller (§3.22) renders its
+		// offset inside the widened band domain; the spring
+		// in scroll_glides owns positions out there.
+		allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
+		for axis in 0 ..< 2 {
+			if scrollable_axis(s, axis) {
+				scroll[axis] = clamp(stored_off[axis], -allow, prev_max[axis] + allow)
+			}
 		}
-		s := node_style(i)
-		base := g.lay[i].pos
-		pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
-		origin := base + pad
-		inner := Vec2{
-			g.lay[i].size.x - padding_sum(s, X_AXIS),
-			g.lay[i].size.y - padding_sum(s, Y_AXIS),
-		}
-		max_end := Vec2{0, 0} // pre-scroll content extent
+	}
+	base := g.lay[i].pos
+	pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
+	axis := main_axis(s.layout) if s.layout != .Stack else X_AXIS
+	g.lay[i].scroll = scroll
+	cursor := base + pad - scroll
+	if s.layout != .Stack {
+		// Main-axis alignment: shift the whole row/column in leftover space.
+		used := f32(0)
+		nchild := 0
 		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
 			if g.nodes[c].anchored {
 				continue // overlays take no flow slot (§3.20)
 			}
-			ce := g.lay[c].pos + g.lay[i].scroll + g.lay[c].size
-			// A clipping child (Overflow.Clip or any scrolling — the
-			// Push_Clip predicate) paints nothing past its rect, so its
-			// own overflow stays inside it; only a non-clipping child's
-			// spill extends this container's extent.
-			cs := node_style(c)
-			if !(cs.overflow == .Clip || scrollable_axis(cs, X_AXIS) || scrollable_axis(cs, Y_AXIS)) {
-				ce += g.lay[c].overfl
-			}
-			max_end.x = max(max_end.x, ce.x)
-			max_end.y = max(max_end.y, ce.y)
+			used += g.lay[c].size[axis]
+			nchild += 1
 		}
-		g.lay[i].overfl = Vec2{
-			max(0, max_end.x - (origin.x + inner.x)),
-			max(0, max_end.y - (origin.y + inner.y)),
+		if nchild > 0 {
+			used += f32(nchild-1) * f32(s.gap)
 		}
-		// Publish the fresh range for the next frame's clamps, and
-		// store back the offset re-clamped against it: scroll_offset()
-		// then reports rendered truth, and shrinking content pulls a
-		// stranded offset back in. The write-back clamps the STORED
-		// value (not this frame's read-clamped scroll), so an offset
-		// set before the first frame survives to be rendered once a
-		// range exists. Pass F never creates an offset entry.
-		// A culled container (a popup not shown) has no laid-out
-		// children, so its range here is meaningless.
-		if nd.culled {
-			continue
+		free := (g.lay[i].size[axis] - padding_sum(s, axis)) - used
+		cursor[axis] += align_offset(s.align[axis], free)
+	}
+	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+		p := cursor
+		if s.layout == .Stack {
+			inner := g.lay[i].size - Vec2{padding_sum(s, X_AXIS), padding_sum(s, Y_AXIS)}
+			p = base + pad - scroll + stack_align_offset(s, g.lay[c].size, inner)
+		} else {
+			cross := 1 - axis
+			free := (g.lay[i].size[cross] - padding_sum(s, cross)) - g.lay[c].size[cross]
+			p[cross] += align_offset(s.align[cross], free)
 		}
-		if scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
-			g.scroll_max[nd.identity] = g.lay[i].overfl
+		anchored := g.nodes[c].anchored
+		if anchored {
+			// Overlay (§3.20): positioned against the parent's
+			// FULL rect — its origin plus its align, read per
+			// axis [x, y] as for every other child — no padding
+			// inset, NO scroll applied, no flow slot consumed.
+			p = base + stack_align_offset(s, g.lay[c].size, g.lay[i].size)
 		}
-		if len(g.scroll_off) == 0 {
-			continue
-		}
-		stored_off, has_off := g.scroll_off[nd.identity]
-		if has_off {
-			eff := Vec2{0, 0}
-			// The stored offset re-clamps to the fresh range — or
-			// to the band domain while a spring owns the position
-			// (§3.22). An out-of-range offset with no spring (a
-			// stale one, say) heals back to the legal range here.
-			allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
-			gl, has_gl := Scroll_Glide{}, false
-			if len(g.scroll_glides) > 0 {
-				gl, has_gl = g.scroll_glides[nd.identity]
-			}
-			for axis in 0 ..< 2 {
-				if scrollable_axis(s, axis) {
-					// Per axis (audit int-8): the band domain
-					// applies to an axis while ITS spring owns it.
-					springing := has_gl && gl.active[axis] && gl.axis[axis].spring
-					lo := springing ? -allow : f32(0)
-					hi := springing ? g.lay[i].overfl[axis] + allow : g.lay[i].overfl[axis]
-					eff[axis] = clamp(stored_off[axis], lo, hi)
-				}
-			}
-			g.scroll_off[nd.identity] = eff
+		g.lay[c].pos = p
+		if s.layout != .Stack && !anchored {
+			cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
 		}
 	}
+}
+
+// close_overflow computes container i's overflow from its children's
+// final rects (pass F, bottom-up) and, when publish is set, publishes
+// its scroll range and re-clamps its stored offset.
+@(private)
+close_overflow :: #force_inline proc(i: int, publish: bool) {
+	nd := &g.nodes[i]
+	if !nd.is_container {
+		return
+	}
+	s := node_style(i)
+	base := g.lay[i].pos
+	pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
+	origin := base + pad
+	inner := Vec2{
+		g.lay[i].size.x - padding_sum(s, X_AXIS),
+		g.lay[i].size.y - padding_sum(s, Y_AXIS),
+	}
+	max_end := Vec2{0, 0} // pre-scroll content extent
+	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+		if g.nodes[c].anchored {
+			continue // overlays take no flow slot (§3.20)
+		}
+		ce := g.lay[c].pos + g.lay[i].scroll + g.lay[c].size
+		// A clipping child (Overflow.Clip or any scrolling — the
+		// Push_Clip predicate) paints nothing past its rect, so its
+		// own overflow stays inside it; only a non-clipping child's
+		// spill extends this container's extent.
+		cs := node_style(c)
+		if !(cs.overflow == .Clip || scrollable_axis(cs, X_AXIS) || scrollable_axis(cs, Y_AXIS)) {
+			ce += g.lay[c].overfl
+		}
+		max_end.x = max(max_end.x, ce.x)
+		max_end.y = max(max_end.y, ce.y)
+	}
+	g.lay[i].overfl = Vec2{
+		max(0, max_end.x - (origin.x + inner.x)),
+		max(0, max_end.y - (origin.y + inner.y)),
+	}
+	// Publish the fresh range for the next frame's clamps, and
+	// store back the offset re-clamped against it: scroll_offset()
+	// then reports rendered truth, and shrinking content pulls a
+	// stranded offset back in. The write-back clamps the STORED
+	// value (not this frame's read-clamped scroll), so an offset
+	// set before the first frame survives to be rendered once a
+	// range exists. Pass F never creates an offset entry.
+	// A culled container (a popup not shown) has no laid-out
+	// children, so its range here is meaningless.
+	if nd.culled || !publish {
+		return
+	}
+	if scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
+		g.scroll_max[nd.identity] = g.lay[i].overfl
+	}
+	if len(g.scroll_off) == 0 {
+		return
+	}
+	stored_off, has_off := g.scroll_off[nd.identity]
+	if has_off {
+		eff := Vec2{0, 0}
+		// The stored offset re-clamps to the fresh range — or
+		// to the band domain while a spring owns the position
+		// (§3.22). An out-of-range offset with no spring (a
+		// stale one, say) heals back to the legal range here.
+		allow := s.overscroll ? f32(s.overscroll_px) : f32(0)
+		gl, has_gl := Scroll_Glide{}, false
+		if len(g.scroll_glides) > 0 {
+			gl, has_gl = g.scroll_glides[nd.identity]
+		}
+		for axis in 0 ..< 2 {
+			if scrollable_axis(s, axis) {
+				// Per axis (audit int-8): the band domain
+				// applies to an axis while ITS spring owns it.
+				springing := has_gl && gl.active[axis] && gl.axis[axis].spring
+				lo := springing ? -allow : f32(0)
+				hi := springing ? g.lay[i].overfl[axis] + allow : g.lay[i].overfl[axis]
+				eff[axis] = clamp(stored_off[axis], lo, hi)
+			}
+		}
+		g.scroll_off[nd.identity] = eff
+	}
+}
+
+// pick_clips_and_commit is the rest of pass F, once over the whole tree
+// after every section has laid out: pick clips, instance commits,
+// damage and the recycle sweep.
+@(private)
+pick_clips_and_commit :: proc() {
 	// Accumulated ancestor clips for the next frame's hit test (input.odin's
 	// pick reads them alongside these positions): a node's pick clip is its
 	// parent's, intersected with the parent's rect when the parent clips —
 	// the same predicate emit uses for Push_Clip (Overflow.Clip, or any
 	// scrolling). Positions are final here, parents before children.
+	n := len(g.nodes)
 	resize(&g.pick_clip, n)
 	for i in 0 ..< n {
 		p := g.nodes[i].parent
@@ -1001,17 +1054,209 @@ position_and_damage :: proc() {
 	}
 }
 
+
 // ---------------------------------------------------------------------------
 
 layout_pass :: proc(viewport: Vec2) {
+	n := len(g.nodes)
 	build_child_lists()
-	measure_text_all() // 0
-	accumulate(X_AXIS) // A
-	distribute(X_AXIS, viewport.x) // B
+	measure_text_range(0, n) // 0
+	accumulate(X_AXIS, 0, n) // A
+	distribute(X_AXIS, viewport.x, -1, 0, n) // B
 	wrap_text() // C
-	accumulate(Y_AXIS) // D
-	distribute(Y_AXIS, viewport.y) // E
-	position_and_damage() // F
+	accumulate(Y_AXIS, 0, n) // D
+	distribute(Y_AXIS, viewport.y, -1, 0, n) // E
+	position_range(-1, 0, n) // F: positions
+	if len(g.sections) > 0 {
+		run_sections(viewport)
+		reorder_tree()
+	}
+	pick_clips_and_commit() // F: commits, damage
+}
+
+// ---------------------------------------------------------------------------
+// Deferred sections (begin_section)
+
+// run_sections builds every queued section, in queue order, and lays out
+// what each build declared inside its host. A build may queue further
+// sections (a section inside a section's item); they run after it. The
+// new nodes are appended to the node array: tree order is restored by
+// reorder_tree once the queue is drained.
+@(private)
+run_sections :: proc(viewport: Vec2) {
+	for k := 0; k < len(g.sections); k += 1 {
+		rec := g.sections[k]
+		host := rec.host
+		lo := len(g.nodes)
+
+		// The build declares into the host, as if inside its block.
+		g.section_host = host
+		g.section_lo = lo
+		append(&g.stack, host)
+		open_site_region()
+		rec.build(rec.data, section_of(host))
+		close_site_region()
+		assert(len(g.stack) > 0 && g.stack[len(g.stack) - 1] == host,
+			"niello: a section build left a container open")
+		pop(&g.stack)
+		g.section_host = -1
+		hi := len(g.nodes)
+
+		// Lay out the new nodes inside the host, whose size is final.
+		resolve_styles_range(lo, hi)
+		link_section_range(host, lo, hi)
+		measure_text_range(lo, hi)
+		accumulate(X_AXIS, lo, hi)
+		distribute(X_AXIS, viewport.x, host, lo, hi)
+		wrap_text()
+		accumulate(Y_AXIS, lo, hi)
+		distribute(Y_AXIS, viewport.y, host, lo, hi)
+		position_range(host, lo, hi)
+	}
+}
+
+// section_of reports a host's bounds for its build.
+@(private)
+section_of :: proc(host: int) -> Section {
+	s := node_style(host)
+	r := Rect{g.lay[host].pos, g.lay[host].size}
+	content := Rect{
+		r.pos + Vec2{f32(s.padding[0]), f32(s.padding[1])},
+		{max(0, r.size.x - padding_sum(s, X_AXIS)), max(0, r.size.y - padding_sum(s, Y_AXIS))},
+	}
+	// What can be on screen: the host's rect (it clips its content
+	// when it scrolls), narrowed by every clipping ancestor and the
+	// window.
+	vis := rect_intersect(r, Rect{{0, 0}, g.viewport})
+	for p := g.nodes[host].parent; p >= 0; p = g.nodes[p].parent {
+		ps := node_style(p)
+		if ps.overflow == .Clip || scrollable_axis(ps, X_AXIS) || scrollable_axis(ps, Y_AXIS) {
+			vis = rect_intersect(vis, Rect{g.lay[p].pos, g.lay[p].size})
+		}
+	}
+	return Section{
+		host = g.nodes[host].identity, unit = g.nodes[host].unit, rect = r, content = content,
+		visible = vis, offset = g.lay[host].scroll,
+	}
+}
+
+// link_section_range threads a section's new nodes [lo, hi) into the
+// child lists: the build's top-level children go first in the host's
+// list, before the chrome its block declared; everything else links
+// under its own parent (in the range) or is a popup root.
+@(private)
+link_section_range :: proc(host, lo, hi: int) {
+	n := len(g.nodes)
+	resize(&g.first_child, n)
+	resize(&g.next_sibling, n)
+	resize(&g.subtree_end, n)
+	resize(&g.scratch_ints, n)
+	last_child := g.scratch_ints[:]
+	for i in lo ..< hi {
+		g.first_child[i] = -1
+		g.next_sibling[i] = -1
+		g.subtree_end[i] = i
+		last_child[i] = -1
+	}
+	head, tail := -1, -1
+	for i in lo ..< hi {
+		p := g.nodes[i].parent
+		if p < 0 {
+			continue // a popup root declared in the build
+		}
+		if p == host {
+			if head == -1 {
+				head = i
+			} else {
+				g.next_sibling[tail] = i
+			}
+			tail = i
+			continue
+		}
+		assert(p >= lo, "niello: a section build declared under a container outside it")
+		if g.first_child[p] == -1 {
+			g.first_child[p] = i
+		} else {
+			g.next_sibling[last_child[p]] = i
+		}
+		last_child[p] = i
+	}
+	if head != -1 {
+		g.next_sibling[tail] = g.first_child[host]
+		g.first_child[host] = head
+	}
+	for i := hi - 1; i >= lo; i -= 1 {
+		p := g.nodes[i].parent
+		if p >= lo {
+			g.subtree_end[p] = max(g.subtree_end[p], g.subtree_end[i])
+		}
+	}
+}
+
+// reorder_tree restores tree order after sections appended their nodes:
+// a pre-order walk of the child lists, roots in index order, gives every
+// node its new index; the node-indexed arrays are permuted into the
+// reorder buffers and swapped in, parents and popup roots remapped, and
+// the child lists rebuilt. Everything after layout (pick clips, commit,
+// draw_list's contiguous scopes, Tab order, popup and modal ranges, the
+// a11y mirror, debug) then sees an ordinary flat tree.
+@(private)
+reorder_tree :: proc() {
+	n := len(g.nodes)
+	resize(&g.reorder_new_idx, n)
+	order := make([]int, n, context.temp_allocator)
+	k := 0
+	for r in 0 ..< n {
+		if g.nodes[r].parent != -1 {
+			continue
+		}
+		i := r
+		for {
+			order[k] = i
+			g.reorder_new_idx[i] = k
+			k += 1
+			if g.first_child[i] != -1 {
+				i = g.first_child[i]
+				continue
+			}
+			for i != r && g.next_sibling[i] == -1 {
+				i = g.nodes[i].parent
+			}
+			if i == r {
+				break
+			}
+			i = g.next_sibling[i]
+		}
+	}
+	assert(k == n, "niello: reorder_tree did not reach every node")
+	resize(&g.reorder_nodes, n)
+	resize(&g.reorder_lay, n)
+	resize(&g.reorder_eff, n)
+	resize(&g.reorder_dis, n)
+	resize(&g.reorder_stamp, n)
+	for j in 0 ..< n {
+		o := order[j]
+		nd := g.nodes[o]
+		if nd.parent >= 0 {
+			nd.parent = g.reorder_new_idx[nd.parent]
+		}
+		g.reorder_nodes[j] = nd
+		g.reorder_lay[j] = g.lay[o]
+		if nd.has_eff {
+			g.reorder_eff[j] = g.eff[o]
+		}
+		g.reorder_dis[j] = g.disabled_flags[o]
+		g.reorder_stamp[j] = g.state_stamp[o]
+	}
+	g.nodes, g.reorder_nodes = g.reorder_nodes, g.nodes
+	g.lay, g.reorder_lay = g.reorder_lay, g.lay
+	g.eff, g.reorder_eff = g.reorder_eff, g.eff
+	g.disabled_flags, g.reorder_dis = g.reorder_dis, g.disabled_flags
+	g.state_stamp, g.reorder_stamp = g.reorder_stamp, g.state_stamp
+	for &rec in g.popups {
+		rec.root_idx = g.reorder_new_idx[rec.root_idx]
+	}
+	build_child_lists()
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,5 +1364,91 @@ focus_reveal :: proc() {
 	}
 	if moved {
 		schedule_wake_in(0)
+	}
+}
+
+// measure_item lays out a section build's top-level child idx on its
+// own, now (public measure): its subtree is the run of nodes after it
+// whose parents lie inside it (a build's nodes are in declaration
+// order). The child is a temporary root inside the host's content box:
+// the cross axis resolves by the ordinary cross rules (Grow fills the
+// content box), the main axis to its intrinsic size (Fixed, or Percent
+// of the content box; Fit and Grow take the content). The section pass
+// lays the child out again with the rest of the build, by the same
+// rules, so the measured size is the size it gets (Grow on the main
+// axis aside: in a host whose content falls short of its box, the final
+// layout hands growers the leftover).
+@(private)
+measure_item :: proc(idx: int, viewport: Vec2) -> Vec2 {
+	host := g.section_host
+	n := len(g.nodes)
+	e := idx + 1
+	// A popup declared inside the item is a root (parent -1) in the
+	// middle of the run: keep going past it and its subtree.
+	for e < n && (g.nodes[e].parent >= idx || g.nodes[e].parent == -1) {
+		e += 1
+	}
+	resolve_styles_range(idx, e)
+	link_range(idx, e)
+	measure_text_range(idx, e)
+	hs := node_style(host)
+	inner := Vec2{
+		max(0, g.lay[host].size.x - padding_sum(hs, X_AXIS)),
+		max(0, g.lay[host].size.y - padding_sum(hs, Y_AXIS)),
+	}
+	main := hs.layout == .Stack ? -1 : main_axis(hs.layout)
+	size_root :: proc(idx, axis, main: int, inner: Vec2, hs: ^Style) {
+		if axis != main {
+			resolve_cross(idx, axis, inner[axis], scrollable_axis(hs, axis))
+			return
+		}
+		sz := node_style(idx).size[axis]
+		v := g.lay[idx].content[axis]
+		#partial switch sz.kind {
+		case .Fixed:
+			v = sz.value
+		case .Percent:
+			v = sz.value * inner[axis]
+		}
+		g.lay[idx].size[axis] = clamp(v, sz.min, sz.max)
+	}
+	accumulate(X_AXIS, idx, e)
+	size_root(idx, X_AXIS, main, inner, hs)
+	distribute(X_AXIS, viewport.x, -1, idx, e)
+	wrap_text()
+	accumulate(Y_AXIS, idx, e)
+	size_root(idx, Y_AXIS, main, inner, hs)
+	distribute(Y_AXIS, viewport.y, -1, idx, e)
+	return g.lay[idx].size
+}
+
+// link_range builds the child lists of the nodes [lo, hi) among
+// themselves (measure_item's private subtree; the section pass links
+// the whole build afterwards).
+@(private)
+link_range :: proc(lo, hi: int) {
+	n := len(g.nodes)
+	resize(&g.first_child, n)
+	resize(&g.next_sibling, n)
+	resize(&g.subtree_end, n)
+	resize(&g.scratch_ints, n)
+	last_child := g.scratch_ints[:]
+	for i in lo ..< hi {
+		g.first_child[i] = -1
+		g.next_sibling[i] = -1
+		g.subtree_end[i] = i
+		last_child[i] = -1
+	}
+	for i in lo ..< hi {
+		p := g.nodes[i].parent
+		if p < lo {
+			continue
+		}
+		if g.first_child[p] == -1 {
+			g.first_child[p] = i
+		} else {
+			g.next_sibling[last_child[p]] = i
+		}
+		last_child[p] = i
 	}
 }

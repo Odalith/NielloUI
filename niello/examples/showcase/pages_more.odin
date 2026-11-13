@@ -851,8 +851,10 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 mint_pages :: proc(app: ^App) {
 	mint_pages_basic(DARK_THEME)
 	mint_pages_more(app, DARK_THEME)
+	mint_pages_virtual(app, DARK_THEME)
 }
 
 destroy_pages :: proc(app: ^App) {
 	destroy_pages_basic(app)
+	destroy_pages_virtual(app)
 }

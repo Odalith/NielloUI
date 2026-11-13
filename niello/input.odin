@@ -940,6 +940,13 @@ node_style :: #force_inline proc(i: int) -> ^Style #no_bounds_check {
 
 @(private)
 resolve_styles :: proc() {
+	resolve_styles_range(0, len(g.nodes))
+}
+
+// resolve_styles_range resolves the nodes [lo, hi): the whole tree
+// before layout, a section's appended nodes before their section pass.
+@(private)
+resolve_styles_range :: proc(lo, hi: int) {
 	n := len(g.nodes)
 	resize(&g.eff, n)
 	resize(&g.disabled_flags, n)
@@ -964,7 +971,7 @@ resolve_styles :: proc() {
 		add_hits(&hits, g.press_chains[b][:], false)
 	}
 	add_hits(&hits, g.key_press_chain[:], false)
-	for i in 0 ..< n {
+	for i in lo ..< hi {
 		nd := &g.nodes[i]
 		p := nd.parent
 		dis := nd.disabled || (p >= 0 && g.disabled_flags[p])
