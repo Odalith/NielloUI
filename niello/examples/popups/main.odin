@@ -28,7 +28,7 @@ CANVAS :: niello.Color{38, 43, 53, 255}
 SHADE  :: niello.Color{0, 0, 0, 120}
 
 root_u, bar_u, status_u: niello.Unit
-btn_u, btn_label_u, btn_hover_u, btn_press_u, btn_focus_u: niello.Unit
+btn_u, btn_label_u, btn_hover_u, btn_press_u: niello.Unit
 canvas_u: niello.Unit
 menu_u, item_u, item_label_u, item_hover_u: niello.Unit
 backdrop_u, panel_u, msg_u: niello.Unit
@@ -46,16 +46,15 @@ mint :: proc() {
 	})
 	niello.mint(&btn_hover_u, niello.NO_UNIT, {color = HOVER})
 	niello.mint(&btn_press_u, niello.NO_UNIT, {color = PRESS})
-	niello.mint(&btn_focus_u, niello.NO_UNIT, {
-		overlay_border_color = ACCENT, overlay_border_width = 2,
-	})
+	// Focus shows through the engine's ring.
+	niello.set_focus_ring({color = ACCENT, width = 2, offset = 2})
 	niello.mint(&btn_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
 		size = niello.size(niello.fixed(110), niello.fixed(40)),
 		color = PANEL, corner_radius = 6,
 		align = niello.CENTER,
 		focusable = true,
-		hover = btn_hover_u, press = btn_press_u, focus = btn_focus_u,
+		hover = btn_hover_u, press = btn_press_u,
 	})
 	niello.mint(&btn_label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
 	niello.mint(&canvas_u, niello.NO_UNIT, {
@@ -80,7 +79,7 @@ mint :: proc() {
 		corner_radius = 4, padding = niello.pad_xy(10, 0),
 		align = niello.align(.Start, .Center),
 		focusable = true,
-		hover = item_hover_u, focus = btn_focus_u,
+		hover = item_hover_u,
 	})
 	niello.mint(&item_label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
 	// The backdrop is a popup root of its own, sized by Percent so
