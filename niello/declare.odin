@@ -61,6 +61,7 @@ Frame_Node :: struct {
 	has_eff:         bool, // frame_end resolved an effective style into
 	                       // g.eff[idx] (interaction state or variant present)
 	ring_mode:       Focus_Ring_Mode, // resolved at declare like focusable
+	is_section:      bool, // a begin_section host: flow children arrive in its section pass
 }
 
 // resolve_text: per-frame With.text wins, then With.text_no_copy (borrowed),
