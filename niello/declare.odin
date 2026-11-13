@@ -125,6 +125,12 @@ spans_hash_of :: proc(spans: []Text_Span) -> (hash: u64) {
 // root built from the same unit and key.
 POPUP_PARENT_SEED :: u64(0xd1b54a32d192ed03)
 
+// SECTION_PARENT_SEED salts the parent hash of a section's flow
+// children (begin_section): they are declared in the build, the host's
+// chrome in its block, and the two must never share an identity even
+// from the same call site.
+SECTION_PARENT_SEED :: u64(0x8cb92ba72f3d8dd7)
+
 // ---------------------------------------------------------------------------
 // Identity
 //
@@ -206,6 +212,16 @@ declare :: proc(unit: Unit, key: Key, with: With, is_container: bool, site: u64)
 		parent = g.stack[len(g.stack) - 1]
 		parent_culled = g.nodes[parent].culled
 		parent_id = u64(g.nodes[parent].identity)
+		if g.nodes[parent].is_section {
+			if parent == g.section_host {
+				parent_id = mix64(parent_id ~ SECTION_PARENT_SEED)
+			} else {
+				// A section host's block declares its chrome only;
+				// its flow children belong to the build, which
+				// runs after the main layout (begin_section).
+				assert(with.anchored, "niello: a begin_section block may declare only anchored children (chrome); flow children go in the build")
+			}
+		}
 	}
 	base := len(g.site_base) > 0 ? g.site_base[len(g.site_base) - 1] : 0
 	k := identity_key(key, &g.site_counts, base, site)

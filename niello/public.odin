@@ -1108,6 +1108,95 @@ current :: proc() -> Instance {
 	return g.nodes[g.stack[len(g.stack) - 1]].identity
 }
 
+// ============ deferred sections ============
+// A section is a container whose flow children are declared after the
+// main layout, once its own bounds are known: content that depends on
+// its real size (a virtual list declaring only the rows in view, a grid
+// choosing its column count). begin_section declares the host now and
+// queues build; frame_end runs build after laying out the rest of the
+// tree, with the host's exact rect and this frame's scroll offset, then
+// lays out what build declared inside the host. niello/virtual builds
+// fixed and estimated virtual lists on this.
+//
+//	build_rows :: proc(app: ^App, s: niello.Section) {
+//		first := int(s.offset.y / ROW_H)
+//		... declare the rows in view with show/begin as usual ...
+//	}
+//	if niello.begin_section(list_u, niello.builder(build_rows, &app), out = &app.list_i) {
+//		scrollbar(&app.bar, app.list_i) // chrome: anchored children only
+//	}
+//
+// The contract:
+//   - The host's size must not depend on its children: no Fit on
+//     either axis (its children do not exist when it is laid out).
+//   - Its block declares anchored children only (chrome: scrollbars,
+//     headers); its flow children are build's. Build's children come
+//     first in tree order — they paint, hit-test, Tab and appear in
+//     the accessibility tree before the chrome, which paints above.
+//   - Build runs inside frame_end. Interaction queries (clicked,
+//     hovered, input_keys…) answer as they do during declare; data
+//     must stay valid until frame_end returns.
+//   - The section's content does not change the host's ancestors'
+//     layout or overflow; it does set the host's scroll range.
+//   - Sections nest: a begin_section inside a build is built after
+//     the current one. A section in a popup that is not shown is
+//     never built.
+Section :: struct {
+	host:    Instance,
+	rect:    Rect, // the host's rect this frame
+	content: Rect, // rect less padding: where the flow starts
+	visible: Rect, // the host's rect clipped by its ancestors (and the
+	               // window): what can be on screen this frame
+	offset:  Vec2, // the host's scroll offset this frame
+}
+
+// Builder pairs a section's build proc with the data it reads; make one
+// with builder, which checks the two against each other.
+Builder :: struct {
+	build: Section_Build,
+	data:  rawptr,
+}
+
+// builder pairs build with data for begin_section. data must stay valid
+// until frame_end returns.
+builder :: proc(build: proc(data: ^$T, s: Section), data: ^T) -> Builder {
+	return Builder{build = transmute(Section_Build)build, data = rawptr(data)}
+}
+
+// begin_section declares a section host and queues its build (see
+// above). The result and out work as for begin.
+@(deferred_out = end)
+begin_section :: proc(
+	unit: Unit,
+	b: Builder,
+	with: With = {},
+	key: Key = 0,
+	out: ^Instance = nil,
+	loc := #caller_location,
+) -> (open: bool) {
+	return begin_section_at(unit, b, with, key, out, site_hash(loc))
+}
+
+@(private)
+begin_section_at :: proc(unit: Unit, b: Builder, with: With, key: Key, out: ^Instance, site: u64) -> (open: bool) {
+	when NIELLO_DEBUG {
+		sz := style_of(unit).size
+		if ws, ok := with.size.?; ok {
+			sz = ws
+		}
+		assert(sz[X_AXIS].kind != .Fit && sz[Y_AXIS].kind != .Fit,
+			"niello: a begin_section host cannot be Fit-sized: its children are declared after it is laid out")
+	}
+	open = begin_at(unit, with, key, out, site)
+	idx := g.stack[len(g.stack) - 1]
+	g.nodes[idx].is_section = true
+	if open {
+		assert(b.build != nil, "niello: begin_section needs a builder (niello.builder(build, data))")
+		append(&g.sections, Section_Rec{host = idx, build = b.build, data = b.data})
+	}
+	return open
+}
+
 // Placement picks where a popup root sits relative to its anchor
 // (§3.19). At ignores the anchor and uses Popup_Opts.at; Center
 // ignores it too and centers on the viewport (dialogs).
@@ -1226,6 +1315,7 @@ dismiss_requested :: proc(i: Instance) -> bool {
 context_create :: proc() -> ^Context {
 	ctx := new(Context)
 	ctx.ring_idx = -1
+	ctx.section_host = -1
 	// Every map the engine owns is created here, once (audit X-4):
 	// no lazy makes scattered through hot paths — four of them sat
 	// inside pass F — and no read site needs a nil-map guard for
@@ -1329,6 +1419,8 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	g.spans_chunk = 0 // and the spans arena beside it
 	g.spans_off = 0
 	clear(&g.popups) // last frame's list; dispatch already read it
+	clear(&g.sections)
+	g.section_host = -1
 	clear(&g.stack)
 	clear(&g.site_counts)
 	clear(&g.site_base)

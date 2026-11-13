@@ -1067,7 +1067,196 @@ layout_pass :: proc(viewport: Vec2) {
 	accumulate(Y_AXIS, 0, n) // D
 	distribute(Y_AXIS, viewport.y, -1, 0, n) // E
 	position_range(-1, 0, n) // F: positions
+	if len(g.sections) > 0 {
+		run_sections(viewport)
+		reorder_tree()
+	}
 	pick_clips_and_commit() // F: commits, damage
+}
+
+// ---------------------------------------------------------------------------
+// Deferred sections (begin_section)
+
+// run_sections builds every queued section, in queue order, and lays out
+// what each build declared inside its host. A build may queue further
+// sections (a section inside a section's item); they run after it. The
+// new nodes are appended to the node array: tree order is restored by
+// reorder_tree once the queue is drained.
+@(private)
+run_sections :: proc(viewport: Vec2) {
+	for k := 0; k < len(g.sections); k += 1 {
+		rec := g.sections[k]
+		host := rec.host
+		lo := len(g.nodes)
+
+		// The build declares into the host, as if inside its block.
+		g.section_host = host
+		g.section_lo = lo
+		append(&g.stack, host)
+		open_site_region()
+		rec.build(rec.data, section_of(host))
+		close_site_region()
+		assert(len(g.stack) > 0 && g.stack[len(g.stack) - 1] == host,
+			"niello: a section build left a container open")
+		pop(&g.stack)
+		g.section_host = -1
+		hi := len(g.nodes)
+
+		// Lay out the new nodes inside the host, whose size is final.
+		resolve_styles_range(lo, hi)
+		link_section_range(host, lo, hi)
+		measure_text_range(lo, hi)
+		accumulate(X_AXIS, lo, hi)
+		distribute(X_AXIS, viewport.x, host, lo, hi)
+		wrap_text()
+		accumulate(Y_AXIS, lo, hi)
+		distribute(Y_AXIS, viewport.y, host, lo, hi)
+		position_range(host, lo, hi)
+	}
+}
+
+// section_of reports a host's bounds for its build.
+@(private)
+section_of :: proc(host: int) -> Section {
+	s := node_style(host)
+	r := Rect{g.lay[host].pos, g.lay[host].size}
+	content := Rect{
+		r.pos + Vec2{f32(s.padding[0]), f32(s.padding[1])},
+		{max(0, r.size.x - padding_sum(s, X_AXIS)), max(0, r.size.y - padding_sum(s, Y_AXIS))},
+	}
+	// What can be on screen: the host's rect (it clips its content
+	// when it scrolls), narrowed by every clipping ancestor and the
+	// window.
+	vis := rect_intersect(r, Rect{{0, 0}, g.viewport})
+	for p := g.nodes[host].parent; p >= 0; p = g.nodes[p].parent {
+		ps := node_style(p)
+		if ps.overflow == .Clip || scrollable_axis(ps, X_AXIS) || scrollable_axis(ps, Y_AXIS) {
+			vis = rect_intersect(vis, Rect{g.lay[p].pos, g.lay[p].size})
+		}
+	}
+	return Section{
+		host = g.nodes[host].identity, rect = r, content = content,
+		visible = vis, offset = g.lay[host].scroll,
+	}
+}
+
+// link_section_range threads a section's new nodes [lo, hi) into the
+// child lists: the build's top-level children go first in the host's
+// list, before the chrome its block declared; everything else links
+// under its own parent (in the range) or is a popup root.
+@(private)
+link_section_range :: proc(host, lo, hi: int) {
+	n := len(g.nodes)
+	resize(&g.first_child, n)
+	resize(&g.next_sibling, n)
+	resize(&g.subtree_end, n)
+	resize(&g.scratch_ints, n)
+	last_child := g.scratch_ints[:]
+	for i in lo ..< hi {
+		g.first_child[i] = -1
+		g.next_sibling[i] = -1
+		g.subtree_end[i] = i
+		last_child[i] = -1
+	}
+	head, tail := -1, -1
+	for i in lo ..< hi {
+		p := g.nodes[i].parent
+		if p < 0 {
+			continue // a popup root declared in the build
+		}
+		if p == host {
+			if head == -1 {
+				head = i
+			} else {
+				g.next_sibling[tail] = i
+			}
+			tail = i
+			continue
+		}
+		assert(p >= lo, "niello: a section build declared under a container outside it")
+		if g.first_child[p] == -1 {
+			g.first_child[p] = i
+		} else {
+			g.next_sibling[last_child[p]] = i
+		}
+		last_child[p] = i
+	}
+	if head != -1 {
+		g.next_sibling[tail] = g.first_child[host]
+		g.first_child[host] = head
+	}
+	for i := hi - 1; i >= lo; i -= 1 {
+		p := g.nodes[i].parent
+		if p >= lo {
+			g.subtree_end[p] = max(g.subtree_end[p], g.subtree_end[i])
+		}
+	}
+}
+
+// reorder_tree restores tree order after sections appended their nodes:
+// a pre-order walk of the child lists, roots in index order, gives every
+// node its new index; the node-indexed arrays are permuted into the
+// reorder buffers and swapped in, parents and popup roots remapped, and
+// the child lists rebuilt. Everything after layout (pick clips, commit,
+// draw_list's contiguous scopes, Tab order, popup and modal ranges, the
+// a11y mirror, debug) then sees an ordinary flat tree.
+@(private)
+reorder_tree :: proc() {
+	n := len(g.nodes)
+	resize(&g.reorder_new_idx, n)
+	order := make([]int, n, context.temp_allocator)
+	k := 0
+	for r in 0 ..< n {
+		if g.nodes[r].parent != -1 {
+			continue
+		}
+		i := r
+		for {
+			order[k] = i
+			g.reorder_new_idx[i] = k
+			k += 1
+			if g.first_child[i] != -1 {
+				i = g.first_child[i]
+				continue
+			}
+			for i != r && g.next_sibling[i] == -1 {
+				i = g.nodes[i].parent
+			}
+			if i == r {
+				break
+			}
+			i = g.next_sibling[i]
+		}
+	}
+	assert(k == n, "niello: reorder_tree did not reach every node")
+	resize(&g.reorder_nodes, n)
+	resize(&g.reorder_lay, n)
+	resize(&g.reorder_eff, n)
+	resize(&g.reorder_dis, n)
+	resize(&g.reorder_stamp, n)
+	for j in 0 ..< n {
+		o := order[j]
+		nd := g.nodes[o]
+		if nd.parent >= 0 {
+			nd.parent = g.reorder_new_idx[nd.parent]
+		}
+		g.reorder_nodes[j] = nd
+		g.reorder_lay[j] = g.lay[o]
+		if nd.has_eff {
+			g.reorder_eff[j] = g.eff[o]
+		}
+		g.reorder_dis[j] = g.disabled_flags[o]
+		g.reorder_stamp[j] = g.state_stamp[o]
+	}
+	g.nodes, g.reorder_nodes = g.reorder_nodes, g.nodes
+	g.lay, g.reorder_lay = g.reorder_lay, g.lay
+	g.eff, g.reorder_eff = g.reorder_eff, g.eff
+	g.disabled_flags, g.reorder_dis = g.reorder_dis, g.disabled_flags
+	g.state_stamp, g.reorder_stamp = g.reorder_stamp, g.state_stamp
+	for &rec in g.popups {
+		rec.root_idx = g.reorder_new_idx[rec.root_idx]
+	}
+	build_child_lists()
 }
 
 // ---------------------------------------------------------------------------
