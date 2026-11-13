@@ -215,6 +215,20 @@ showcase_smoke :: proc(t: ^testing.T) {
 	testing.expect(t, app.drag.chip_pos.x >= start.x + 60, "dragging moves the chip")
 	settles(t, &app, "after a drag")
 
+	// The slider: a click seeks, arrows step, and Space/Enter (key
+	// activation presses it too) must not seek it back to the pointer.
+	testing.expect(t, click(&app, app.drag.volume.inst), "the slider lays out")
+	seeked := app.drag.volume.value
+	key(&app, .Right)
+	key(&app, .Right)
+	stepped := app.drag.volume.value
+	testing.expect(t, abs(stepped - (seeked + 0.1)) < 1e-4, "two Right presses step the slider")
+	key(&app, .Space)
+	frame(&app, {keys = {0 = niello.Key_Event{key = .Space, physical = .Space, down = false}}, key_count = 1})
+	key(&app, .Enter)
+	frame(&app, {keys = {0 = niello.Key_Event{key = .Enter, physical = .Enter, down = false}}, key_count = 1})
+	testing.expect_value(t, app.drag.volume.value, stepped)
+
 	// Async: a worker's progress arrives through the inbox.
 	click(&app, app.nav_i[.Async_Windows])
 	async_start(&app.async)

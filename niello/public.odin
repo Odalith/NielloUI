@@ -1552,15 +1552,29 @@ hovered :: proc(i: Instance) -> bool {
 
 // pressed reports a button was pressed on the instance (or a descendant)
 // and is still held — capture keeps this true wherever the cursor goes.
+// Space/Enter key activation on a focused instance presses it too (see
+// pointer_pressed for the pointer alone).
 pressed :: proc(i: Instance) -> bool {
+	if pointer_pressed(i) {
+		return true
+	}
+	// A Space/Enter capture on a focused descendant presses its
+	// ancestors too, exactly like a pointer capture.
+	return chain_contains(g.key_press_chain[:], i)
+}
+
+// pointer_pressed is pressed for pointer captures only: a mouse button
+// pressed on the instance (or a descendant) and still held. Key
+// activation is not included. A control that reads the pointer while
+// pressed — a slider seeking to drag_pos — wants this, so Space/Enter
+// does not seek it to wherever the pointer happens to be.
+pointer_pressed :: proc(i: Instance) -> bool {
 	for b in Mouse_Button {
 		if chain_contains(g.press_chains[b][:], i) {
 			return true
 		}
 	}
-	// A Space/Enter capture on a focused descendant presses its
-	// ancestors too, exactly like a pointer capture.
-	return chain_contains(g.key_press_chain[:], i)
+	return false
 }
 
 // clicked reports a left-button press on the instance (or a descendant)

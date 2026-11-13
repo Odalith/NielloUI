@@ -148,7 +148,8 @@ declare :: proc() {
 			niello.set(fill_u, .Size, niello.size(niello.percent(slider_value), niello.percent(1)))
 			if niello.begin(fill_u) {}
 		}
-		if niello.pressed(slider_i) || niello.dragging(slider_i) {
+		// The pointer only: key activation presses too, and must not seek.
+		if niello.pointer_pressed(slider_i) || niello.dragging(slider_i) {
 			if r, rok := niello.rect(slider_i); rok && r.size.x > 0 {
 				slider_value = clamp(niello.drag_pos(slider_i).x / r.size.x, 0, 1)
 			}
