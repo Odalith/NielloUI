@@ -443,3 +443,124 @@ test_text_box_read_only_and_disabled :: proc(t: ^testing.T) {
 	ct_click(tb_declare, tb_app.tb.inst)
 	testing.expect(t, !niello.focused(tb_app.tb.inst), "a disabled box takes no focus")
 }
+
+// ---- slider, progress bar, scrollbar ---------------------------------------
+
+Sl_App :: struct {
+	vol:      controls.Slider,
+	steps:    controls.Slider, // 0..10, step 1
+	changed:  bool,
+	list:     niello.Unit,
+	row:      niello.Unit,
+	list_i:   niello.Instance,
+	bar:      controls.Scrollbar,
+}
+sl_app: Sl_App
+
+sl_declare :: proc() {
+	app := &sl_app
+	if niello.begin(ct_root) {
+		app.changed |= controls.slider(&app.vol, "Volume")
+		controls.slider(&app.steps, "Steps")
+		controls.progress_bar(0.5, "Upload")
+		if niello.begin(app.list, out = &app.list_i) {
+			for k in 0 ..< 40 {
+				niello.show(app.row, key = niello.key_int(k))
+			}
+			controls.scrollbar(&app.bar, app.list_i)
+		}
+	}
+}
+
+sl_setup :: proc() {
+	ct_setup()
+	sl_app = {}
+	sl_app.steps = controls.Slider{min = 0, max = 10, step = 1}
+	niello.mint(&sl_app.list, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = niello.size(niello.fixed(200), niello.fixed(200)),
+		scroll = .Vertical, align = niello.align(.End, .Start),
+	})
+	niello.mint(&sl_app.row, niello.NO_UNIT, {size = niello.size(niello.grow(), niello.fixed(20))})
+	ct_frame(sl_declare)
+	ct_frame(sl_declare)
+}
+
+sl_key :: proc(k: niello.Key_Code) {
+	ct_frame(sl_declare, keys = []niello.Key_Event{kev(k, true), kev(k, false)})
+}
+
+@(test)
+test_controls_slider_and_progress :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	sl_setup()
+	// A pointer press seeks to the pointer's fraction of the track.
+	r, _ := niello.rect(sl_app.vol.inst)
+	p := niello.Vec2{r.pos.x + r.size.x * 0.25, r.pos.y + r.size.y / 2}
+	ct_frame(sl_declare, mouse = p)
+	ct_frame(sl_declare, mouse = p, press = true, clicks = 1)
+	ct_frame(sl_declare, mouse = p, release = true)
+	testing.expect(t, abs(sl_app.vol.value - 0.25) < 1e-4 && sl_app.changed, "a press seeks to 25%")
+	// Keys step by a twentieth by default; Space does not seek.
+	niello.focus(sl_app.vol.inst)
+	sl_key(.Right)
+	testing.expect(t, abs(sl_app.vol.value - 0.30) < 1e-4, "Right steps by 0.05")
+	ct_frame(sl_declare, mouse = niello.Vec2{r.pos.x + r.size.x * 0.9, r.pos.y + 2}, keys = []niello.Key_Event{kev(.Space, true)})
+	ct_frame(sl_declare, keys = []niello.Key_Event{kev(.Space, false)})
+	testing.expect(t, abs(sl_app.vol.value - 0.30) < 1e-4, "Space does not seek to the pointer")
+	sl_key(.End)
+	testing.expect_value(t, sl_app.vol.value, f32(1))
+	sl_key(.Right)
+	testing.expect_value(t, sl_app.vol.value, f32(1))
+	// A range with an explicit step.
+	niello.focus(sl_app.steps.inst)
+	sl_key(.Page_Up)
+	testing.expect_value(t, sl_app.steps.value, f32(10))
+	sl_key(.Left)
+	sl_key(.Left)
+	testing.expect_value(t, sl_app.steps.value, f32(8))
+	sl_key(.Home)
+	testing.expect_value(t, sl_app.steps.value, f32(0))
+	// a11y: values and ranges.
+	n, _ := ct_a11y(sl_app.steps.inst)
+	testing.expect(t, n.role == .Slider && n.name == "Steps" && n.value.has_num && n.value.max == 10, "a11y: Slider with its range")
+	found := false
+	for a in niello.a11y_tree(niello.test_context()) {
+		if a.role == .ProgressBar && a.name == "Upload" {
+			found = a.value.num == 50
+		}
+	}
+	testing.expect(t, found, "a11y: ProgressBar at 50")
+}
+
+@(test)
+test_controls_scrollbar :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	sl_setup()
+	// 40 rows of 20 in a 200 viewport: range 600. The bar is declared.
+	thumb, ok := niello.rect(sl_app.bar.thumb_i)
+	testing.expect(t, ok, "the scrollbar's thumb is declared")
+	lr, _ := niello.rect(sl_app.list_i)
+	testing.expect_value(t, thumb.pos.x, lr.pos.x + lr.size.x - controls.BAR_WIDTH + 2)
+	// Drag the thumb down: the list scrolls.
+	p := thumb.pos + thumb.size / 2
+	ct_frame(sl_declare, mouse = p)
+	ct_frame(sl_declare, mouse = p, press = true, clicks = 1)
+	for k in 1 ..= 5 {
+		inp := niello.Input{viewport = {500, 400}, window_focused = true, mouse = p + {0, f32(k * 10)}, mouse_valid = true, buttons_down = {.Left}}
+		niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
+		sl_declare()
+		niello.frame_end()
+	}
+	ct_frame(sl_declare, mouse = p + {0, 50}, release = true)
+	off := niello.scroll_offset(sl_app.list_i).y
+	testing.expect(t, off > 0, "dragging the thumb scrolls the list")
+	// A press on the track below the thumb pages down.
+	thumb, _ = niello.rect(sl_app.bar.thumb_i)
+	below := niello.Vec2{thumb.pos.x + thumb.size.x / 2, lr.pos.y + lr.size.y - 4}
+	ct_frame(sl_declare, mouse = below)
+	ct_frame(sl_declare, mouse = below, press = true, clicks = 1)
+	ct_frame(sl_declare, mouse = below, release = true)
+	testing.expect(t, niello.scroll_offset(sl_app.list_i).y > off, "a track press pages down")
+}
