@@ -1197,6 +1197,53 @@ begin_section_at :: proc(unit: Unit, b: Builder, with: With, key: Key, out: ^Ins
 	return open
 }
 
+// measure lays out i — a top-level child the running section build has
+// just declared, its block closed — and returns its size: the cross
+// axis as the host lays it out (Grow fills the content box), the main
+// axis intrinsic (Fit and Grow take the content, Percent is of the
+// content box). The section lays i out again with the rest of the
+// build by the same rules, so a list can declare items until the
+// viewport is full, knowing their real sizes (niello/virtual's
+// estimated list). Inside a section build only.
+measure :: proc(i: Instance) -> Vec2 {
+	assert(g.section_host >= 0, "niello.measure: only inside a section build")
+	assert(g.stack[len(g.stack) - 1] == g.section_host,
+		"niello.measure: close the item's block before measuring it")
+	for idx := len(g.nodes) - 1; idx >= g.section_lo; idx -= 1 {
+		if g.nodes[idx].identity == i {
+			assert(g.nodes[idx].parent == g.section_host,
+				"niello.measure: i is not a top-level child of the running build")
+			return measure_item(idx, g.viewport)
+		}
+	}
+	assert(false, "niello.measure: i was not declared by the running build")
+	return {}
+}
+
+// scroll_shift moves i's scroll offset by delta at once, together with
+// any glide in flight, so a scroll in progress keeps going from the
+// shifted place. It is the correction for content that changed size
+// above the viewport (a virtual list learning the real height of rows
+// it had estimated): the shift and the content change cancel, and what
+// is on screen stays put. Inside a section build on its host it applies
+// to this frame's layout.
+scroll_shift :: proc(i: Instance, delta: Vec2) {
+	if i == 0 || delta == {0, 0} {
+		return
+	}
+	g.scroll_off[i] = (g.scroll_off[i] or_else Vec2{0, 0}) + delta
+	if gl, ok := &g.scroll_glides[i]; ok {
+		for axis in 0 ..< 2 {
+			if gl.active[axis] {
+				gl.axis[axis].from += delta[axis]
+				if !gl.axis[axis].spring {
+					gl.axis[axis].to += delta[axis]
+				}
+			}
+		}
+	}
+}
+
 // Placement picks where a popup root sits relative to its anchor
 // (§3.19). At ignores the anchor and uses Popup_Opts.at; Center
 // ignores it too and centers on the viewport (dialogs).

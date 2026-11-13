@@ -1366,3 +1366,89 @@ focus_reveal :: proc() {
 		schedule_wake_in(0)
 	}
 }
+
+// measure_item lays out a section build's top-level child idx on its
+// own, now (public measure): its subtree is the run of nodes after it
+// whose parents lie inside it (a build's nodes are in declaration
+// order). The child is a temporary root inside the host's content box:
+// the cross axis resolves by the ordinary cross rules (Grow fills the
+// content box), the main axis to its intrinsic size (Fixed, or Percent
+// of the content box; Fit and Grow take the content). The section pass
+// lays the child out again with the rest of the build, by the same
+// rules, so the measured size is the size it gets (Grow on the main
+// axis aside: in a host whose content falls short of its box, the final
+// layout hands growers the leftover).
+@(private)
+measure_item :: proc(idx: int, viewport: Vec2) -> Vec2 {
+	host := g.section_host
+	n := len(g.nodes)
+	e := idx + 1
+	// A popup declared inside the item is a root (parent -1) in the
+	// middle of the run: keep going past it and its subtree.
+	for e < n && (g.nodes[e].parent >= idx || g.nodes[e].parent == -1) {
+		e += 1
+	}
+	resolve_styles_range(idx, e)
+	link_range(idx, e)
+	measure_text_range(idx, e)
+	hs := node_style(host)
+	inner := Vec2{
+		max(0, g.lay[host].size.x - padding_sum(hs, X_AXIS)),
+		max(0, g.lay[host].size.y - padding_sum(hs, Y_AXIS)),
+	}
+	main := hs.layout == .Stack ? -1 : main_axis(hs.layout)
+	size_root :: proc(idx, axis, main: int, inner: Vec2, hs: ^Style) {
+		if axis != main {
+			resolve_cross(idx, axis, inner[axis], scrollable_axis(hs, axis))
+			return
+		}
+		sz := node_style(idx).size[axis]
+		v := g.lay[idx].content[axis]
+		#partial switch sz.kind {
+		case .Fixed:
+			v = sz.value
+		case .Percent:
+			v = sz.value * inner[axis]
+		}
+		g.lay[idx].size[axis] = clamp(v, sz.min, sz.max)
+	}
+	accumulate(X_AXIS, idx, e)
+	size_root(idx, X_AXIS, main, inner, hs)
+	distribute(X_AXIS, viewport.x, -1, idx, e)
+	wrap_text()
+	accumulate(Y_AXIS, idx, e)
+	size_root(idx, Y_AXIS, main, inner, hs)
+	distribute(Y_AXIS, viewport.y, -1, idx, e)
+	return g.lay[idx].size
+}
+
+// link_range builds the child lists of the nodes [lo, hi) among
+// themselves (measure_item's private subtree; the section pass links
+// the whole build afterwards).
+@(private)
+link_range :: proc(lo, hi: int) {
+	n := len(g.nodes)
+	resize(&g.first_child, n)
+	resize(&g.next_sibling, n)
+	resize(&g.subtree_end, n)
+	resize(&g.scratch_ints, n)
+	last_child := g.scratch_ints[:]
+	for i in lo ..< hi {
+		g.first_child[i] = -1
+		g.next_sibling[i] = -1
+		g.subtree_end[i] = i
+		last_child[i] = -1
+	}
+	for i in lo ..< hi {
+		p := g.nodes[i].parent
+		if p < lo {
+			continue
+		}
+		if g.first_child[p] == -1 {
+			g.first_child[p] = i
+		} else {
+			g.next_sibling[last_child[p]] = i
+		}
+		last_child[p] = i
+	}
+}

@@ -263,3 +263,151 @@ test_section_in_unshown_popup_never_builds :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, secp_app.builds, 0)
 }
+
+// ---- measure / scroll_shift -----------------------------------------------
+
+ms_host, ms_para, ms_card, ms_line: niello.Unit
+
+Ms_App :: struct {
+	host_i:   niello.Instance,
+	items:    [dynamic]niello.Instance,
+	measured: [dynamic]niello.Vec2,
+	fill:     bool, // declare until the visible height is filled
+	filled:   int,
+	shift:    f32,  // scroll_shift the host by this inside the build
+	seen:     niello.Section,
+	first_y:  f32,
+}
+ms_app: Ms_App
+
+MS_TEXT := [3]string{
+	"short",
+	"a paragraph long enough to wrap onto several lines at this width, which is the point",
+	"medium length text that wraps once or twice",
+}
+
+ms_build :: proc(app: ^Ms_App, s: niello.Section) {
+	app.seen = s
+	clear(&app.items)
+	clear(&app.measured)
+	used := f32(0)
+	for k in 0 ..< 40 {
+		inst: niello.Instance
+		if k % 2 == 0 {
+			inst = niello.show(ms_para, {text = MS_TEXT[k % 3]}, key = niello.key_int(k))
+		} else {
+			if niello.begin(ms_card, key = niello.key_int(k), out = &inst) {
+				for _ in 0 ..< 1 + k % 3 {
+					niello.show(ms_line)
+				}
+			}
+		}
+		sz := niello.measure(inst)
+		append(&app.items, inst)
+		append(&app.measured, sz)
+		used += sz.y
+		if app.fill && used >= s.visible.size.y {
+			app.filled = k + 1
+			break
+		}
+	}
+	if app.shift != 0 {
+		niello.scroll_shift(s.host, {0, app.shift})
+		app.shift = 0
+	}
+}
+
+ms_declare :: proc() {
+	if niello.begin(sec_root) {
+		if niello.begin_section(ms_host, niello.builder(ms_build, &ms_app), out = &ms_app.host_i) {}
+	}
+}
+
+ms_mint :: proc() {
+	ms_app = {}
+	niello.mint(&sec_root, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.percent(1), niello.percent(1))})
+	niello.mint(&ms_host, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = niello.size(niello.fixed(200), niello.fixed(150)),
+		padding = niello.pad(10), scroll = .Vertical, smooth_scroll = true, smooth_ms = u16(100),
+	})
+	niello.mint(&ms_para, niello.NO_UNIT, {size = niello.size(niello.grow(), niello.fit()), wrap = .Word, font_size = 14})
+	// Grow on the main axis measures as Fit.
+	niello.mint(&ms_card, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.grow(), niello.grow()), padding = niello.pad(4), gap = 2})
+	niello.mint(&ms_line, niello.NO_UNIT, {size = niello.size(niello.grow(), niello.fixed(12))})
+}
+
+ms_frame :: proc(wheel := niello.Vec2{}) {
+	inp := niello.Input{viewport = {400, 300}, window_focused = true, mouse = {50, 50}, mouse_valid = true, wheel = wheel}
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
+	ms_declare()
+	niello.frame_end()
+}
+
+@(test)
+test_measure_is_the_final_size :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	defer delete(ms_app.items)
+	defer delete(ms_app.measured)
+	ms_mint()
+	ms_frame()
+	testing.expect_value(t, len(ms_app.items), 40)
+	wrapped := false
+	for inst, k in ms_app.items {
+		r, ok := niello.rect(inst)
+		testing.expectf(t, ok && r.size == ms_app.measured[k], "item %d: measured %v, laid out %v", k, ms_app.measured[k], r.size)
+		testing.expectf(t, r.size.x == 180, "item %d fills the 180 content width", k)
+		if k % 2 == 0 && r.size.y > 20 {
+			wrapped = true
+		}
+	}
+	testing.expect(t, wrapped, "the long paragraphs wrapped at the content width")
+	// The card (Grow height) measured to its content: 4 + n*12 + (n-1)*2 + 4.
+	testing.expect_value(t, ms_app.measured[1].y, f32(8 + 2 * 12 + 2))
+}
+
+@(test)
+test_measure_fills_the_viewport :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	defer delete(ms_app.items)
+	defer delete(ms_app.measured)
+	ms_mint()
+	ms_app.fill = true
+	ms_frame()
+	used := f32(0)
+	for m in ms_app.measured[:ms_app.filled - 1] {
+		used += m.y
+	}
+	testing.expect(t, ms_app.filled > 0 && used < 150 && used + ms_app.measured[ms_app.filled - 1].y >= 150,
+		"the build stops exactly once the visible height is covered")
+}
+
+@(test)
+test_scroll_shift_moves_offset_and_glide :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	defer delete(ms_app.items)
+	defer delete(ms_app.measured)
+	ms_mint()
+	ms_frame()
+	ms_frame()
+	niello.scroll_to(ms_app.host_i, {0, 100})
+	ms_frame()
+	// Inside the build, the shift applies to this frame's layout.
+	ms_app.shift = 20
+	ms_frame()
+	testing.expect_value(t, niello.scroll_offset(ms_app.host_i), niello.Vec2{0, 120})
+	r0, _ := niello.rect(ms_app.items[0])
+	testing.expect_value(t, r0.pos.y, f32(10 - 120))
+	// A wheel glide in flight moves with the shift: it lands on its
+	// target plus the shift.
+	ms_frame(wheel = {0, -1}) // one notch down: target 120 + 48
+	ms_frame()
+	ms_app.shift = 30
+	ms_frame()
+	for _ in 0 ..< 20 {
+		ms_frame()
+	}
+	testing.expect_value(t, niello.scroll_offset(ms_app.host_i), niello.Vec2{0, 120 + 48 + 30})
+}
