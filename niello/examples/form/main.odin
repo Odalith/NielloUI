@@ -1,199 +1,61 @@
-// Form demo: keyboard focus and text input (TODO #8, §3.17) — and the
-// seed of TODO #10's form example.
+// Form demo: keyboard focus and text input (TODO #8, §3.17), on the
+// shipped controls (niello/controls) — and the seed of TODO #10's form
+// example.
 //
-// Two text fields, two buttons, one tab order (declaration order).
-// Tab / Shift+Tab moves, clicking a field focuses it, Enter inside a
-// field jumps to the next stop. Space/Enter activates the focused
-// button. The fields are demo-side components: the app owns the text
-// buffer and the caret, the engine only routes input to whichever
-// instance holds focus — input_text delivers committed characters,
-// input_keys delivers the editing keys (Backspace, Delete, arrows,
-// Home/End), and this file applies them.
+// Two text boxes, two buttons, one tab order (declaration order).
+// Tab / Shift+Tab moves, clicking a box focuses it, Enter inside a box
+// jumps to the next stop. Space/Enter activates the focused button. The
+// app owns each box's state (controls.Text_Box); the box applies the
+// input the engine routes to it and declares itself.
 package main
 
 import "core:fmt"
 import niello "../.."
+import controls "../../controls"
 import niello_sdl "../../sdl"
 
-BG :: niello.Color{24, 25, 32, 255}
-PANEL :: niello.Color{38, 41, 54, 255}
-INK :: niello.Color{232, 234, 240, 255}
-DIM :: niello.Color{150, 154, 168, 255}
-ACCENT :: niello.Color{84, 120, 200, 255}
-BTN :: niello.Color{52, 56, 72, 255}
-BTN_HOVER :: niello.Color{66, 71, 90, 255}
-BTN_PRESS :: niello.Color{40, 43, 56, 255}
-
-window_u, title_u, hint_u, caption_u, status_u: niello.Unit
-field_u, field_focus_u, field_text_u, caret_u, placeholder_u: niello.Unit
-btn_u, btn_hover_u, btn_press_u, btn_label_u: niello.Unit
-
-Field :: struct {
-	buf:   [dynamic]u8,
-	caret: int, // byte offset into buf
-	inst:  niello.Instance,
-}
+window_u, title_u, hint_u, caption_u, status_u, buttons_row_u: niello.Unit
 
 // The app's state lives in one struct, handed to declare every frame
 // by niello_sdl.run's typed form — no package globals for it.
 Form :: struct {
-	name, quest:       Field,
+	name, quest:       controls.Text_Box,
 	clear_i, submit_i: niello.Instance,
 	status:            string,
 	status_buf:        [512]u8,
 	focus_buf:         [128]u8,
 }
 
-// ---------------------------------------------------------------------------
-// The text-field component (demo-side; a #12 component would own this)
-
-rune_before :: proc(buf: []u8, i: int) -> int {
-	i := i
-	if i > len(buf) {
-		i = len(buf)
-	}
-	if i == 0 {
-		return 0
-	}
-	i -= 1
-	for i > 0 && (buf[i] & 0xC0) == 0x80 {
-		i -= 1
-	}
-	return i
-}
-
-rune_after :: proc(buf: []u8, i: int) -> int {
-	i := i
-	if i >= len(buf) {
-		return len(buf)
-	}
-	i += 1
-	for i < len(buf) && (buf[i] & 0xC0) == 0x80 {
-		i += 1
-	}
-	return i
-}
-
-edit_field :: proc(f: ^Field) {
-	if f.inst == 0 {
-		return
-	}
-	if t := niello.input_text(f.inst); t != "" {
-		inject_at(&f.buf, f.caret, ..transmute([]u8)t)
-		f.caret += len(t)
-	}
-	for ev in niello.input_keys(f.inst) {
-		if !ev.down {
-			continue
-		}
-		#partial switch ev.key {
-		case .Backspace:
-			if f.caret > 0 {
-				lo := rune_before(f.buf[:], f.caret)
-				remove_range(&f.buf, lo, f.caret)
-				f.caret = lo
-			}
-		case .Delete:
-			if f.caret < len(f.buf) {
-				remove_range(&f.buf, f.caret, rune_after(f.buf[:], f.caret))
-			}
-		case .Left:
-			f.caret = rune_before(f.buf[:], f.caret)
-		case .Right:
-			f.caret = rune_after(f.buf[:], f.caret)
-		case .Home:
-			f.caret = 0
-		case .End:
-			f.caret = len(f.buf)
-		case .Enter, .Kp_Enter:
-			niello.focus_next() // Enter commits and moves on
-		}
-	}
-}
-
-show_field :: proc(f: ^Field, placeholder: string, loc := #caller_location) {
-	if niello.begin(field_u, out = &f.inst, loc = loc) {
-		if len(f.buf) == 0 && !niello.focused(f.inst) {
-			niello.show(placeholder_u, {text = placeholder})
-		} else if niello.focused(f.inst) {
-			if f.caret > 0 {
-				niello.show(field_text_u, {text = string(f.buf[:f.caret])})
-			}
-			niello.show(caret_u)
-			if f.caret < len(f.buf) {
-				niello.show(field_text_u, {text = string(f.buf[f.caret:])})
-			}
-		} else {
-			niello.show(field_text_u, {text = string(f.buf[:])})
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-
 mint :: proc() {
+	t := controls.DARK
+	controls.init(t)
+	ink := []niello.Group{controls.groups.ink}
+	dim := []niello.Group{controls.groups.dim}
 	niello.mint(&window_u, niello.NO_UNIT, {
 		layout = niello.Layout.Top_To_Bottom,
-		color = BG, padding = niello.pad(24), gap = 10,
+		color = t.bg, padding = niello.pad(24), gap = 10,
+		groups = []niello.Group{controls.groups.bg},
 	})
-	niello.mint(&title_u, niello.NO_UNIT, {font_size = 24, font_color = INK})
-	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13.5, font_color = DIM})
-	niello.mint(&caption_u, niello.NO_UNIT, {font_size = 13, font_color = DIM})
-	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13.5, font_color = DIM})
-
-	// The engine draws the focus ring (set_focus_ring, next line); the
-	// field's focus overlay is state styling only, and fields show the
-	// ring on click too (focus_ring = .Always).
-	niello.set_focus_ring({color = ACCENT, width = 2, offset = 2})
-	niello.mint(&field_focus_u, niello.NO_UNIT, {color = niello.rgb(0x2c3040)})
-	niello.mint(&field_u, niello.NO_UNIT, {
-		layout = niello.Layout.Left_To_Right,
-		size = niello.size(niello.grow(), niello.fixed(44)),
-		color = PANEL, corner_radius = 6,
-		padding = niello.pad_xy(12, 0), gap = 0,
-		align = niello.align(.Start, .Center),
-		focus = field_focus_u, focusable = true, focus_ring = .Always,
-	})
-	niello.mint(&field_text_u, niello.NO_UNIT, {
-		font_size = 16, font_color = INK,
-		// §3.18: editable text preserves whitespace, so the caret
-		// (which sits at the pre-caret label's width) tracks spaces.
-		whitespace = niello.Whitespace.Preserve,
-	})
-	niello.mint(&caret_u, niello.NO_UNIT, {
-		size = niello.size(niello.fixed(2), niello.fixed(22)),
-		color = ACCENT,
-	})
-	niello.mint(&placeholder_u, niello.NO_UNIT, {font_size = 16, font_color = DIM})
-
-	niello.mint(&btn_hover_u, niello.NO_UNIT, {color = BTN_HOVER})
-	niello.mint(&btn_press_u, niello.NO_UNIT, {color = BTN_PRESS})
-	niello.mint(&btn_u, niello.NO_UNIT, {
-		size = niello.size(niello.fixed(130), niello.fixed(40)),
-		color = BTN, corner_radius = 6,
-		align = niello.CENTER,
-		hover = btn_hover_u, press = btn_press_u,
-		focusable = true, cursor = niello.Cursor_Kind.Pointer,
-	})
-	niello.mint(&btn_label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})
-	niello.mint(&buttons_row_u, niello.NO_UNIT, {
-		layout = niello.Layout.Left_To_Right, gap = 12,
-	})
+	niello.mint(&title_u, niello.NO_UNIT, {font_size = 24, font_color = t.ink, groups = ink})
+	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13.5, font_color = t.dim, groups = dim})
+	niello.mint(&caption_u, niello.NO_UNIT, {font_size = 13, font_color = t.dim, groups = dim})
+	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13.5, font_color = t.dim, groups = dim})
+	niello.mint(&buttons_row_u, niello.NO_UNIT, {layout = niello.Layout.Left_To_Right, gap = 12})
 }
 
 declare :: proc(app: ^Form) {
-	// Input first, against last frame's instances; display after.
-	edit_field(&app.name)
-	edit_field(&app.quest)
-
 	if niello.begin(window_u) {
 		niello.show(title_u, {text = "Form"})
-		niello.show(hint_u, {text = "Tab / Shift+Tab to move · click a field to focus · Enter jumps on · Space/Enter pushes a focused button"})
+		niello.show(hint_u, {text = "Tab / Shift+Tab to move · click a box to focus · Enter jumps on · Space/Enter pushes a focused button"})
 
 		niello.show(caption_u, {text = "NAME"})
-		show_field(&app.name, "e.g. Ada")
+		if controls.text_box(&app.name, "e.g. Ada").submitted {
+			niello.focus_next() // Enter commits and moves on
+		}
 		niello.show(caption_u, {text = "QUEST"})
-		show_field(&app.quest, "e.g. To seek the grail")
+		if controls.text_box(&app.quest, "e.g. To seek the grail").submitted {
+			niello.focus_next()
+		}
 
 		declare_buttons(app)
 
@@ -212,31 +74,26 @@ declare :: proc(app: ^Form) {
 	}
 }
 
-buttons_row_u: niello.Unit
 declare_buttons :: proc(app: ^Form) {
 	if niello.begin(buttons_row_u) {
-		if niello.begin(btn_u, out = &app.clear_i) {
-			niello.show(btn_label_u, {text = "Clear"})
-			if niello.clicked(app.clear_i) {
-				clear(&app.name.buf)
-				clear(&app.quest.buf)
-				app.name.caret, app.quest.caret = 0, 0
-				app.status = "Cleared."
-			}
+		app.clear_i = controls.button("Clear")
+		if niello.clicked(app.clear_i) {
+			controls.text_box_set(&app.name, "")
+			controls.text_box_set(&app.quest, "")
+			app.status = "Cleared."
 		}
-		if niello.begin(btn_u, out = &app.submit_i) {
-			niello.show(btn_label_u, {text = "Submit"})
-			if niello.clicked(app.submit_i) {
-				if len(app.name.buf) == 0 {
-					app.status = "The name field is empty — Tab over and type something."
-				} else {
-					app.status = fmt.bprintf(
-						app.status_buf[:],
-						"Submitted — name: %s · quest: %s",
-						string(app.name.buf[:]),
-						string(app.quest.buf[:]),
-					)
-				}
+		app.submit_i = controls.button("Submit", .Primary)
+		if niello.clicked(app.submit_i) {
+			name := controls.text_box_text(&app.name)
+			if len(name) == 0 {
+				app.status = "The name box is empty — Tab over and type something."
+			} else {
+				app.status = fmt.bprintf(
+					app.status_buf[:],
+					"Submitted — name: %s · quest: %s",
+					name,
+					controls.text_box_text(&app.quest),
+				)
 			}
 		}
 	}
@@ -245,11 +102,11 @@ declare_buttons :: proc(app: ^Form) {
 main :: proc() {
 	mint()
 	ctx := niello.context_create()
-	defer niello.context_destroy(ctx)
-	app := Form{status = "Tab into a field and type."}
+	app := Form{status = "Tab into a box and type."}
 	defer {
-		delete(app.name.buf)
-		delete(app.quest.buf)
+		controls.text_box_destroy(&app.name)
+		controls.text_box_destroy(&app.quest)
+		niello.shutdown()
 	}
 	niello_sdl.run(ctx, {title = "NielloUI — form", width = 680, height = 520}, declare, &app)
 }

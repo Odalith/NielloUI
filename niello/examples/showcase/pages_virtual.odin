@@ -3,6 +3,7 @@ package main
 
 import "core:fmt"
 import niello "../.."
+import controls "../../controls"
 import virtual "../../virtual"
 
 // =====================================================================
@@ -16,7 +17,7 @@ ROW_H          :: f32(30)
 Virtual_State :: struct {
 	fixed_list, est_list:   virtual.List,
 	fixed_i, est_i:         niello.Instance,
-	fixed_bar, est_bar:     Scrollbar,
+	fixed_bar, est_bar:     controls.Scrollbar,
 	fixed_declared:         int,
 	est_declared:           int,
 }
@@ -44,16 +45,16 @@ page_virtual :: proc(app: ^App) {
 		if niello.begin(ui.column) {
 			heading(fmt.tprintf("Fixed: %d rows of %.0f DIP", FIXED_ROWS, ROW_H))
 			if niello.begin_section(V.list, niello.builder(build_fixed_rows, app), out = &s.fixed_i) {
-				scrollbar(&s.fixed_bar, s.fixed_i)
+				controls.scrollbar(&s.fixed_bar, s.fixed_i)
 			}
 			if niello.begin(ui.row) {
-				if niello.clicked(button("Top")) {
+				if niello.clicked(controls.button("Top")) {
 					virtual.scroll_to_index(&s.fixed_list, s.fixed_i, 0)
 				}
-				if niello.clicked(button("Row 50 000")) {
+				if niello.clicked(controls.button("Row 50 000")) {
 					virtual.scroll_to_index(&s.fixed_list, s.fixed_i, 49_999)
 				}
-				if niello.clicked(button("End")) {
+				if niello.clicked(controls.button("End")) {
 					virtual.scroll_to_index(&s.fixed_list, s.fixed_i, FIXED_ROWS - 1)
 				}
 			}
@@ -62,13 +63,13 @@ page_virtual :: proc(app: ^App) {
 		if niello.begin(ui.column) {
 			heading(fmt.tprintf("Estimated: %d paragraphs of differing height", ESTIMATED_ROWS))
 			if niello.begin_section(V.list, niello.builder(build_estimated_rows, app), out = &s.est_i) {
-				scrollbar(&s.est_bar, s.est_i)
+				controls.scrollbar(&s.est_bar, s.est_i)
 			}
 			if niello.begin(ui.row) {
-				if niello.clicked(button("Top")) {
+				if niello.clicked(controls.button("Top")) {
 					virtual.scroll_to_index(&s.est_list, s.est_i, 0)
 				}
-				if niello.clicked(button("Item 5 000")) {
+				if niello.clicked(controls.button("Item 5 000")) {
 					virtual.scroll_to_index(&s.est_list, s.est_i, 4_999)
 				}
 			}
@@ -118,21 +119,19 @@ mint_pages_virtual :: proc(app: ^App, t: Theme) {
 		align = niello.align(.End, .Start), // the anchored bar: right edge, top
 		color = t.bg, corner_radius = 8, padding = niello.pad_each(6, 6, 16, 6),
 		smooth_scroll = true,
-		groups = []niello.Group{groups.bg},
+		groups = []niello.Group{controls.groups.bg},
 	})
-	niello.mint(&V.hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
+	niello.mint(&V.hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{controls.groups.hover}})
 	niello.mint(&V.row, niello.NO_UNIT, {
 		size = size(grow(), fixed(ROW_H)), padding = pad_xy(10, 7), corner_radius = 4,
 		font_size = 13, font_color = t.ink, focusable = true, cursor = .Pointer,
-		hover = V.hover, groups = []niello.Group{groups.ink},
+		hover = V.hover, groups = []niello.Group{controls.groups.ink},
 	})
 	niello.mint(&V.para, niello.NO_UNIT, {
 		size = size(grow(), fit()), padding = pad_xy(10, 8), corner_radius = 4, wrap = .Word,
 		font_size = 13, font_color = t.ink, focusable = true, cursor = .Pointer,
-		hover = V.hover, groups = []niello.Group{groups.ink},
+		hover = V.hover, groups = []niello.Group{controls.groups.ink},
 	})
-	scrollbar_init(&app.virt.fixed_bar, .Vertical)
-	scrollbar_init(&app.virt.est_bar, .Vertical)
 }
 
 destroy_pages_virtual :: proc(app: ^App) {

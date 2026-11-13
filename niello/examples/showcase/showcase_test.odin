@@ -14,6 +14,7 @@ package main
 import "core:testing"
 import "core:time"
 import niello "../.."
+import controls "../../controls"
 
 @(private = "file")
 VIEW :: niello.Vec2{1180, 780}
@@ -121,7 +122,7 @@ showcase_smoke :: proc(t: ^testing.T) {
 	for dark in ([]bool{true, false}) {
 		if !dark {
 			app.dark = false
-			apply_theme(LIGHT_THEME, 0)
+			controls.apply_theme(LIGHT_THEME, 0)
 		}
 		for p in Page {
 			testing.expectf(t, click(&app, app.nav_i[p]), "nav item %v has a rect", p)
