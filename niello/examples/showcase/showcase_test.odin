@@ -163,6 +163,8 @@ showcase_smoke :: proc(t: ^testing.T) {
 	testing.expect_value(t, spacing_r2, spacing_r)
 	testing.expect_value(t, niello.style_of(ui.card).padding, niello.pad(controls.DEFAULT_SPACING.panel_pad * 2))
 	testing.expect_value(t, niello.style_of(ui.card_row).gap, controls.DEFAULT_SPACING.gap * 2)
+	testing.expect_value(t, niello.style_of(shell.nav_list).gap, NAV_GAP * 2)
+	testing.expect_value(t, niello.style_of(shell.nav_item).padding, niello.style_of(controls.parts.button.root).padding)
 	for p in Page {
 		click(&app, app.nav_i[p])
 		settles(t, &app, fmt.tprintf("%s, large text and spacing", PAGE_NAMES[p]))
