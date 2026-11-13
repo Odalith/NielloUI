@@ -99,10 +99,6 @@ Store :: struct {
 	// tweens across all of them (animate.odin).
 	contexts: [dynamic]^Context,
 
-	// The engine focus ring (set_focus_ring): app-wide, like a
-	// theme value. nil = DEFAULT_FOCUS_RING.
-	focus_ring: Maybe(Focus_Ring),
-
 	// Debug tooling state (TODO #18, debug.odin): the highlight
 	// channel and the overflow-report scratch. Inert in prod
 	// builds; written and read only under the NIELLO_DEBUG gate.
@@ -123,6 +119,11 @@ Store :: struct {
 	font_epoch:       u64, // bumped by fonts_changed(); mixed into both
 	                       // text cache keys so a (re)registered font
 	                       // invalidates everything it measured (txt-5)
+
+	// The engine focus ring (set_focus_ring): app-wide, like a
+	// theme value. nil = DEFAULT_FOCUS_RING. Cold: read once per
+	// frame, so it sits after everything hot.
+	focus_ring: Maybe(Focus_Ring),
 }
 
 // Context is one window's frame state (multi-window plan, M1):
@@ -298,14 +299,6 @@ Context :: struct {
 	focus_id:      Instance, // keyboard focus (§3.17): traversal, click,
 	                         // or programmatic; input_keys/input_text
 	                         // route to it
-	focus_visible: bool,     // keyboard modality: the last focus move
-	                         // (or key on the holder) came from the
-	                         // keyboard or code, not a pointer press
-	reveal_id:     Instance, // focus to scroll into view at frame_end
-	                         // (set by non-pointer focus moves)
-	ring_painted:  Ring_Paint, // the ring the last frame painted (damage)
-	ring_idx:      int,        // node that paints the ring this frame
-	                           // (frame_end sets it for draw_list), -1 none
 	key_press_id:    Instance, // Space/Enter capture on the focused
 	                         // instance between key-down and key-up
 	key_press_code:  Key_Code,
@@ -371,6 +364,17 @@ Context :: struct {
 
 	// Test-only hook: force the next begin() to report open=false.
 	test_force_cull: bool,
+
+	// Focus indicator (§3.17), cold: read once per frame at
+	// frame_end and by draw_list, so it sits after the hot fields.
+	focus_visible: bool,       // keyboard modality: the last focus move
+	                           // (or key on the holder) came from the
+	                           // keyboard or code, not a pointer press
+	reveal_id:     Instance,   // focus to scroll into view at frame_end
+	                           // (set by non-pointer focus moves)
+	ring_painted:  Ring_Paint, // the ring the last frame painted (damage)
+	ring_idx:      int,        // node that paints the ring this frame
+	                           // (frame_end sets it for draw_list), -1 none
 }
 
 @(private)

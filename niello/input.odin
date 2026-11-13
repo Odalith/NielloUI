@@ -473,14 +473,9 @@ dispatch_keys :: proc(input: Input) {
 		modal_blocks_keys = focus_idx < 0 || popup_containing(focus_idx) < mk
 	}
 
+	note_key_modality()
 	for k in 0 ..< g.frame_key_count {
 		ev := g.frame_keys[k]
-		// Keyboard modality: any key but a lone modifier, pressed
-		// while focus is held, makes that focus visible — keyboard
-		// use after a click shows the ring.
-		if ev.down && g.focus_id != 0 && !(ev.key >= .Left_Shift && ev.key <= .Right_Super) {
-			g.focus_visible = true
-		}
 		if ev.key == .Escape && ev.down && !ev.repeat {
 			// Esc light-dismisses the topmost dismissible popup
 			// (§3.19) and is consumed, like Tab; with no popup to
@@ -1258,4 +1253,21 @@ apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Styl
 	landed := off
 	landed[axis] = disp
 	g.scroll_off[id] = landed
+}
+
+// note_key_modality: any key but a lone modifier, pressed while focus
+// is held, makes that focus visible (keyboard use after a click shows
+// the ring).
+@(private)
+note_key_modality :: proc() {
+	if g.focus_id == 0 {
+		return
+	}
+	for k in 0 ..< g.frame_key_count {
+		ev := g.frame_keys[k]
+		if ev.down && !(ev.key >= .Left_Shift && ev.key <= .Right_Super) {
+			g.focus_visible = true
+			return
+		}
+	}
 }
