@@ -33,6 +33,7 @@ Unit_Rec :: struct {
 	// Warm: read when resolving interaction state (overlays not yet applied).
 	hover, press, focus, disabled: Unit,
 	focusable: bool,
+	focus_ring: Focus_Ring_Mode, // when the engine ring shows on this unit
 
 	// Derived from style, cached for declare: facts every frame would
 	// otherwise recompute for every instance of the unit. Valid while
@@ -70,6 +71,16 @@ Group_Rec :: struct {
 // once, globally; groups are global; a style write lands here once
 // and every Context picks it up on its next frame — a broadcast
 // with no per-context copies and no surprises.
+// Ring_Paint is the focus ring one frame painted, kept so the next
+// frame can damage exactly the change (focus_ring_damage).
+Ring_Paint :: struct {
+	on:     bool,
+	rect:   Rect, // outer bounds
+	color:  Color,
+	width:  u16,
+	radius: u8,
+}
+
 Store :: struct {
 	// Cold store: units own their style values. Survives across frames.
 	// Index 0 is the NO_UNIT sentinel (§8).
@@ -87,6 +98,10 @@ Store :: struct {
 	// Live contexts, in creation order: tween() cancels a unit's
 	// tweens across all of them (animate.odin).
 	contexts: [dynamic]^Context,
+
+	// The engine focus ring (set_focus_ring): app-wide, like a
+	// theme value. nil = DEFAULT_FOCUS_RING.
+	focus_ring: Maybe(Focus_Ring),
 
 	// Debug tooling state (TODO #18, debug.odin): the highlight
 	// channel and the overflow-report scratch. Inert in prod
@@ -283,6 +298,14 @@ Context :: struct {
 	focus_id:      Instance, // keyboard focus (§3.17): traversal, click,
 	                         // or programmatic; input_keys/input_text
 	                         // route to it
+	focus_visible: bool,     // keyboard modality: the last focus move
+	                         // (or key on the holder) came from the
+	                         // keyboard or code, not a pointer press
+	reveal_id:     Instance, // focus to scroll into view at frame_end
+	                         // (set by non-pointer focus moves)
+	ring_painted:  Ring_Paint, // the ring the last frame painted (damage)
+	ring_idx:      int,        // node that paints the ring this frame
+	                           // (frame_end sets it for draw_list), -1 none
 	key_press_id:    Instance, // Space/Enter capture on the focused
 	                         // instance between key-down and key-up
 	key_press_code:  Key_Code,

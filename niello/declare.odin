@@ -44,6 +44,7 @@ Frame_Node :: struct {
 	                        // over the unit's style image (§3.25)
 	focusable:       bool, // resolved at declare: With.focusable wins
 	                       // over the unit's Style_Decl.focusable
+	ring_mode:       Focus_Ring_Mode, // resolved like focusable
 	anchored:        bool, // With.anchored, resolved at declare (§3.20)
 	has_anchored:    bool, // some child is anchored: the passes that
 	                       // treat overlays specially look only then
@@ -328,6 +329,7 @@ declare_as :: proc(
 			has_text = has_text,
 			image = img,
 			focusable = with.focusable.? or_else store.units[unit_index(unit)].focusable,
+			ring_mode = with.focus_ring.? or_else store.units[unit_index(unit)].focus_ring,
 			anchored = with.anchored,
 			is_container = is_container,
 			culled = culled,

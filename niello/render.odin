@@ -110,6 +110,9 @@ draw_list :: proc() -> []Draw_Cmd {
 		// opening); a non-clipping node's children may still spill
 		// into view, so only its own commands are skipped.
 		paint := Rect{r.pos, r.size + g.lay[i].overfl}
+		if i == g.ring_idx {
+			paint = rect_union(paint, g.ring_painted.rect)
+		}
 		if rect_outside(paint, cur) {
 			if clips_node {
 				i = g.subtree_end[i] + 1
@@ -122,7 +125,10 @@ draw_list :: proc() -> []Draw_Cmd {
 			i += 1
 			continue
 		}
-		if emit_node_open(i, true) {
+		// The ring's node opens a scope even with no clip or
+		// opacity: its close is where the ring paints, above the
+		// whole subtree.
+		if emit_node_open(i, true) || i == g.ring_idx {
 			append(scopes, i)
 			append(clips, clips_node ? rect_intersect(cur, r) : cur)
 		}
@@ -201,6 +207,7 @@ emit_node_open :: proc(i: int, paint_leaves: bool) -> bool {
 				tag = .Overlay,
 				bounds = r,
 				color = s.overlay_color,
+				radius = s.corner_radius,
 				border_width = s.overlay_border_width,
 				border_color = s.overlay_border_color,
 			},
@@ -405,12 +412,21 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 }
 
 // emit_node_close emits a node's scope closes, in reverse of the opens.
+// The focus ring paints between them: outside the node's own clip (it
+// sits beyond the rect) but inside its opacity (it fades with it).
 @(private)
 emit_node_close :: proc(i: int) {
 	s := node_style(i)
 	r := Rect{g.lay[i].pos, g.lay[i].size}
 	if s.overflow == .Clip || scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS) {
 		append(&g.draw_cmds, Draw_Cmd{tag = .Pop_Clip, bounds = r})
+	}
+	if i == g.ring_idx {
+		rp := g.ring_painted
+		append(&g.draw_cmds, Draw_Cmd{
+			tag = .Overlay, bounds = rp.rect, radius = rp.radius,
+			border_width = rp.width, border_color = rp.color,
+		})
 	}
 	if s.opacity < 255 {
 		append(&g.draw_cmds, Draw_Cmd{tag = .Pop_Opacity, bounds = r})
@@ -533,4 +549,52 @@ image_fit_rects :: proc(fit: Image_Fit, src_full: Rect, view: Rect, align: [2]Al
 	sub := Vec2{dest.size.x / scale.x, dest.size.y / scale.y}
 	src = Rect{src_full.pos + (dest.pos - d.pos) / scale, sub}
 	return dest, src
+}
+
+// ============ focus ring ============
+
+// focus_ring_resolve finds the node that shows the ring this frame and
+// the ring it paints (see set_focus_ring). Run at the end of frame_end,
+// after every focus move (modal grab/restore and survival run after
+// layout): it damages exactly the change from the last painted ring
+// and leaves g.ring_idx / g.ring_painted for draw_list.
+@(private)
+focus_ring_resolve :: proc() {
+	g.ring_idx = -1
+	now := Ring_Paint{}
+	cfg := store.focus_ring.? or_else DEFAULT_FOCUS_RING
+	if g.focus_id != 0 && cfg.width > 0 {
+		for idx in 0 ..< len(g.nodes) {
+			nd := &g.nodes[idx]
+			if nd.identity != g.focus_id {
+				continue
+			}
+			if nd.culled || nd.ring_mode == .Never || !(g.focus_visible || nd.ring_mode == .Always) {
+				break
+			}
+			r := Rect{g.lay[idx].pos, g.lay[idx].size}
+			e := f32(cfg.offset) + f32(cfg.width)
+			outer := Rect{r.pos - {e, e}, r.size + {2 * e, 2 * e}}
+			if outer.size.x <= 0 || outer.size.y <= 0 {
+				break
+			}
+			// Concentric with the instance's own corners: its radius
+			// as the backend clamps it, grown by the ring's distance.
+			// A square instance keeps a square ring.
+			cr := min(f32(node_style(idx).corner_radius), min(r.size.x, r.size.y) * 0.5)
+			rad := cr > 0 ? clamp(cr + e, 0, 255) : 0
+			now = Ring_Paint{on = true, rect = outer, color = cfg.color, width = cfg.width, radius = u8(rad)}
+			g.ring_idx = idx
+			break
+		}
+	}
+	if now != g.ring_painted {
+		if g.ring_painted.on {
+			append(&g.damage, g.ring_painted.rect)
+		}
+		if now.on {
+			append(&g.damage, now.rect)
+		}
+		g.ring_painted = now
+	}
 }
