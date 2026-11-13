@@ -77,6 +77,7 @@ App :: struct {
 shell: struct {
 	root, header, header_title, spacer, body, sidebar, nav_item, nav_item_on: niello.Unit,
 	nav_hover, nav_label, content, page, status_bar: niello.Unit,
+	sidebar_fill, display, display_title, display_label, main: niello.Unit,
 }
 
 mint_shell :: proc(t: Theme) {
@@ -99,10 +100,26 @@ mint_shell :: proc(t: Theme) {
 	})
 	niello.mint(&shell.spacer, niello.NO_UNIT, {size = size(grow(), fixed(1))})
 	niello.mint(&shell.body, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), grow())})
+	niello.mint(&shell.main, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(grow(), grow())})
 	niello.mint(&shell.sidebar, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(200), grow()),
 		padding = pad(10), gap = 2,
 		color = t.panel, groups = []niello.Group{controls.groups.panel},
+	})
+	// The Display panel: fixed geometry (see declare_display).
+	niello.mint(&shell.sidebar_fill, niello.NO_UNIT, {size = size(fixed(1), grow())})
+	niello.mint(&shell.display, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = size(grow(), fit()), padding = pad(10), gap = 6,
+		color = t.raised, corner_radius = 8,
+		group_masks = []niello.Group_Mask{controls.as(G.raised, .Color)},
+	})
+	niello.mint(&shell.display_title, niello.NO_UNIT, {
+		font_size = 11, font_weight = .SemiBold, font_color = t.dim,
+		group_masks = []niello.Group_Mask{controls.as(G.dim, .Font_Color)},
+	})
+	niello.mint(&shell.display_label, niello.NO_UNIT, {
+		font_size = 12, font_color = t.ink,
+		group_masks = []niello.Group_Mask{controls.as(G.ink, .Font_Color)},
 	})
 	niello.mint(&shell.nav_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{controls.groups.hover}})
 	niello.mint(&shell.nav_item_on, niello.NO_UNIT, {color = t.accent})
@@ -140,11 +157,16 @@ declare :: proc(app: ^App) {
 
 	if niello.begin(shell.root) {
 		declare_header(app)
+		// The sidebar runs to the window's bottom edge, and the status bar
+		// sits under the content only: the Display panel at the sidebar's
+		// foot then has fixed edges to hold to (see declare_display).
 		if niello.begin(shell.body) {
 			declare_sidebar(app)
-			declare_content(app)
+			if niello.begin(shell.main) {
+				declare_content(app)
+				declare_status(app)
+			}
 		}
-		declare_status(app)
 	}
 	// Popups and dialogs are overlay roots: declared after the main
 	// tree, they paint and hit-test above it.
@@ -159,19 +181,6 @@ declare_header :: proc(app: ^App) {
 			text = niello.NIELLO_DEBUG ? "debug build — F12 opens the debugger" : "build with -define:NIELLO_DEBUG=true for the F12 debugger",
 		})
 		niello.show(shell.spacer)
-		// Text size and spacing are broadcasts too: one apply call each,
-		// through the type and spacing roles every unit joined at mint.
-		slider_w := niello.With{size = size(fixed(110), fixed(controls.SLIDER_H))}
-		niello.show(ui.small, {text = fmt.tprintf("Text %.0f%%", app.text_scale.value * 100)})
-		if controls.slider(&app.text_scale, "Text size", with = slider_w) {
-			controls.apply_type(controls.scale_type(controls.DEFAULT_TYPE, app.text_scale.value))
-			status_set(&app.status, "Text size %.0f%% (one broadcast per type role)", app.text_scale.value * 100)
-		}
-		niello.show(ui.small, {text = fmt.tprintf("Spacing %.0f%%", app.spacing.value * 100)})
-		if controls.slider(&app.spacing, "Spacing", with = slider_w) {
-			controls.apply_spacing(controls.scale_spacing(controls.DEFAULT_SPACING, app.spacing.value))
-			status_set(&app.status, "Spacing %.0f%% (one broadcast per spacing role)", app.spacing.value * 100)
-		}
 		if controls.toggle_switch("Dark theme", &app.dark) {
 			controls.apply_theme(app.dark ? DARK_THEME : LIGHT_THEME, 250)
 			status_set(&app.status, "Theme: %s (one group broadcast per role, 250 ms glide)", app.dark ? "dark" : "light")
@@ -196,6 +205,36 @@ declare_sidebar :: proc(app: ^App) {
 				niello.scroll_to(app.content_i, {0, 0})
 				status_set(&app.status, "Page: %s", PAGE_NAMES[p])
 			}
+		}
+		niello.show(shell.sidebar_fill)
+		declare_display(app)
+	}
+}
+
+// declare_display is the sidebar's Display panel: the text-size and
+// spacing sliders. Text size and spacing are broadcasts, like the theme:
+// one apply call each, through the type and spacing roles every unit
+// joined at mint, applied live while a slider is dragged.
+//
+// A slider must not move while it is dragged, so nothing that decides
+// where these sit scales with them: the sidebar's width and padding are
+// fixed, the fill above pins the panel to the bottom however tall the nav
+// items grow, the panel's own labels are a fixed size (theme colors, no
+// type role), each value label sits on its own line above its slider, and
+// the sidebar's bottom edge is the window's (the status bar is under the
+// content, not under the sidebar).
+declare_display :: proc(app: ^App) {
+	if niello.begin(shell.display) {
+		niello.show(shell.display_title, {text = "DISPLAY", role = .Header})
+		niello.show(shell.display_label, {text = fmt.tprintf("Text size · %.0f%%", app.text_scale.value * 100)})
+		if controls.slider(&app.text_scale, "Text size") {
+			controls.apply_type(controls.scale_type(controls.DEFAULT_TYPE, app.text_scale.value))
+			status_set(&app.status, "Text size %.0f%% (one broadcast per type role)", app.text_scale.value * 100)
+		}
+		niello.show(shell.display_label, {text = fmt.tprintf("Spacing · %.0f%%", app.spacing.value * 100)})
+		if controls.slider(&app.spacing, "Spacing") {
+			controls.apply_spacing(controls.scale_spacing(controls.DEFAULT_SPACING, app.spacing.value))
+			status_set(&app.status, "Spacing %.0f%% (one broadcast per spacing role)", app.spacing.value * 100)
 		}
 	}
 }

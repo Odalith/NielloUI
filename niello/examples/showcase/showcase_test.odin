@@ -143,14 +143,24 @@ showcase_smoke :: proc(t: ^testing.T) {
 	// The header's text-size and spacing sliders: keyboard to the top of
 	// each range, and the whole UI follows through its roles. Every page
 	// still settles (debug builds: nothing draws outside its parent).
+	// A slider stays where it is while its value resizes everything else:
+	// at the bottom of the sidebar, in fixed geometry.
+	text_r, _ := niello.rect(app.text_scale.inst)
+	spacing_r, _ := niello.rect(app.spacing.inst)
 	niello.focus(app.text_scale.inst)
 	key(&app, .End)
+	idle(&app, 2)
 	testing.expect_value(t, app.text_scale.value, f32(1.75))
+	text_r2, _ := niello.rect(app.text_scale.inst)
+	testing.expect_value(t, text_r2, text_r)
 	testing.expect_value(t, niello.style_of(ui.title).font_size, controls.DEFAULT_TYPE.title * 1.75)
 	testing.expect_value(t, niello.style_of(controls.parts.button.label).font_size, controls.DEFAULT_TYPE.body * 1.75)
 	niello.focus(app.spacing.inst)
 	key(&app, .End)
+	idle(&app, 2)
 	testing.expect_value(t, app.spacing.value, f32(2))
+	spacing_r2, _ := niello.rect(app.spacing.inst)
+	testing.expect_value(t, spacing_r2, spacing_r)
 	testing.expect_value(t, niello.style_of(ui.card).padding, niello.pad(controls.DEFAULT_SPACING.panel_pad * 2))
 	testing.expect_value(t, niello.style_of(ui.card_row).gap, controls.DEFAULT_SPACING.gap * 2)
 	for p in Page {
