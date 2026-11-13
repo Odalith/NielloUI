@@ -610,7 +610,7 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 }
 
 // distribute_node hands container i's children their sizes on axis.
-distribute_node :: proc(i: int, axis: int) {
+distribute_node :: #force_inline proc(i: int, axis: int) {
 	nd := &g.nodes[i]
 	if !nd.is_container {
 		return
@@ -778,7 +778,7 @@ position_range :: proc(host, lo, hi: int) {
 
 // place_children positions container i's children (pass F, top-down).
 @(private)
-place_children :: proc(i: int) {
+place_children :: #force_inline proc(i: int) {
 	nd := &g.nodes[i]
 	if !nd.is_container {
 		return
@@ -856,7 +856,7 @@ place_children :: proc(i: int) {
 // final rects (pass F, bottom-up) and, when publish is set, publishes
 // its scroll range and re-clamps its stored offset.
 @(private)
-close_overflow :: proc(i: int, publish: bool) {
+close_overflow :: #force_inline proc(i: int, publish: bool) {
 	nd := &g.nodes[i]
 	if !nd.is_container {
 		return
