@@ -382,3 +382,27 @@ test_core_keys_are_consumed :: proc(t: ^testing.T) {
 	testing.expect(t, len(niello.input_keys(fo_a)) == 0, "Space up is consumed when it ends the capture")
 	testing.expect(t, niello.clicked(fo_a), "the activation itself still fires as a click")
 }
+
+// pointer_pressed is pressed without key activation: Space on a focused
+// control presses it but not by pointer (a slider must not seek on it).
+@(test)
+test_pointer_pressed_excludes_key_activation :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	fo_mint()
+	fo_frame()
+	fo_frame([]niello.Key_Event{kev(TAB_EV, true), kev(TAB_EV, false)})
+	testing.expect(t, niello.focused(fo_a), "Tab focuses A")
+	fo_frame([]niello.Key_Event{kev(.Space, true)})
+	testing.expect(t, niello.pressed(fo_a), "Space presses the focused control")
+	testing.expect(t, !niello.pointer_pressed(fo_a), "but not by pointer")
+	fo_frame([]niello.Key_Event{kev(.Space, false)})
+	// A pointer press reports both.
+	rb, _ := niello.rect(fo_b)
+	inp := idle_input(rb.pos + rb.size / 2)
+	inp.buttons_pressed = {.Left}
+	inp.buttons_down = {.Left}
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
+	finish(fo_declare)
+	testing.expect(t, niello.pressed(fo_b) && niello.pointer_pressed(fo_b), "a pointer press is both")
+}

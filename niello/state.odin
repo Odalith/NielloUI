@@ -168,7 +168,6 @@ Context :: struct {
 	site_counts: [dynamic]Site_Count,
 	site_base:   [dynamic]int,
 	popup_sites: [dynamic]Site_Count, // the same, for popup roots (the layer)
-	clip_stack:   [dynamic]Rect, // declare-time accumulated clip per open container (BL-3)
 
 	// Frame inputs, latched at frame_begin.
 	viewport: Vec2,
@@ -199,15 +198,6 @@ Context :: struct {
 	// TWO map ops per node per frame (rect map + hash map), and the
 	// second op was the input pass's single biggest cost — one op now.
 	instances: map[Instance]Inst_Rec,
-	// Cull memory (BL-3): the last layout rect of every culled
-	// node, keyed by identity. The culler tests last-frame rects,
-	// but a culled node's instance is deleted (rect() must report
-	// ok=false), so its rect lives here until it commits again or
-	// leaves the tree. Pass F maintains it. The record carries
-	// the same last_seen epoch stamp as Inst_Rec, so the recycle
-	// sweep retires stale entries by stamp comparison — the job
-	// the seen_ids hash-of-bools used to do (audit X-4/F1).
-	cull_rects: map[Instance]Cull_Rec,
 	damage:     [dynamic]Rect,
 
 	// Debug snapshot (TODO #18, debug.odin): this context's last
@@ -244,7 +234,7 @@ Context :: struct {
 	// with). Only scrollable containers ever get an entry; absence = 0.
 	// Lifetime (audit int-2, ruled 2026-11-04): scroll state shares
 	// the instance lifetime — when an instance record is recycled
-	// (undeclared or culled), its scroll_off/scroll_max/scroll_glides
+	// (undeclared, or a popup not shown), its scroll_off/scroll_max/scroll_glides
 	// entries are purged with it. There is deliberately no separate
 	// retention or tab-restore: a reappearing scroller starts at 0.
 	scroll_off: map[Instance]Vec2,
@@ -480,7 +470,6 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.site_counts)
 	delete(ctx.site_base)
 	delete(ctx.popup_sites)
-	delete(ctx.clip_stack)
 	delete(ctx.lay)
 	delete(ctx.first_child)
 	delete(ctx.next_sibling)
@@ -495,7 +484,6 @@ free_context :: proc(ctx: ^Context) {
 	}
 	a11y_free_mirror(ctx)
 	delete(ctx.instances)
-	delete(ctx.cull_rects)
 	delete(ctx.damage)
 	delete(ctx.popups)
 	delete(ctx.dismiss_flags)
@@ -748,15 +736,6 @@ Scroll_Glide :: struct {
 // per-instance content hash 2026-10-23: styles are versioned by
 // their write funnel, so re-mixing every resolved value every
 // frame re-proved what the generations already knew.)
-// Cull_Rec is a culled node's cull-memory entry (BL-3): its last
-// layout rect plus the frame it was last written, in the same
-// last_seen epoch as Inst_Rec.last_seen — the recycle sweep
-// retires entries whose stamp went stale (audit X-4/F1).
-Cull_Rec :: struct {
-	rect:      Rect,
-	last_seen: u64,
-}
-
 Inst_Rec :: struct {
 	rect:  Rect,
 	gen:   u64,
@@ -771,7 +750,6 @@ Inst_Rec :: struct {
 	// frame_index of the last pass-F commit (audit core-H4): the
 	// recycle sweep deletes records whose last_seen is stale,
 	// which catches deaths the old map-outgrew-the-tree signal
-	// missed (a death balanced by a birth while other declared
-	// nodes are culled inflates the node count, not the map).
+	// missed (a death balanced by a birth in the same frame).
 	last_seen: u64,
 }

@@ -876,13 +876,12 @@ test_fit_container_passes_deficit_to_children :: proc(t: ^testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Real culling (BL-3): a container whose last-frame rect misses the
-// accumulated ancestor clip is culled — open=false, no instance
-// (rect() reports ok=false), its disappearance damages its old rect
-// exactly once, and Begin_Flags.No_Cull opts out of the rect test.
+// Culling is paint-only (2026-11-13): a container outside the
+// accumulated ancestor clip stays open, keeps its instance and its
+// size, and only draw_list skips it.
 
 @(test)
-test_culling_real :: proc(t: ^testing.T) {
+test_offscreen_containers_stay_declared :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 
@@ -891,80 +890,110 @@ test_culling_real :: proc(t: ^testing.T) {
 	row: niello.Unit
 	niello.mint(&row, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(30)}, layout = .Top_To_Bottom})
 	leaf: niello.Unit
-	niello.mint(&leaf, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(20)}})
+	niello.mint(&leaf, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(20)}, color = niello.rgb(0x123456)})
 
 	// Six 30px rows in a 100px scroller: rows 0..3 intersect the
 	// clip (row 3 only partially), rows 4 and 5 sit fully below it.
-	ids: [6]niello.Instance
+	ids, leaves: [6]niello.Instance
+	scroller_i: niello.Instance
 	opens: [6]bool
-	declare_frame :: proc(scroller, row, leaf: niello.Unit, ids: ^[6]niello.Instance, opens: ^[6]bool, no_cull_last: bool) {
+	declare_frame :: proc(scroller, row, leaf: niello.Unit, scroller_i: ^niello.Instance, ids, leaves: ^[6]niello.Instance, opens: ^[6]bool) {
 		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 100}}, 0)
-		if niello.begin(scroller) {
+		if niello.begin(scroller, out = scroller_i) {
 			for k in 0 ..< 6 {
-				flags: niello.Begin_Flags = {}
-				if no_cull_last && k == 5 {
-					flags = {.No_Cull}
-				}
-				if niello.begin(row, {}, niello.key_int(k + 1), flags, out = &ids[k]) {
+				opens[k] = false
+				if niello.begin(row, {}, niello.key_int(k + 1), out = &ids[k]) {
 					opens[k] = true
-					niello.show(leaf)
-				} else {
-					opens[k] = false
+					leaves[k] = niello.show(leaf)
 				}
 			}
 		}
 	}
-
-	// Frame 1: nothing has a committed rect, so nothing culls.
-	declare_frame(scroller, row, leaf, &ids, &opens, false)
-	niello.frame_end()
-	for k in 0 ..< 6 {
-		_, ok := niello.rect(ids[k])
-		testing.expect(t, ok, "frame 1: every row committed")
-	}
-	row4_rect, _ := niello.rect(ids[4])
-	testing.expect(t, row4_rect == niello.Rect{{0, 120}, {200, 30}}, "frame 1: row 4 sits below the clip")
-
-	// Frame 2: rows 4 and 5 cull by rect; the rest stay open.
-	declare_frame(scroller, row, leaf, &ids, &opens, false)
-	res2 := niello.frame_end()
-	testing.expect(t, opens[0] && opens[1] && opens[2] && opens[3], "frame 2: intersecting rows stay open")
-	testing.expect(t, !opens[4] && !opens[5], "frame 2: fully-clipped rows are culled")
-	_, ok4 := niello.rect(ids[4])
-	_, ok5 := niello.rect(ids[5])
-	_, ok0 := niello.rect(ids[0])
-	testing.expect(t, !ok4 && !ok5, "frame 2: culled rows have no instance")
-	testing.expect(t, ok0, "frame 2: visible rows keep their instance")
-	damaged := false
-	for d in res2.damage {
-		if d == row4_rect {
-			damaged = true
+	for f in 0 ..< 3 {
+		declare_frame(scroller, row, leaf, &scroller_i, &ids, &leaves, &opens)
+		res := niello.frame_end()
+		for k in 0 ..< 6 {
+			testing.expectf(t, opens[k], "frame %d: row %d opens, off-screen or not", f, k)
+			_, ok := niello.rect(leaves[k])
+			testing.expectf(t, ok, "frame %d: row %d's leaf has an instance", f, k)
+		}
+		r4, _ := niello.rect(ids[4])
+		testing.expectf(t, r4 == niello.Rect{{0, 120}, {200, 30}}, "frame %d: row 4 keeps its place below the clip", f)
+		testing.expectf(t, niello.scroll_range(scroller_i).y == 80, "frame %d: the scroll range is stable", f)
+		if f == 2 {
+			testing.expect(t, !res.changed, "a steady off-screen subtree damages nothing")
 		}
 	}
-	testing.expect(t, damaged, "frame 2: the vanished row's old rect is damage")
+	// Paint skips what the clip hides: row 0's leaf draws, row 4's does not.
+	r0, _ := niello.rect(leaves[0])
+	r4l, _ := niello.rect(leaves[4])
+	drew0, drew4 := false, false
+	for cmd in niello.draw_list() {
+		if cmd.tag == .Rect && cmd.bounds == r0 { drew0 = true }
+		if cmd.tag == .Rect && cmd.bounds == r4l { drew4 = true }
+	}
+	testing.expect(t, drew0, "a visible leaf paints")
+	testing.expect(t, !drew4, "an off-clip leaf is skipped at emit")
+}
 
-	// Frame 3: steady state — still culled, but no repeated damage.
-	declare_frame(scroller, row, leaf, &ids, &opens, false)
-	res3 := niello.frame_end()
-	testing.expect(t, !opens[4] && !opens[5], "frame 3: rows stay culled")
-	damaged = false
-	for d in res3.damage {
-		if d == row4_rect {
-			damaged = true
+// The case declare-time culling broke: fit-height cards in a scroller
+// kept collapsing to their padding off-screen, so the scroll range
+// jumped and their buttons could not be reached by Tab.
+oc_root, oc_list, oc_card, oc_btn: niello.Unit
+oc_list_i: niello.Instance
+oc_btns: [8]niello.Instance
+
+oc_declare :: proc() {
+	if niello.begin(oc_root) {
+		if niello.begin(oc_list, out = &oc_list_i) {
+			for k in 0 ..< 8 {
+				if niello.begin(oc_card, key = niello.key_int(k)) {
+					oc_btns[k] = niello.show(oc_btn)
+				}
+			}
 		}
 	}
-	testing.expect(t, !damaged, "frame 3: a culled row adds no further damage")
+}
 
-	// Frame 4: No_Cull opts row 5 out of the rect test.
-	declare_frame(scroller, row, leaf, &ids, &opens, true)
-	niello.frame_end()
-	testing.expect(t, opens[5], "frame 4: No_Cull row declares despite sitting outside the clip")
-	_, ok5b := niello.rect(ids[5])
-	testing.expect(t, ok5b, "frame 4: No_Cull row commits an instance again")
+oc_frame :: proc(keys: []niello.Key_Event = nil) {
+	inp := idle_input(AWAY_PT)
+	for ev, i in keys {
+		inp.keys[i] = ev
+	}
+	inp.key_count = len(keys)
+	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
+	finish(oc_declare)
 }
 
 @(test)
-test_recycle_swap_with_culled_node :: proc(t: ^testing.T) {
+test_offscreen_fit_cards_keep_size_and_focus :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&oc_root, niello.NO_UNIT, {size = niello.size(niello.fixed(400), niello.fixed(300))})
+	niello.mint(&oc_list, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(200), niello.fixed(100)), scroll = .Vertical})
+	niello.mint(&oc_card, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.grow(), niello.fit()), padding = niello.pad(5)})
+	niello.mint(&oc_btn, niello.NO_UNIT, {size = niello.size(niello.fixed(100), niello.fixed(40)), focusable = true})
+	// 8 cards of 50 in a 100 viewport: range 300, every frame.
+	for f in 0 ..< 4 {
+		oc_frame()
+		testing.expectf(t, niello.scroll_range(oc_list_i).y == 300, "frame %d: range %v", f, niello.scroll_range(oc_list_i))
+	}
+	niello.scroll_to(oc_list_i, {0, 200})
+	oc_frame()
+	oc_frame()
+	testing.expect_value(t, niello.scroll_offset(oc_list_i).y, f32(200))
+	testing.expect_value(t, niello.scroll_range(oc_list_i).y, f32(300))
+	niello.scroll_to(oc_list_i, {0, 0})
+	oc_frame()
+	// Tab walks every card's button in order, off-screen ones included.
+	for k in 0 ..< 8 {
+		oc_frame([]niello.Key_Event{kev(.Tab, true), kev(.Tab, false)})
+		testing.expectf(t, niello.focused(oc_btns[k]), "Tab %d reaches button %d", k, k)
+	}
+}
+
+@(test)
+test_recycle_swap_with_unshown_popup :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 
@@ -972,9 +1001,11 @@ test_recycle_swap_with_culled_node :: proc(t: ^testing.T) {
 	niello.mint(&clip, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, overflow = .Clip})
 	row: niello.Unit
 	niello.mint(&row, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(30)}})
+	pop: niello.Unit
+	niello.mint(&pop, niello.NO_UNIT, {size = niello.Size{niello.fixed(50), niello.fixed(50)}})
 
 	ids: [5]niello.Instance // keys 1..4 -> slots 1..4
-	declare :: proc(clip, row: niello.Unit, ids: ^[5]niello.Instance, keys: []int) {
+	declare :: proc(clip, row, pop: niello.Unit, ids: ^[5]niello.Instance, keys: []int) {
 		niello.frame_begin(niello.test_context(), niello.Input{viewport = {200, 200}}, 0)
 		if niello.begin(clip) {
 			for k in keys {
@@ -982,35 +1013,31 @@ test_recycle_swap_with_culled_node :: proc(t: ^testing.T) {
 				}
 			}
 		}
+		// A declared node with no instance: a popup whose anchor was
+		// never committed is not presented.
+		if niello.begin_popup(pop, niello.Instance(0xdead), .Below) {
+		}
 		niello.frame_end()
 	}
 
-	// Frame 1: clip is 100 tall; rows 1..3 (y 0, 30, 60) all commit.
-	declare(clip, row, &ids, []int{1, 2, 3})
+	declare(clip, row, pop, &ids, []int{1, 2, 3})
+	declare(clip, row, pop, &ids, []int{1, 2, 3})
 	count1 := niello.instance_count(niello.test_context())
 	_, ok_b1 := niello.rect(ids[2])
-	testing.expect(t, ok_b1, "frame 1: row 2 committed")
+	testing.expect(t, ok_b1, "row 2 committed")
 
-	// Frame 2: clip shrinks to 45. The culler tests last-frame rects,
-	// so row 3 is culled one frame later, when the shrink has settled.
-	niello.set(clip, .Size, niello.Size{niello.fixed(200), niello.fixed(45)})
-	declare(clip, row, &ids, []int{1, 2, 3})
-	declare(clip, row, &ids, []int{1, 2, 3})
-	count2 := niello.instance_count(niello.test_context())
-	testing.expect(t, count2 == count1 - 1, "frame 2: culled row's instance is gone")
-
-	// Frame 3 — the swap the old sweep missed (audit core-H4): row 2
-	// dies, row 4 is born in its place, and row 3 stays declared but
-	// culled. Declared-node count (4) equals the instance-map size
-	// (clip, 1, 2, 4), so the map-outgrew-the-tree signal never fired
-	// and row 2's record leaked: rect() kept answering for a dead id.
-	declare(clip, row, &ids, []int{1, 4, 3})
+	// The swap the old sweep missed (audit core-H4): row 2 dies, row 4
+	// is born in its place, and the unshown popup stays declared. The
+	// declared-node count then equals the instance-map size, so a
+	// map-outgrew-the-tree signal would never fire and row 2's record
+	// would leak: rect() kept answering for a dead id.
+	declare(clip, row, pop, &ids, []int{1, 4, 3})
 	_, ok_b3 := niello.rect(ids[2])
-	testing.expect(t, !ok_b3, "frame 3: swapped-out row 2 is recycled despite the culled bystander")
+	testing.expect(t, !ok_b3, "swapped-out row 2 is recycled despite the unshown popup")
 	count3 := niello.instance_count(niello.test_context())
-	testing.expect(t, count3 == count2, "frame 3: a swap keeps the instance count (one death, one birth)")
+	testing.expect(t, count3 == count1, "a swap keeps the instance count (one death, one birth)")
 	_, ok_d3 := niello.rect(ids[4])
-	testing.expect(t, ok_d3, "frame 3: row 4 committed")
+	testing.expect(t, ok_d3, "row 4 committed")
 }
 
 @(test)

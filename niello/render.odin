@@ -79,9 +79,9 @@ draw_list :: proc() -> []Draw_Cmd {
 	clips := &g.emit_clips
 	clear(scopes)
 	clear(clips)
-	// The accumulated clip starts at the viewport (the same root the
-	// declare-time culler uses); a zero viewport means none was ever
-	// latched, in which case nothing is culled at emit.
+	// The accumulated clip starts at the viewport; a zero viewport
+	// means none was ever latched, in which case nothing is culled at
+	// emit. Emit is the only culler: layout sees the whole tree.
 	root_clip := Rect{{0, 0}, g.viewport}
 	if g.viewport == {0, 0} {
 		root_clip = Rect{{-1e18, -1e18}, {2e18, 2e18}}

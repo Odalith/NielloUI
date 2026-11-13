@@ -27,7 +27,7 @@ scroll_units: struct {
 page_scrolling :: proc(app: ^App) {
 	s := &app.scrolling
 	niello.show(ui.title, {text = "Scrolling"})
-	note("The wheel scrolls the deepest scroller under the cursor; leftover delta chains outward to the next one (this page itself scrolls). Scrollbars are a component: an anchored child reading scroll_offset / scroll_range.")
+	note("The wheel scrolls the deepest scroller under the cursor; leftover delta chains outward to the next one (this page itself scrolls). Scrollbars are a component: an anchored child reading scroll_offset / scroll_range. Every row and tile is focusable: Tab walks them in declaration order, including the ones scrolled out of view.")
 
 	if niello.begin(ui.card_row) {
 		if niello.begin(ui.column) {
@@ -728,15 +728,18 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	niello.mint(&S.row, niello.NO_UNIT, {
 		size = size(grow(), fixed(30)), padding = pad_xy(10, 7),
 		font_size = 13, font_color = t.ink, groups = []niello.Group{groups.ink},
+		focusable = true, // Tab walks the rows, off-screen ones included
 	})
 	niello.mint(&S.inner_row, niello.NO_UNIT, {
 		size = size(grow(), fixed(26)), padding = pad_xy(10, 5),
 		font_size = 12, font_color = t.dim, groups = []niello.Group{groups.dim},
+		focusable = true,
 	})
 	niello.mint(&S.wide_row, niello.NO_UNIT, {
 		size = size(fixed(110), fixed(70)), padding = pad(10), corner_radius = 6,
 		color = t.raised, font_size = 13, font_color = t.ink,
 		groups = []niello.Group{groups.raised, groups.ink},
+		focusable = true,
 	})
 	niello.mint(&S.sticky, niello.NO_UNIT, {
 		size = size(grow(), fixed(24)), padding = pad_xy(10, 5),

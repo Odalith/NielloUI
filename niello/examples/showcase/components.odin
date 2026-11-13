@@ -323,7 +323,9 @@ slider_mint :: proc(t: Theme) -> (p: Slider_Parts) {
 
 slider :: proc(s: ^Slider, label: string, loc := #caller_location) -> bool {
 	changed := false
-	if niello.pressed(s.inst) || niello.dragging(s.inst) {
+	// Seek on the pointer only: Space/Enter also press the slider, and
+	// drag_pos would then seek it to wherever the pointer sits.
+	if niello.pointer_pressed(s.inst) || niello.dragging(s.inst) {
 		if r, ok := niello.rect(s.inst); ok && r.size.x > 0 {
 			v := clamp(niello.drag_pos(s.inst).x / r.size.x, 0, 1)
 			changed = v != s.value
