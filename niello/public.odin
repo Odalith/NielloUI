@@ -450,6 +450,10 @@ Style_Decl :: struct {
 	                                     // an explicit false (audit core-H5)
 	focus_ring: Maybe(Focus_Ring_Mode),  // when the engine focus ring shows here
 	                                     // (default .Keyboard; see set_focus_ring)
+	text_input: Maybe(bool),             // a text-input instance: while it holds focus,
+	                                     // Space and Enter reach input_keys as keys
+	                                     // instead of activating it (a text box reads
+	                                     // Enter itself; Space types through input_text)
 
 	groups: []Group,          // join these groups for every field (mint only)
 	group_masks: []Group_Mask, // join these groups for the given fields only (mint only)
@@ -695,6 +699,7 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 		rec.hover, rec.press, rec.focus, rec.disabled = src.hover, src.press, src.focus, src.disabled
 		rec.focusable = src.focusable
 		rec.focus_ring = src.focus_ring
+		rec.text_input = src.text_input
 		// The base copy is a snapshot: clone the reference-typed
 		// fields so the new unit owns its copies (see store_spans).
 		rec.style.text_spans = clone_spans(rec.style.text_spans)
@@ -962,6 +967,9 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	}
 	if v, ok := decl.focus_ring.?; ok {
 		rec.focus_ring = v
+	}
+	if v, ok := decl.text_input.?; ok {
+		rec.text_input = v
 	}
 
 	fields := explicit_fields(decl)

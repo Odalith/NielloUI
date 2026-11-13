@@ -34,6 +34,7 @@ Unit_Rec :: struct {
 	hover, press, focus, disabled: Unit,
 	focusable: bool,
 	focus_ring: Focus_Ring_Mode, // when the engine ring shows on this unit
+	text_input: bool,            // Space/Enter are keys, not activation (Style_Decl.text_input)
 
 	// Derived from style, cached for declare: facts every frame would
 	// otherwise recompute for every instance of the unit. Valid while

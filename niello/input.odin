@@ -474,6 +474,17 @@ dispatch_keys :: proc(input: Input) {
 	}
 
 	note_key_modality()
+	// A text-input instance holding focus takes Space and Enter as keys:
+	// no activation capture begins on it, and they are not consumed.
+	typing := false
+	if g.focus_id != 0 {
+		for idx in 0 ..< len(g.nodes) {
+			if g.nodes[idx].identity == g.focus_id {
+				typing = store.units[unit_index(g.nodes[idx].unit)].text_input
+				break
+			}
+		}
+	}
 	for k in 0 ..< g.frame_key_count {
 		ev := g.frame_keys[k]
 		if ev.key == .Escape && ev.down && !ev.repeat {
@@ -511,7 +522,8 @@ dispatch_keys :: proc(input: Input) {
 			// once as clicked(). The up is consumed when it ends
 			// the capture its down began. Behind a modal that
 			// blocks keys (audit int-1) no capture begins or ends.
-			if !modal_blocks_keys {
+			// A text-input focus holder reads them as keys.
+			if !modal_blocks_keys && !typing {
 				if ev.down {
 					g.key_consumed[k] = true
 					if !ev.repeat {

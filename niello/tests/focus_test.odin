@@ -406,3 +406,22 @@ test_pointer_pressed_excludes_key_activation :: proc(t: ^testing.T) {
 	finish(fo_declare)
 	testing.expect(t, niello.pressed(fo_b) && niello.pointer_pressed(fo_b), "a pointer press is both")
 }
+
+// A text-input unit holding focus takes Space and Enter as keys: they
+// reach input_keys and drive no activation (no press, no click).
+@(test)
+test_text_input_takes_space_and_enter_as_keys :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	fo_mint()
+	niello.set(fo_btn, .Size, niello.size(niello.fixed(200), niello.fixed(40)))
+	niello.set_many(fo_btn, {text_input = true})
+	fo_frame()
+	fo_frame([]niello.Key_Event{kev(TAB_EV, true), kev(TAB_EV, false)})
+	testing.expect(t, niello.focused(fo_a), "A is focused")
+	fo_frame([]niello.Key_Event{kev(.Enter, true), kev(.Space, true)})
+	testing.expect_value(t, fo_cap_keys_a, 2)
+	testing.expect(t, !niello.pressed(fo_a), "no activation capture began")
+	fo_frame([]niello.Key_Event{kev(.Enter, false), kev(.Space, false)})
+	testing.expect(t, !fo_cap_clicked_a, "and no click")
+}
