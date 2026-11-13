@@ -64,6 +64,55 @@ Text_Entry :: struct {
 	width_preserve: f32, // widest segment, every space counted
 	max_word:       f32, // widest word: the wrap-mode shrink floor
 	ellipsis_w:     f32, // "…" in the base style
+	last_used:      u64, // store.text_epoch of the last lookup (text_cache_sweep)
+}
+
+// Ellipsis_Width is an ellipsis_widths entry: the width and its last use.
+Ellipsis_Width :: struct {
+	w:         f32,
+	last_used: u64,
+}
+
+// TEXT_KEEP_FRAMES: a cached measurement unused for this many frames
+// (any window's) is freed by the sweep. Text that is still shown is
+// looked up every frame it is laid out or painted, so only text that has
+// gone — an edited field's old states, the sizes a font-size glide passed
+// through — ages out. TEXT_SWEEP_EVERY: frames between sweeps.
+TEXT_KEEP_FRAMES :: 300
+TEXT_SWEEP_EVERY :: 64
+
+// text_cache_sweep frees the measurements nothing has used for
+// TEXT_KEEP_FRAMES frames. frame_end calls it; it runs every
+// TEXT_SWEEP_EVERY frames. Without it the content-addressed cache only
+// grew: every edit state of a text field and every font size a theme
+// glide passed through stayed measured forever.
+@(private)
+text_cache_sweep :: proc() {
+	store.text_epoch += 1
+	if store.text_epoch % TEXT_SWEEP_EVERY != 0 || store.text_epoch < TEXT_KEEP_FRAMES {
+		return
+	}
+	horizon := store.text_epoch - TEXT_KEEP_FRAMES
+	dead := make([dynamic]u64, 0, 16, context.temp_allocator)
+	for key, e in store.text_cache {
+		if e.last_used < horizon {
+			append(&dead, key)
+		}
+	}
+	for key in dead {
+		e := store.text_cache[key]
+		free_entry(&e)
+		delete_key(&store.text_cache, key)
+	}
+	clear(&dead)
+	for key, e in store.ellipsis_widths {
+		if e.last_used < horizon {
+			append(&dead, key)
+		}
+	}
+	for key in dead {
+		delete_key(&store.ellipsis_widths, key)
+	}
 }
 
 // Mock metrics: proportional to size; bold is a touch wider. The real
@@ -131,12 +180,13 @@ ellipsis_width :: proc(s: ^Style) -> f32 {
 	key = hash_mix(key, u64(s.font_weight))
 	key = hash_mix(key, u64(s.font_slant))
 	key = hash_mix(key, store.font_epoch)
-	if w, ok := store.ellipsis_widths[key]; ok {
-		return w
+	if e, ok := &store.ellipsis_widths[key]; ok {
+		e.last_used = store.text_epoch
+		return e.w
 	}
 	w, mok := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, "…")
 	if mok {
-		store.ellipsis_widths[key] = w
+		store.ellipsis_widths[key] = Ellipsis_Width{w = w, last_used = store.text_epoch}
 	}
 	return w
 }
@@ -180,8 +230,9 @@ get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64,
 	key = hash_mix(key, u64(s.font_slant))
 	key = hash_mix(key, spans_hash)
 	key = hash_mix(key, store.font_epoch)
-	if e, ok := store.text_cache[key]; ok {
-		return e
+	if e, ok := &store.text_cache[key]; ok {
+		e.last_used = store.text_epoch
+		return e^
 	}
 	e, mok := fill_entry(s, spans, text)
 	if mok {
@@ -199,6 +250,7 @@ get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64,
 			line_h = s.font_size,
 		}
 	}
+	e.last_used = store.text_epoch
 	store.text_cache[key] = e
 	return e
 }

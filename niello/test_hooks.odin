@@ -84,3 +84,8 @@ test_overlay :: proc(u: Unit, kind: Overlay_Kind) -> Unit {
 test_focusable :: proc(u: Unit) -> bool {
 	return store.units[unit_index(u)].focusable
 }
+
+// test_text_cache_len reports how many measurements the text cache holds.
+test_text_cache_len :: proc() -> int {
+	return len(store.text_cache)
+}

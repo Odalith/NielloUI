@@ -73,3 +73,42 @@ test_press_clicks :: proc(t: ^testing.T) {
 	frame({buttons_pressed = {.Right}, buttons_down = {.Right}, clicks = 3})
 	testing.expect_value(t, seen, 0)
 }
+
+@(test)
+test_text_line_height_follows_size :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	a, b: niello.Unit
+	niello.mint(&a, niello.NO_UNIT, {font_size = 14})
+	niello.mint(&b, niello.NO_UNIT, {font_size = 28})
+	testing.expect(t, niello.text_line_height(a) > 0, "a line has height")
+	testing.expect(t, niello.text_line_height(b) > niello.text_line_height(a), "and it grows with the font size")
+}
+
+// The text cache frees what nothing uses: a font size swept through 100
+// values (a glide, a slider) leaves only the sizes still shown.
+@(test)
+test_text_cache_evicts_unused :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	@(static) root, label: niello.Unit
+	niello.mint(&root, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(400), niello.fixed(300))})
+	niello.mint(&label, niello.NO_UNIT, {font_size = 10})
+	frame :: proc() {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 1.0 / 60.0)
+		if niello.begin(root) {
+			niello.show(label, {text = "a label whose size keeps changing"})
+		}
+		niello.frame_end()
+	}
+	for k in 0 ..< 100 {
+		niello.set(label, .Font_Size, f32(10 + k))
+		frame()
+	}
+	peak := niello.test_text_cache_len()
+	testing.expect(t, peak >= 50, "every size was measured")
+	for _ in 0 ..< niello.TEXT_KEEP_FRAMES + 2 * niello.TEXT_SWEEP_EVERY {
+		frame()
+	}
+	testing.expect(t, niello.test_text_cache_len() <= 2, "only the size still shown stays cached")
+}
