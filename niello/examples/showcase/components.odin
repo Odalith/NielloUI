@@ -71,6 +71,8 @@ apply_theme :: proc(t: Theme, ms: u32) {
 	niello.group_set(groups.press, .Color, t.press, ms)
 	niello.group_set(groups.ink, .Font_Color, t.ink, ms)
 	niello.group_set(groups.dim, .Font_Color, t.dim, ms)
+	// The engine focus ring is app-wide: one call re-themes it.
+	niello.set_focus_ring({color = t.accent, width = 2, offset = 2})
 }
 
 // ---- shared units ----------------------------------------------------------
@@ -80,7 +82,6 @@ Units :: struct {
 	title, heading, body, dim, small, mono, accent_text: niello.Unit,
 	// containers
 	column, row, card, card_row, wrap_box: niello.Unit,
-	focus_ring: niello.Unit, // the shared focus overlay
 	// components, by their parts
 	button, button_primary, button_danger: Button,
 	check:     Checkbox,
@@ -124,7 +125,9 @@ mint_units :: proc(t: Theme) {
 	niello.group_add(groups.panel, ui.card_row)
 	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(fixed(300), fit())})
 
-	niello.mint(&ui.focus_ring, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
+	// Focus shows through the engine's ring (set_focus_ring), so no
+	// component carries a ring overlay of its own.
+	niello.set_focus_ring({color = t.accent, width = 2, offset = 2})
 	ui.button = button_mint(t)
 	// Variants inherit the base's overlays and focusability; group
 	// memberships are explicit. The danger button joins the raised group
@@ -153,7 +156,7 @@ mint_units :: proc(t: Theme) {
 		layout = .Left_To_Right, size = size(grow(), fixed(30)),
 		corner_radius = 5, padding = pad_xy(10, 0), align = START_CENTER,
 		focusable = true, cursor = .Pointer,
-		hover = ui.menu_item_hover, focus = ui.focus_ring,
+		hover = ui.menu_item_hover,
 	})
 	niello.mint(&ui.backdrop, niello.NO_UNIT, {size = size(percent(1), percent(1)), color = niello.rgb(0x000000, 120)})
 	niello.mint(&ui.dialog, niello.NO_UNIT, {
@@ -177,10 +180,11 @@ note :: proc(text: string, loc := #caller_location) {
 // ---- button ----------------------------------------------------------------
 
 // Button's parts: the box and its label, the state overlays the box
-// uses, and the "on" pair a toggle switches to.
+// uses, and the "on" pair a toggle switches to. Focus needs no part:
+// the engine's ring shows it.
 Button :: struct {
-	root, label:                   niello.Unit,
-	hover, press, focus, disabled: niello.Unit,
+	root, label:            niello.Unit,
+	hover, press, disabled: niello.Unit,
 	on, label_on:                  niello.Unit, // a toggle's on state (root variant, label)
 }
 
@@ -188,13 +192,12 @@ button_mint :: proc(t: Theme) -> (b: Button) {
 	niello.mint(&b.hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
 	niello.mint(&b.press, niello.NO_UNIT, {color = t.press, groups = []niello.Group{groups.press}})
 	niello.mint(&b.disabled, niello.NO_UNIT, {color = t.panel, cursor = .Not_Allowed, groups = []niello.Group{groups.panel}})
-	b.focus = ui.focus_ring
 	niello.mint(&b.on, niello.NO_UNIT, {color = t.accent})
 	niello.mint(&b.root, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fit(), fixed(36)),
 		padding = pad_xy(16, 0), align = CENTER,
 		color = t.raised, corner_radius = 8, cursor = .Pointer,
-		hover = b.hover, press = b.press, focus = b.focus, disabled = b.disabled,
+		hover = b.hover, press = b.press, disabled = b.disabled,
 		focusable = true,
 		groups = []niello.Group{groups.raised},
 	})
@@ -263,7 +266,7 @@ checkbox_mint :: proc(t: Theme) -> (c: Checkbox) {
 	niello.mint(&c.row, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fit(), fixed(28)), gap = 8,
 		align = START_CENTER, cursor = .Pointer, focusable = true,
-		padding = pad_xy(4, 0), corner_radius = 6, focus = ui.focus_ring,
+		padding = pad_xy(4, 0), corner_radius = 6,
 	})
 	niello.mint(&c.box, niello.NO_UNIT, {
 		size = size(fixed(18), fixed(18)), corner_radius = 4, align = CENTER,
@@ -374,12 +377,15 @@ Field :: struct {
 }
 
 field_mint :: proc(t: Theme) -> (f: Field) {
-	niello.mint(&f.focus, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
+	// focus is state styling (the field sinks to the page color while
+	// it is being edited); the engine ring is the focus indicator, and
+	// a field shows it on click too (focus_ring = .Always).
+	niello.mint(&f.focus, niello.NO_UNIT, {color = t.bg, groups = []niello.Group{groups.bg}})
 	niello.mint(&f.box, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fixed(38)),
 		color = t.raised, corner_radius = 6, padding = pad_xy(10, 0),
 		align = START_CENTER, cursor = .Text,
-		focus = f.focus, focusable = true,
+		focus = f.focus, focusable = true, focus_ring = .Always,
 		groups = []niello.Group{groups.raised},
 	})
 	niello.mint(&f.text, niello.NO_UNIT, {font_size = 14, font_color = t.ink, whitespace = .Preserve, groups = []niello.Group{groups.ink}})

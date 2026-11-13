@@ -273,12 +273,27 @@ flag_dismiss :: proc(rec_idx: int) {
 // set_focus_id is the one focus writer: it notes the transition for
 // damage and cancels any pending key-press capture (a Space/Enter
 // press belongs to the instance that held focus when it began).
+// visible is the move's modality: true for keyboard and programmatic
+// moves (the ring shows, and the instance is scrolled into view at
+// frame_end), false for a pointer press. Engine-driven moves (modal
+// grab/restore, survival) pass g.focus_visible through unchanged.
 @(private)
-set_focus_id :: proc(i: Instance) {
+set_focus_id :: proc(i: Instance, visible: bool) {
 	if i == g.focus_id {
+		// Same holder: only the modality can change. A keyboard
+		// re-focus of a pointer-focused instance reveals it; an
+		// already-visible one is left where the user scrolled it
+		// (an app calling focus() every frame must not pin the
+		// scroller).
+		if visible && !g.focus_visible && i != 0 {
+			g.reveal_id = i
+		}
+		g.focus_visible = visible
 		return
 	}
 	g.focus_id = i
+	g.focus_visible = visible
+	g.reveal_id = visible ? i : 0
 	if g.key_press_id != 0 && g.key_press_id != i {
 		g.key_press_id = 0
 		clear(&g.key_press_chain)
@@ -334,7 +349,7 @@ traverse_focus :: proc(dir: int) {
 	for step in 1 ..= span {
 		idx := lo + (origin - lo + dir * step) %% span
 		if focus_candidate(idx) {
-			set_focus_id(g.nodes[idx].identity)
+			set_focus_id(g.nodes[idx].identity, true)
 			return
 		}
 	}
@@ -458,6 +473,7 @@ dispatch_keys :: proc(input: Input) {
 		modal_blocks_keys = focus_idx < 0 || popup_containing(focus_idx) < mk
 	}
 
+	note_key_modality()
 	for k in 0 ..< g.frame_key_count {
 		ev := g.frame_keys[k]
 		if ev.key == .Escape && ev.down && !ev.repeat {
@@ -688,13 +704,13 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		found := false
 		for j := len(chain_idx) - 1; j >= 0; j -= 1 {
 			if focus_candidate(chain_idx[j]) {
-				set_focus_id(g.nodes[chain_idx[j]].identity)
+				set_focus_id(g.nodes[chain_idx[j]].identity, false)
 				found = true
 				break
 			}
 		}
 		if !found {
-			set_focus_id(0)
+			set_focus_id(0, false)
 		}
 	}
 
@@ -1237,4 +1253,21 @@ apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Styl
 	landed := off
 	landed[axis] = disp
 	g.scroll_off[id] = landed
+}
+
+// note_key_modality: any key but a lone modifier, pressed while focus
+// is held, makes that focus visible (keyboard use after a click shows
+// the ring).
+@(private)
+note_key_modality :: proc() {
+	if g.focus_id == 0 {
+		return
+	}
+	for k in 0 ..< g.frame_key_count {
+		ev := g.frame_keys[k]
+		if ev.down && !(ev.key >= .Left_Shift && ev.key <= .Right_Super) {
+			g.focus_visible = true
+			return
+		}
+	}
 }

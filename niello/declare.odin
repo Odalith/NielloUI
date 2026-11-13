@@ -58,6 +58,7 @@ Frame_Node :: struct {
 	culled:          bool,
 	has_eff:         bool, // frame_end resolved an effective style into
 	                       // g.eff[idx] (interaction state or variant present)
+	ring_mode:       Focus_Ring_Mode, // resolved at declare like focusable
 }
 
 // resolve_text: per-frame With.text wins, then With.text_no_copy (borrowed),
@@ -308,6 +309,10 @@ declare_as :: proc(
 	digest = hash_mix(digest, text_hash)
 	digest = hash_mix(digest, spans_hash)
 	digest = hash_mix(digest, u64(img))
+	// Focus facts: With wins over the unit's (one store read for both).
+	urec := &store.units[unit_index(unit)]
+	focusable := with.focusable.? or_else urec.focusable
+	ring_mode := with.focus_ring.? or_else urec.focus_ring
 	append(
 		&g.nodes,
 		Frame_Node{
@@ -327,7 +332,8 @@ declare_as :: proc(
 			spans_hash = spans_hash,
 			has_text = has_text,
 			image = img,
-			focusable = with.focusable.? or_else store.units[unit_index(unit)].focusable,
+			focusable = focusable,
+			ring_mode = ring_mode,
 			anchored = with.anchored,
 			is_container = is_container,
 			culled = culled,

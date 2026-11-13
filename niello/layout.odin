@@ -1042,3 +1042,111 @@ layout_pass :: proc(viewport: Vec2) {
 	distribute(Y_AXIS, viewport.y) // E
 	position_and_damage() // F
 }
+
+// ---------------------------------------------------------------------------
+// Focus reveal (§3.17): keyboard focus scrolls into view
+
+// focus_reveal scrolls the scrollers around a keyboard-focused instance
+// just far enough to show it — with the focus ring's margin — after the
+// move set g.reveal_id (set_focus_id). It runs at the end of frame_end,
+// when this frame's rects are known, innermost scroller first; each
+// scroller's move shifts the rect the next one out tests. The offsets
+// land next frame (a wake is scheduled), the same lag as a declare-time
+// scroll_to; a smooth_scroll scroller glides there like the wheel.
+// Pointer focus never reveals: the instance is under the pointer.
+@(private)
+focus_reveal :: proc() {
+	id := g.reveal_id
+	if id == 0 {
+		return
+	}
+	g.reveal_id = 0
+	if id != g.focus_id {
+		return
+	}
+	idx := -1
+	for k in 0 ..< len(g.nodes) {
+		if g.nodes[k].identity == id {
+			idx = k
+			break
+		}
+	}
+	if idx < 0 || g.nodes[idx].culled {
+		return
+	}
+	cfg := store.focus_ring.? or_else DEFAULT_FOCUS_RING
+	m := cfg.width > 0 ? max(0, f32(cfg.offset) + f32(cfg.width)) : 0
+	target := Rect{g.lay[idx].pos - {m, m}, g.lay[idx].size + {2 * m, 2 * m}}
+	moved := false
+	child := idx
+	for p := g.nodes[idx].parent; p >= 0; child, p = p, g.nodes[p].parent {
+		if g.nodes[child].anchored {
+			// An anchored child ignores its parent's scroll offset.
+			continue
+		}
+		s := node_style(p)
+		if !scrollable_axis(s, X_AXIS) && !scrollable_axis(s, Y_AXIS) {
+			continue
+		}
+		pid := g.nodes[p].identity
+		mx := g.scroll_max[pid] or_else Vec2{0, 0}
+		off := g.scroll_off[pid] or_else Vec2{0, 0}
+		view_pos := g.lay[p].pos + Vec2{f32(s.padding[0]), f32(s.padding[1])}
+		view_size := Vec2{max(0, g.lay[p].size.x - padding_sum(s, X_AXIS)), max(0, g.lay[p].size.y - padding_sum(s, Y_AXIS))}
+		smooth := s.smooth_scroll && s.smooth_ms > 0
+		gl, has_gl := g.scroll_glides[pid]
+		delta := Vec2{0, 0}
+		for axis in 0 ..< 2 {
+			if !scrollable_axis(s, axis) || mx[axis] <= 0 {
+				continue
+			}
+			lo, hi := view_pos[axis], view_pos[axis] + view_size[axis]
+			a, b := target.pos[axis], target.pos[axis] + target.size[axis]
+			d: f32
+			if a < lo || b - a > hi - lo {
+				d = a - lo // above, or too big to fit: show its start
+			} else if b > hi {
+				d = b - hi
+			}
+			if d == 0 {
+				continue
+			}
+			// The rect sits where off rendered it; a glide in flight
+			// keeps moving toward its own target, which the new one
+			// replaces.
+			to := clamp(off[axis] + d, 0, mx[axis])
+			if to == off[axis] {
+				continue
+			}
+			delta[axis] = to - off[axis]
+			if smooth {
+				gl.axis[axis] = Axis_Glide{from = off[axis], to = to, dur = f32(s.smooth_ms)}
+				gl.active[axis] = true
+				has_gl = true
+			} else {
+				if has_gl {
+					gl.active[axis] = false
+				}
+				off[axis] = to
+			}
+		}
+		if delta == {0, 0} {
+			continue
+		}
+		moved = true
+		target.pos -= delta
+		if !smooth {
+			g.scroll_off[pid] = off
+		}
+		if has_gl {
+			if gl.active[0] || gl.active[1] {
+				g.scroll_glides[pid] = gl
+			} else {
+				delete_key(&g.scroll_glides, pid)
+			}
+		}
+	}
+	if moved {
+		schedule_wake_in(0)
+	}
+}

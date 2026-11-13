@@ -33,6 +33,7 @@ Unit_Rec :: struct {
 	// Warm: read when resolving interaction state (overlays not yet applied).
 	hover, press, focus, disabled: Unit,
 	focusable: bool,
+	focus_ring: Focus_Ring_Mode, // when the engine ring shows on this unit
 
 	// Derived from style, cached for declare: facts every frame would
 	// otherwise recompute for every instance of the unit. Valid while
@@ -70,6 +71,16 @@ Group_Rec :: struct {
 // once, globally; groups are global; a style write lands here once
 // and every Context picks it up on its next frame — a broadcast
 // with no per-context copies and no surprises.
+// Ring_Paint is the focus ring one frame painted, kept so the next
+// frame can damage exactly the change (focus_ring_damage).
+Ring_Paint :: struct {
+	on:     bool,
+	rect:   Rect, // outer bounds
+	color:  Color,
+	width:  u16,
+	radius: u8,
+}
+
 Store :: struct {
 	// Cold store: units own their style values. Survives across frames.
 	// Index 0 is the NO_UNIT sentinel (§8).
@@ -108,6 +119,11 @@ Store :: struct {
 	font_epoch:       u64, // bumped by fonts_changed(); mixed into both
 	                       // text cache keys so a (re)registered font
 	                       // invalidates everything it measured (txt-5)
+
+	// The engine focus ring (set_focus_ring): app-wide, like a
+	// theme value. nil = DEFAULT_FOCUS_RING. Cold: read once per
+	// frame, so it sits after everything hot.
+	focus_ring: Maybe(Focus_Ring),
 }
 
 // Context is one window's frame state (multi-window plan, M1):
@@ -348,6 +364,17 @@ Context :: struct {
 
 	// Test-only hook: force the next begin() to report open=false.
 	test_force_cull: bool,
+
+	// Focus indicator (§3.17), cold: read once per frame at
+	// frame_end and by draw_list, so it sits after the hot fields.
+	focus_visible: bool,       // keyboard modality: the last focus move
+	                           // (or key on the holder) came from the
+	                           // keyboard or code, not a pointer press
+	reveal_id:     Instance,   // focus to scroll into view at frame_end
+	                           // (set by non-pointer focus moves)
+	ring_painted:  Ring_Paint, // the ring the last frame painted (damage)
+	ring_idx:      int,        // node that paints the ring this frame
+	                           // (frame_end sets it for draw_list), -1 none
 }
 
 @(private)

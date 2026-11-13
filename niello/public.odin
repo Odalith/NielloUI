@@ -447,6 +447,8 @@ Style_Decl :: struct {
 	focusable: Maybe(bool),              // participates in keyboard focus traversal;
 	                                     // Maybe so set_many can tell "unset" from
 	                                     // an explicit false (audit core-H5)
+	focus_ring: Maybe(Focus_Ring_Mode),  // when the engine focus ring shows here
+	                                     // (default .Keyboard; see set_focus_ring)
 
 	groups: []Group,          // join these groups for every field (mint only)
 	group_masks: []Group_Mask, // join these groups for the given fields only (mint only)
@@ -495,6 +497,8 @@ With :: struct {
 	                        // the unit's Style_Decl.focusable, so one
 	                        // instance of a repeated unit can be the
 	                        // tabbable one (or none of them can).
+	focus_ring: Maybe(Focus_Ring_Mode), // per-instance ring mode; wins over
+	                        // the unit's Style_Decl.focus_ring
 	variant:  Unit,          // persistent per-instance overlay (e.g. selected)
 	anchor:   Maybe([2]f32), // overlay positioning hint
 
@@ -690,6 +694,7 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 		// joining a group stays explicit.
 		rec.hover, rec.press, rec.focus, rec.disabled = src.hover, src.press, src.focus, src.disabled
 		rec.focusable = src.focusable
+		rec.focus_ring = src.focus_ring
 		// The base copy is a snapshot: clone the reference-typed
 		// fields so the new unit owns its copies (see store_spans).
 		rec.style.text_spans = clone_spans(rec.style.text_spans)
@@ -954,6 +959,9 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	// mention it no longer resets it to false.
 	if v, ok := decl.focusable.?; ok {
 		rec.focusable = v
+	}
+	if v, ok := decl.focus_ring.?; ok {
+		rec.focus_ring = v
 	}
 
 	fields := explicit_fields(decl)
@@ -1280,6 +1288,7 @@ dismiss_requested :: proc(i: Instance) -> bool {
 // context_create makes a context with no tree yet.
 context_create :: proc() -> ^Context {
 	ctx := new(Context)
+	ctx.ring_idx = -1
 	// Every map the engine owns is created here, once (audit X-4):
 	// no lazy makes scattered through hot paths — four of them sat
 	// inside pass F — and no read site needs a nil-map guard for
@@ -1376,6 +1385,7 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	// Nodes' span slices live in the frame spans arena (declare.odin);
 	// the cursor rewind below retires them all at once.
 	clear(&g.nodes)
+	g.ring_idx = -1 // re-resolved by frame_end over the new tree
 	clear(&g.withs)
 	clear(&g.size_overrides)
 	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
@@ -1425,7 +1435,7 @@ frame_end :: proc() -> Frame_Result {
 			}
 		}
 		if !alive {
-			set_focus_id(0)
+			set_focus_id(0, g.focus_visible)
 		}
 	}
 	// Modal focus (§3.19): when the topmost modal popup changes,
@@ -1451,7 +1461,7 @@ frame_end :: proc() -> Frame_Result {
 				found := false
 				for idx in top_root ..= g.subtree_end[top_root] {
 					if focus_candidate(idx) {
-						set_focus_id(g.nodes[idx].identity)
+						set_focus_id(g.nodes[idx].identity, g.focus_visible)
 						found = true
 						break
 					}
@@ -1460,7 +1470,7 @@ frame_end :: proc() -> Frame_Result {
 					// No candidate inside the modal (audit
 					// int-1): focus must not stay parked on
 					// whatever sits behind it.
-					set_focus_id(0)
+					set_focus_id(0, g.focus_visible)
 				}
 			} else if top_modal == 0 {
 				// Session over. If the snapshot is still live it
@@ -1472,7 +1482,7 @@ frame_end :: proc() -> Frame_Result {
 				if saved != 0 {
 					for idx in 0 ..< len(g.nodes) {
 						if g.nodes[idx].identity == saved && !g.disabled_flags[idx] {
-							set_focus_id(saved)
+							set_focus_id(saved, g.focus_visible)
 							break
 						}
 					}
@@ -1500,7 +1510,7 @@ frame_end :: proc() -> Frame_Result {
 				}
 			}
 			if focus_idx < 0 || popup_containing(focus_idx) < mk {
-				set_focus_id(0)
+				set_focus_id(0, g.focus_visible)
 			}
 		}
 	}
@@ -1510,6 +1520,10 @@ frame_end :: proc() -> Frame_Result {
 	// stamp comparison damages it (verified across the interaction
 	// suite, audit int-15 — the old affected/input_dirty route
 	// only ever duplicated that damage or added spurious rects).
+	// The focus ring and reveal (render.odin, layout.odin): after
+	// every focus move of the frame, the modal ones above included.
+	focus_reveal()
+	focus_ring_resolve()
 	// Debug snapshot (TODO #18): after the commit — a no-op
 	// unless built with NIELLO_DEBUG.
 	debug_snapshot_build()
@@ -1737,9 +1751,63 @@ focused :: proc(i: Instance) -> bool {
 // focus sets keyboard focus programmatically; pass Instance(0) to
 // clear. Focus also moves by traversal (Tab) and by pointer press on
 // a focusable instance (§3.17). Moving focus cancels any pending
-// key-press (Space/Enter) capture.
+// key-press (Space/Enter) capture. Programmatic focus is keyboard
+// focus: it shows the focus ring and scrolls the instance into view.
 focus :: proc(i: Instance) {
-	set_focus_id(i)
+	set_focus_id(i, true)
+}
+
+// ============ focus ring ============
+// The engine draws one standard focus indicator around the focused
+// instance: a ring outside its rect that follows its corner radius,
+// painted above its children. It shows for keyboard focus — Tab,
+// focus(), or a key pressed while focus is held — and not when a
+// pointer press moved focus (the clicked control is already where the
+// user is looking), unless the unit asks for it with focus_ring =
+// .Always. A unit's `focus` overlay is a different thing: state
+// styling (a field's background or border) that applies on any focus.
+
+// Focus_Ring is the app-wide ring look.
+Focus_Ring :: struct {
+	color:  Color,
+	width:  u16, // stroke width in DIP; 0 = no ring anywhere
+	offset: i16, // gap between the instance's edge and the ring;
+	             // negative draws it inset
+}
+
+DEFAULT_FOCUS_RING :: Focus_Ring{color = Color{0x4c, 0x8d, 0xff, 255}, width = 2, offset = 2}
+
+// Focus_Ring_Mode is when the ring shows on a unit (Style_Decl.focus_ring,
+// With.focus_ring).
+Focus_Ring_Mode :: enum u8 {
+	Keyboard, // keyboard focus only (the default)
+	Always,   // pointer focus too: text fields, where a caret alone is easy to miss
+	Never,    // the unit shows focus itself (focus_visible says when)
+}
+
+// set_focus_ring sets the ring for every window. Call it again to
+// re-theme; width 0 turns the ring off.
+set_focus_ring :: proc(r: Focus_Ring) {
+	store.focus_ring = r
+}
+
+// focus_visible reports i holds focus and should show it: the focus
+// came from the keyboard, or i's ring mode is .Always. It ignores
+// .Never, so a component that draws its own indicator can show it at
+// the moments the engine ring would.
+focus_visible :: proc(i: Instance) -> bool {
+	if i == 0 || i != g.focus_id {
+		return false
+	}
+	if g.focus_visible {
+		return true
+	}
+	for idx in 0 ..< len(g.nodes) {
+		if g.nodes[idx].identity == i {
+			return g.nodes[idx].ring_mode == .Always
+		}
+	}
+	return false
 }
 
 // focus_next / focus_prev move keyboard focus one step along the tab

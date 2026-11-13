@@ -26,7 +26,7 @@ BTN_PRESS :: niello.Color{40, 43, 56, 255}
 
 window_u, title_u, hint_u, caption_u, status_u: niello.Unit
 field_u, field_focus_u, field_text_u, caret_u, placeholder_u: niello.Unit
-btn_u, btn_hover_u, btn_press_u, btn_focus_u, btn_label_u: niello.Unit
+btn_u, btn_hover_u, btn_press_u, btn_label_u: niello.Unit
 
 Field :: struct {
 	buf:   [dynamic]u8,
@@ -141,17 +141,18 @@ mint :: proc() {
 	niello.mint(&caption_u, niello.NO_UNIT, {font_size = 13, font_color = DIM})
 	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13.5, font_color = DIM})
 
-	niello.mint(&field_focus_u, niello.NO_UNIT, {
-		color = niello.rgb(0x2c3040),
-		overlay_border_color = ACCENT, overlay_border_width = 2,
-	})
+	// The engine draws the focus ring (set_focus_ring, next line); the
+	// field's focus overlay is state styling only, and fields show the
+	// ring on click too (focus_ring = .Always).
+	niello.set_focus_ring({color = ACCENT, width = 2, offset = 2})
+	niello.mint(&field_focus_u, niello.NO_UNIT, {color = niello.rgb(0x2c3040)})
 	niello.mint(&field_u, niello.NO_UNIT, {
 		layout = niello.Layout.Left_To_Right,
 		size = niello.size(niello.grow(), niello.fixed(44)),
 		color = PANEL, corner_radius = 6,
 		padding = niello.pad_xy(12, 0), gap = 0,
 		align = niello.align(.Start, .Center),
-		focus = field_focus_u, focusable = true,
+		focus = field_focus_u, focusable = true, focus_ring = .Always,
 	})
 	niello.mint(&field_text_u, niello.NO_UNIT, {
 		font_size = 16, font_color = INK,
@@ -167,14 +168,11 @@ mint :: proc() {
 
 	niello.mint(&btn_hover_u, niello.NO_UNIT, {color = BTN_HOVER})
 	niello.mint(&btn_press_u, niello.NO_UNIT, {color = BTN_PRESS})
-	niello.mint(&btn_focus_u, niello.NO_UNIT, {
-		overlay_border_color = ACCENT, overlay_border_width = 2,
-	})
 	niello.mint(&btn_u, niello.NO_UNIT, {
 		size = niello.size(niello.fixed(130), niello.fixed(40)),
 		color = BTN, corner_radius = 6,
 		align = niello.CENTER,
-		hover = btn_hover_u, press = btn_press_u, focus = btn_focus_u,
+		hover = btn_hover_u, press = btn_press_u,
 		focusable = true, cursor = niello.Cursor_Kind.Pointer,
 	})
 	niello.mint(&btn_label_u, niello.NO_UNIT, {font_size = 15, font_color = INK})

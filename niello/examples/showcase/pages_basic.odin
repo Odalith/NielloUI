@@ -289,13 +289,13 @@ Input_State :: struct {
 }
 
 input_units: struct {
-	key_box, key_box_focus: niello.Unit,
+	key_box: niello.Unit,
 }
 
 page_input :: proc(app: ^App) {
 	s := &app.input
 	niello.show(ui.title, {text = "Keyboard & focus"})
-	note("Tab / Shift+Tab walk the focusable instances in declaration order; clicking focuses. Text and keys route to the focused instance only: input_text for typed characters, input_keys for key events as Key_Codes.")
+	note("Tab / Shift+Tab walk the focusable instances in declaration order; clicking focuses. The engine draws the focus ring for keyboard focus only (clicking a button shows none, the next key press does); fields and the key box opt into it on click with focus_ring = .Always, and Tab scrolls the focused control into view. Text and keys route to the focused instance only: input_text for typed characters, input_keys for key events as Key_Codes.")
 
 	if niello.begin(ui.card) {
 		heading("Text fields")
@@ -504,11 +504,10 @@ mint_pages_basic :: proc(t: Theme) {
 	niello.mint(&T.ellipsis, niello.NO_UNIT, {font_size = 13, font_color = t.ink, groups = []niello.Group{groups.ink}})
 	niello.mint(&T.no_ellipsis, niello.NO_UNIT, {font_size = 13, font_color = t.ink, ellipsis = false, groups = []niello.Group{groups.ink}})
 
-	niello.mint(&input_units.key_box_focus, niello.NO_UNIT, {overlay_border_color = t.accent, overlay_border_width = 2})
 	niello.mint(&input_units.key_box, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), fixed(230)), padding = pad(12), gap = 2,
 		color = t.bg, corner_radius = 8, focusable = true, cursor = .Text,
-		focus = input_units.key_box_focus, overflow = .Clip,
+		focus_ring = .Always, overflow = .Clip,
 		groups = []niello.Group{groups.bg},
 	})
 }

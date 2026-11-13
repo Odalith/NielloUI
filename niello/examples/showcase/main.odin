@@ -98,7 +98,7 @@ mint_shell :: proc(t: Theme) {
 		layout = .Left_To_Right, size = size(grow(), fixed(34)),
 		padding = pad_xy(12, 0), align = START_CENTER, corner_radius = 6,
 		cursor = .Pointer, focusable = true,
-		hover = shell.nav_hover, focus = ui.focus_ring,
+		hover = shell.nav_hover,
 	})
 	niello.mint(&shell.nav_label, ui.body, {})
 	niello.group_add(groups.ink, shell.nav_label)
