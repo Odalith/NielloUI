@@ -201,6 +201,28 @@ showcase_smoke :: proc(t: ^testing.T) {
 	_, thumb_ok := niello.rect(app.scrolling.list_bar.thumb_i)
 	testing.expect(t, thumb_ok, "the list's scrollbar is declared")
 
+	// Virtual lists: only the window is declared, the scroll range is
+	// the whole list, the wheel moves the window, and the estimated
+	// list fills its viewport.
+	click(&app, app.nav_i[.Virtual])
+	idle(&app, 2)
+	testing.expect(t, app.virt.fixed_declared > 0 && app.virt.fixed_declared < 30, "the fixed list declares only its window")
+	testing.expect(t, app.virt.est_declared > 0 && app.virt.est_declared < 40, "the estimated list declares only its window")
+	vr, vr_ok := niello.rect(app.virt.fixed_i)
+	testing.expect(t, vr_ok, "the fixed list lays out")
+	testing.expect(t, niello.scroll_range(app.virt.fixed_i).y > FIXED_ROWS * ROW_H - vr.size.y, "the range covers every row")
+	vat := vr.pos + vr.size / 2
+	frame(&app, {mouse = vat, mouse_valid = true})
+	for _ in 0 ..< 10 {
+		frame(&app, {mouse = vat, mouse_valid = true, wheel = {0, -1}})
+	}
+	idle(&app, 20) // let the smooth glide land
+	testing.expect(t, niello.scroll_offset(app.virt.fixed_i).y > 400, "the wheel scrolls the fixed list")
+	testing.expect(t, app.virt.fixed_declared < 30, "and the window stays small")
+	_, vthumb := niello.rect(app.virt.fixed_bar.thumb_i)
+	testing.expect(t, vthumb, "the virtual list's scrollbar is declared")
+	settles(t, &app, "virtual lists")
+
 	// Drag: move the chip.
 	click(&app, app.nav_i[.Drag])
 	p0, chip_ok := center(app.drag.chip_i)
