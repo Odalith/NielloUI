@@ -16,6 +16,7 @@ package main
 
 import "core:fmt"
 import niello "../.."
+import controls "../../controls"
 import debugui "../../debugui"
 import inbox "../../inbox"
 import niello_sdl "../../sdl"
@@ -54,7 +55,7 @@ App :: struct {
 	dark:         bool,
 	status:       Status,
 	content_i:    niello.Instance,
-	content_bar:  Scrollbar,
+	content_bar:  controls.Scrollbar,
 	nav_i:        [Page]niello.Instance,
 
 	controls:     Controls_State,
@@ -79,23 +80,23 @@ shell: struct {
 mint_shell :: proc(t: Theme) {
 	niello.mint(&shell.root, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(percent(1), percent(1)),
-		color = t.bg, groups = []niello.Group{groups.bg},
+		color = t.bg, groups = []niello.Group{controls.groups.bg},
 	})
 	niello.mint(&shell.header, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fixed(56)),
 		padding = pad_xy(18, 0), gap = 10, align = START_CENTER,
-		color = t.panel, groups = []niello.Group{groups.panel},
+		color = t.panel, groups = []niello.Group{controls.groups.panel},
 	})
 	niello.mint(&shell.header_title, ui.title, {font_size = 18})
-	niello.group_add(groups.ink, shell.header_title)
+	niello.group_add(controls.groups.ink, shell.header_title)
 	niello.mint(&shell.spacer, niello.NO_UNIT, {size = size(grow(), fixed(1))})
 	niello.mint(&shell.body, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), grow())})
 	niello.mint(&shell.sidebar, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(200), grow()),
 		padding = pad(10), gap = 2,
-		color = t.panel, groups = []niello.Group{groups.panel},
+		color = t.panel, groups = []niello.Group{controls.groups.panel},
 	})
-	niello.mint(&shell.nav_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
+	niello.mint(&shell.nav_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{controls.groups.hover}})
 	niello.mint(&shell.nav_item_on, niello.NO_UNIT, {color = t.accent})
 	niello.mint(&shell.nav_item, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fixed(34)),
@@ -104,7 +105,7 @@ mint_shell :: proc(t: Theme) {
 		hover = shell.nav_hover,
 	})
 	niello.mint(&shell.nav_label, ui.body, {})
-	niello.group_add(groups.ink, shell.nav_label)
+	niello.group_add(controls.groups.ink, shell.nav_label)
 	// The content area scrolls vertically; align [x, y] puts its
 	// anchored scrollbar at the right edge, top.
 	niello.mint(&shell.content, niello.NO_UNIT, {
@@ -117,7 +118,7 @@ mint_shell :: proc(t: Theme) {
 	niello.mint(&shell.status_bar, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fixed(28)),
 		padding = pad_xy(14, 0), gap = 18, align = START_CENTER,
-		color = t.panel, groups = []niello.Group{groups.panel},
+		color = t.panel, groups = []niello.Group{controls.groups.panel},
 	})
 }
 
@@ -146,8 +147,8 @@ declare_header :: proc(app: ^App) {
 			text = niello.NIELLO_DEBUG ? "debug build — F12 opens the debugger" : "build with -define:NIELLO_DEBUG=true for the F12 debugger",
 		})
 		niello.show(shell.spacer)
-		if toggle(app.dark ? "Dark theme" : "Light theme", &app.dark) {
-			apply_theme(app.dark ? DARK_THEME : LIGHT_THEME, 250)
+		if controls.toggle_switch("Dark theme", &app.dark) {
+			controls.apply_theme(app.dark ? DARK_THEME : LIGHT_THEME, 250)
 			status_set(&app.status, "Theme: %s (one group broadcast per role, 250 ms glide)", app.dark ? "dark" : "light")
 		}
 	}
@@ -162,7 +163,7 @@ declare_sidebar :: proc(app: ^App) {
 				w.variant = shell.nav_item_on
 			}
 			if niello.begin(shell.nav_item, w, out = &app.nav_i[p]) {
-				niello.show(on ? ui.button.label_on : shell.nav_label, {text = PAGE_NAMES[p]})
+				niello.show(on ? controls.parts.primary.label : shell.nav_label, {text = PAGE_NAMES[p]})
 			}
 			if niello.clicked(app.nav_i[p]) && p != app.page {
 				app.page = p
@@ -193,7 +194,7 @@ declare_content :: proc(app: ^App) {
 			case .Async_Windows: page_async(app)
 			}
 		}
-		scrollbar(&app.content_bar, app.content_i)
+		controls.scrollbar(&app.content_bar, app.content_i)
 	}
 }
 
@@ -214,10 +215,10 @@ declare_status :: proc(app: ^App) {
 app_init :: proc(app: ^App) {
 	app.dark = true
 	status_set(&app.status, "Pick a page on the left. Tab moves focus; Space/Enter activates.")
+	controls.init(DARK_THEME) // the shipped controls and the theme's role groups
 	mint_units(DARK_THEME)
 	mint_shell(DARK_THEME)
 	mint_pages(app)
-	scrollbar_init(&app.content_bar, .Vertical)
 	app.ctx = niello.context_create()
 	app.async.box = inbox.create(Msg, app.ctx)
 }

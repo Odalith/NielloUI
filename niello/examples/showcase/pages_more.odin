@@ -7,6 +7,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 import niello "../.."
+import controls "../../controls"
 import debugui "../../debugui"
 import inbox "../../inbox"
 import niello_sdl "../../sdl"
@@ -17,7 +18,7 @@ import niello_sdl "../../sdl"
 
 Scrolling_State :: struct {
 	list_i, inner_i, smooth_i, wide_i:     niello.Instance,
-	list_bar, inner_bar, smooth_bar, wide_bar: Scrollbar,
+	list_bar, inner_bar, smooth_bar, wide_bar: controls.Scrollbar,
 }
 
 scroll_units: struct {
@@ -34,10 +35,10 @@ page_scrolling :: proc(app: ^App) {
 			heading("List + nested scroller")
 			scroll_list(s)
 			if niello.begin(ui.row) {
-				if niello.clicked(button("Top")) {
+				if niello.clicked(controls.button("Top")) {
 					niello.scroll_to(s.list_i, {0, 0})
 				}
-				if niello.clicked(button("Bottom")) {
+				if niello.clicked(controls.button("Bottom")) {
 					niello.scroll_to(s.list_i, {0, 1e9}) // clamped to the range
 				}
 			}
@@ -67,7 +68,7 @@ scroll_list :: proc(s: ^Scrolling_State) {
 			niello.show(S.row, {text = fmt.tprintf("Row %d", k + 1)})
 		}
 		niello.show(S.sticky, {text = "anchored header — does not scroll", anchored = true})
-		scrollbar(&s.list_bar, s.list_i)
+		controls.scrollbar(&s.list_bar, s.list_i)
 	}
 }
 
@@ -77,7 +78,7 @@ scroll_inner :: proc(s: ^Scrolling_State) {
 		for k in 0 ..< 12 {
 			niello.show(S.inner_row, {text = fmt.tprintf("Nested row %d — wheel here first", k + 1)})
 		}
-		scrollbar(&s.inner_bar, s.inner_i)
+		controls.scrollbar(&s.inner_bar, s.inner_i)
 	}
 }
 
@@ -87,7 +88,7 @@ scroll_smooth :: proc(s: ^Scrolling_State) {
 		for k in 0 ..< 30 {
 			niello.show(S.row, {text = fmt.tprintf("Glide row %d", k + 1)})
 		}
-		scrollbar(&s.smooth_bar, s.smooth_i)
+		controls.scrollbar(&s.smooth_bar, s.smooth_i)
 	}
 }
 
@@ -97,7 +98,7 @@ scroll_wide :: proc(s: ^Scrolling_State) {
 		for k in 0 ..< 14 {
 			niello.show(S.wide_row, {text = fmt.tprintf("Tile %d", k + 1)})
 		}
-		scrollbar(&s.wide_bar, s.wide_i)
+		controls.scrollbar(&s.wide_bar, s.wide_i)
 	}
 }
 
@@ -128,7 +129,7 @@ page_animation :: proc(app: ^App) {
 
 	if niello.begin(ui.card) {
 		heading("tween — glide toward a pose unit")
-		if niello.clicked(button("Glide the box")) {
+		if niello.clicked(controls.button("Glide the box")) {
 			s.box_at_b = !s.box_at_b
 			niello.tween(A.box, s.box_at_b ? A.pose_b : A.pose_a, 400, niello.Fields{.Size, .Color, .Corner_Radius})
 		}
@@ -138,13 +139,13 @@ page_animation :: proc(app: ^App) {
 	if niello.begin(ui.card) {
 		heading("propagate, group_set with a duration, transient")
 		if niello.begin(ui.row) {
-			if niello.clicked(button("Next accent (propagate)")) {
+			if niello.clicked(controls.button("Next accent (propagate)")) {
 				s.accent_idx = (s.accent_idx + 1) % len(ACCENTS)
 				niello.set(A.card_proto, .Color, ACCENTS[s.accent_idx])
 				niello.propagate(A.card_proto, niello.Fields{.Color})
 				status_set(&app.status, "propagate: the prototype's color reached every card minted from it")
 			}
-			if niello.clicked(button("Fade accent (group_set 600 ms)")) {
+			if niello.clicked(controls.button("Fade accent (group_set 600 ms)")) {
 				s.accent_idx = (s.accent_idx + 1) % len(ACCENTS)
 				niello.group_set(A.accent_group, .Color, ACCENTS[s.accent_idx], 600)
 			}
@@ -163,7 +164,7 @@ page_animation :: proc(app: ^App) {
 
 	if niello.begin(ui.card) {
 		heading("edit — bulk changes, diffed at frame end")
-		if niello.clicked(button("Restyle with edit()")) {
+		if niello.clicked(controls.button("Restyle with edit()")) {
 			s.edit_step += 1
 			e := niello.edit(A.edit_box)
 			e.corner_radius = u8((s.edit_step * 9) % 32)
@@ -199,14 +200,14 @@ page_popups :: proc(app: ^App) {
 	if niello.begin(ui.card) {
 		heading("Menu, dialog, toast")
 		if niello.begin(ui.row) {
-			s.menu_btn_i = button("Open menu ▾")
+			s.menu_btn_i = controls.button("Open menu ▾")
 			if niello.clicked(s.menu_btn_i) {
 				s.menu_open = !s.menu_open
 			}
-			if niello.clicked(button("Modal dialog…")) {
+			if niello.clicked(controls.button("Modal dialog…")) {
 				s.dlg_open = true
 			}
-			if niello.clicked(button("Show toast")) {
+			if niello.clicked(controls.button("Show toast")) {
 				s.toast = "Saved. This toast hides itself after 2.5 s (wake_in)."
 				s.toast_until = time.tick_add(time.tick_now(), 2500 * time.Millisecond)
 			}
@@ -271,11 +272,11 @@ popups_overlay :: proc(app: ^App) {
 			niello.show(ui.title, {text = "Discard changes?"})
 			note("Tab cycles between the buttons; Esc or a click on the backdrop cancels.")
 			if niello.begin(ui.row) {
-				if niello.clicked(button("Discard", .Danger)) {
+				if niello.clicked(controls.button("Discard", .Danger)) {
 					s.dlg_open = false
 					status_set(&app.status, "Dialog: discarded")
 				}
-				if niello.clicked(button("Cancel")) {
+				if niello.clicked(controls.button("Cancel")) {
 					s.dlg_open = false
 					status_set(&app.status, "Dialog: cancelled")
 				}
@@ -291,7 +292,7 @@ popups_overlay :: proc(app: ^App) {
 			// that hides the toast.
 			niello.wake_in(u32(time.duration_milliseconds(left)) + 1)
 			if niello.begin_popup(popup_units.toast, 0, .At, opts = {stay = true, at = {24, 24}}) {
-				niello.show(ui.button.label_on, {text = s.toast})
+				niello.show(controls.parts.primary.label, {text = s.toast})
 			}
 		}
 	}
@@ -310,7 +311,7 @@ menu_item :: proc(text: string, loc := #caller_location) -> bool {
 // =====================================================================
 
 Drag_State :: struct {
-	volume:                        Slider,
+	volume:                        controls.Slider,
 	split_w, split_grab:           f32,
 	divider_i:                     niello.Instance,
 	chip_pos, chip_grab:           niello.Vec2,
@@ -332,7 +333,7 @@ page_drag :: proc(app: ^App) {
 
 	if niello.begin(ui.card) {
 		heading("Slider (press to seek, drag to scrub, arrows when focused)")
-		slider(&s.volume, "Volume")
+		controls.slider(&s.volume, "Volume")
 		note(fmt.tprintf("value %.0f%%", s.volume.value * 100))
 	}
 
@@ -371,7 +372,7 @@ page_drag :: proc(app: ^App) {
 		// The slot's padding is the chip's position inside the area.
 		niello.set(D.chip_slot, .Padding, niello.pad_each(u16(s.chip_pos.x), u16(s.chip_pos.y), 0, 0))
 		drag_area(s)
-		if niello.clicked(button("Open a draggable dialog")) {
+		if niello.clicked(controls.button("Open a draggable dialog")) {
 			s.dlg_open = true
 		}
 	}
@@ -405,7 +406,7 @@ drag_overlay :: proc(app: ^App) {
 		if niello.begin(D.dlg_header, out = &s.header_i) {
 			niello.show(ui.heading, {text = "Drag me by the header"})
 			niello.show(shell.spacer)
-			s.close_i = button("Close")
+			s.close_i = controls.button("Close")
 		}
 		note(fmt.tprintf("position (%.0f, %.0f)", s.dlg_pos.x, s.dlg_pos.y))
 	}
@@ -475,7 +476,7 @@ page_images :: proc(app: ^App) {
 		}
 		heading("Background image behind children")
 		if niello.begin(I.bg, {image = s.hero}) {
-			niello.show(ui.button.label_on, {text = "a container paints its image first"})
+			niello.show(controls.parts.primary.label, {text = "a container paints its image first"})
 		}
 	}
 }
@@ -506,7 +507,7 @@ Async_State :: struct {
 	running:      bool,
 	pct:          int,
 	last:         string,
-	progress:     Slider,
+	progress:     controls.Slider,
 	clock_on:     bool,
 	clock_start:  time.Tick,
 	insp:         Inspector,
@@ -587,22 +588,22 @@ page_async :: proc(app: ^App) {
 		heading("Background work through an inbox")
 		note("A worker thread sends progress into an inbox; send wakes the UI, and the app drains the inbox once per frame before declaring. Nothing touches app state between drains.")
 		if niello.begin(ui.row) {
-			if niello.clicked(button("Start job", .Primary, disabled = s.running)) {
+			if niello.clicked(controls.button("Start job", .Primary, disabled = s.running)) {
 				async_start(s)
 			}
-			if niello.clicked(button("Cancel", .Normal, disabled = !s.running)) {
+			if niello.clicked(controls.button("Cancel", .Normal, disabled = !s.running)) {
 				sync.atomic_store(&s.cancel, true)
 			}
 			niello.show(ui.body, {text = fmt.tprintf("%d%% — %s", s.pct, s.last == "" ? "idle" : s.last)})
 		}
 		s.progress.value = f32(s.pct) / 100
-		progress_bar(&s.progress, "Job progress")
+		controls.progress_bar(s.progress.value, "Job progress")
 	}
 
 	if niello.begin(ui.card) {
 		heading("Timers: wake_in")
 		note("The loop sleeps at ~0% CPU when nothing changes. A ticking readout asks for its next frame with wake_in.")
-		if toggle("Run the clock", &s.clock_on) && s.clock_on {
+		if controls.toggle_button("Run the clock", &s.clock_on) && s.clock_on {
 			s.clock_start = time.tick_now()
 		}
 		if s.clock_on {
@@ -617,11 +618,11 @@ page_async :: proc(app: ^App) {
 	if niello.begin(ui.card) {
 		heading("Windows")
 		note("A second window has its own context; units and groups are global, so the theme switch reaches it too. It reads this window's committed tree with the cross-context API (rect_in, instance_count).")
-		if niello.clicked(button(s.insp.open ? "Inspector is open" : "Open inspector window", .Normal, disabled = s.insp.open)) {
+		if niello.clicked(controls.button(s.insp.open ? "Inspector is open" : "Open inspector window", .Normal, disabled = s.insp.open)) {
 			inspector_open(app)
 		}
 		when niello.NIELLO_DEBUG {
-			if niello.clicked(button("Open debugger (F12)")) {
+			if niello.clicked(controls.button("Open debugger (F12)")) {
 				debugui.open(app.ctx)
 			}
 		}
@@ -655,7 +656,7 @@ declare_inspector :: proc(s: ^Inspector) {
 			niello.show(ui.body, {text = fmt.tprintf("selected nav item: y = %.0f", r.pos.y)})
 		}
 		note("This window re-renders when the main window wakes it.")
-		if niello.clicked(button("Close")) {
+		if niello.clicked(controls.button("Close")) {
 			niello_sdl.close_window(s.id)
 		}
 	}
@@ -704,7 +705,7 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 		// align is [x, y]: the anchored bar sits at the right edge, top.
 		align = niello.align(.End, .Start),
 		color = t.bg, corner_radius = 8, padding = niello.pad_each(6, 30, 16, 6),
-		groups = []niello.Group{groups.bg},
+		groups = []niello.Group{controls.groups.bg},
 	}
 	niello.mint(&S.list, niello.NO_UNIT, list)
 	list.size = size(grow(), fixed(260))
@@ -723,22 +724,22 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 		layout = .Top_To_Bottom, size = size(grow(), fixed(120)), scroll = .Vertical, gap = 2,
 		align = niello.align(.End, .Start),
 		color = t.raised, corner_radius = 6, padding = niello.pad_each(6, 6, 16, 6),
-		groups = []niello.Group{groups.raised},
+		groups = []niello.Group{controls.groups.raised},
 	})
 	niello.mint(&S.row, niello.NO_UNIT, {
 		size = size(grow(), fixed(30)), padding = pad_xy(10, 7),
-		font_size = 13, font_color = t.ink, groups = []niello.Group{groups.ink},
+		font_size = 13, font_color = t.ink, groups = []niello.Group{controls.groups.ink},
 		focusable = true, // Tab walks the rows, off-screen ones included
 	})
 	niello.mint(&S.inner_row, niello.NO_UNIT, {
 		size = size(grow(), fixed(26)), padding = pad_xy(10, 5),
-		font_size = 12, font_color = t.dim, groups = []niello.Group{groups.dim},
+		font_size = 12, font_color = t.dim, groups = []niello.Group{controls.groups.dim},
 		focusable = true,
 	})
 	niello.mint(&S.wide_row, niello.NO_UNIT, {
 		size = size(fixed(110), fixed(70)), padding = pad(10), corner_radius = 6,
 		color = t.raised, font_size = 13, font_color = t.ink,
-		groups = []niello.Group{groups.raised, groups.ink},
+		groups = []niello.Group{controls.groups.raised, controls.groups.ink},
 		focusable = true,
 	})
 	niello.mint(&S.sticky, niello.NO_UNIT, {
@@ -770,7 +771,7 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	niello.mint(&popup_units.canvas, niello.NO_UNIT, {
 		size = size(grow(), fixed(140)), padding = pad(14), corner_radius = 8,
 		color = t.bg, font_size = 13, font_color = t.dim, cursor = .Crosshair,
-		groups = []niello.Group{groups.bg, groups.dim},
+		groups = []niello.Group{controls.groups.bg, controls.groups.dim},
 	})
 	niello.mint(&popup_units.toast, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fit(), fit()), padding = pad_xy(16, 12),
@@ -781,7 +782,7 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	niello.mint(&D.split_row, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), fixed(110))})
 	pane := niello.Style_Decl{
 		layout = .Top_To_Bottom, size = size(grow(), grow()), padding = pad(10),
-		color = t.raised, corner_radius = 6, groups = []niello.Group{groups.raised},
+		color = t.raised, corner_radius = 6, groups = []niello.Group{controls.groups.raised},
 	}
 	niello.mint(&D.right, niello.NO_UNIT, pane)
 	pane.size = size(fixed(240), grow())
@@ -794,7 +795,7 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	niello.mint(&D.area, niello.NO_UNIT, {
 		layout = .Stack, size = size(grow(), fixed(180)),
 		color = t.bg, corner_radius = 8, overflow = .Clip,
-		groups = []niello.Group{groups.bg},
+		groups = []niello.Group{controls.groups.bg},
 	})
 	niello.mint(&D.chip_slot, niello.NO_UNIT, {layout = .Left_To_Right, size = size(fit(), fit())})
 	niello.mint(&D.chip, niello.NO_UNIT, {
@@ -805,13 +806,13 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 		layout = .Top_To_Bottom, size = size(fixed(340), fit()),
 		color = t.panel, corner_radius = 10, border_width = 1, border_color = t.hover,
 		padding = niello.pad_each(0, 0, 0, 14), gap = 10,
-		groups = []niello.Group{groups.panel},
+		groups = []niello.Group{controls.groups.panel},
 	})
 	niello.mint(&D.dlg_header, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fixed(48)),
 		padding = pad_xy(14, 0), align = START_CENTER, gap = 8,
 		color = t.raised, corner_radius = 10, cursor = .Move,
-		groups = []niello.Group{groups.raised},
+		groups = []niello.Group{controls.groups.raised},
 	})
 	app.drag.split_w = 240
 	app.drag.chip_pos = {20, 20}
@@ -822,12 +823,12 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	for k in 0 ..< 4 {
 		niello.mint(&I.fits[k], niello.NO_UNIT, {
 			size = size(fixed(180), fixed(120)), color = t.bg, image_fit = fits[k], align = CENTER,
-			groups = []niello.Group{groups.bg},
+			groups = []niello.Group{controls.groups.bg},
 		})
 	}
 	niello.mint(&I.caption, ui.small, {})
-	niello.group_add(groups.dim, I.caption)
-	niello.mint(&I.strip, niello.NO_UNIT, {size = size(grow(), fixed(80)), color = t.bg, align = CENTER, groups = []niello.Group{groups.bg}})
+	niello.group_add(controls.groups.dim, I.caption)
+	niello.mint(&I.strip, niello.NO_UNIT, {size = size(grow(), fixed(80)), color = t.bg, align = CENTER, groups = []niello.Group{controls.groups.bg}})
 	niello.mint(&I.smooth, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .High, align = CENTER})
 	niello.mint(&I.nearest, niello.NO_UNIT, {size = size(fixed(160), fixed(160)), image_interp = .None, align = CENTER})
 	niello.mint(&I.bg, niello.NO_UNIT, {
@@ -838,13 +839,10 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	niello.mint(&inspector_units.root, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(percent(1), percent(1)),
 		padding = pad(18), gap = 10, color = t.bg,
-		groups = []niello.Group{groups.bg},
+		groups = []niello.Group{controls.groups.bg},
 	})
 
-	scrollbar_init(&app.scrolling.list_bar, .Vertical)
-	scrollbar_init(&app.scrolling.inner_bar, .Vertical)
-	scrollbar_init(&app.scrolling.smooth_bar, .Vertical)
-	scrollbar_init(&app.scrolling.wide_bar, .Horizontal)
+	app.scrolling.wide_bar.axis = .Horizontal
 	load_images(&app.images)
 }
 

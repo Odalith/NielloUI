@@ -4,6 +4,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import niello "../.."
+import controls "../../controls"
 
 // =====================================================================
 // Controls
@@ -30,25 +31,25 @@ page_controls :: proc(app: ^App) {
 	if niello.begin(ui.card) {
 		heading("Buttons")
 		if niello.begin(ui.row) {
-			s.count_i = button(fmt.tprintf("Clicked %d times", s.clicks))
+			s.count_i = controls.button(fmt.tprintf("Clicked %d times", s.clicks))
 			if niello.clicked(s.count_i) {
 				s.clicks += 1
 				status_set(&app.status, "Button clicked (%d)", s.clicks)
 			}
-			if niello.clicked(button("Primary", .Primary)) {
+			if niello.clicked(controls.button("Primary", .Primary)) {
 				status_set(&app.status, "Primary clicked")
 			}
-			if niello.clicked(button("Danger (pinned)", .Danger)) {
-				status_set(&app.status, "Danger clicked — its color is pinned against theme broadcasts")
+			if niello.clicked(controls.button("Danger", .Danger)) {
+				status_set(&app.status, "Danger clicked")
 			}
-			dis := button("Disabled", .Normal, disabled = !s.locked)
+			dis := controls.button("Disabled", .Normal, disabled = !s.locked)
 			if niello.clicked(dis) {
 				status_set(&app.status, "The unlocked button clicked")
 			}
 			if niello.hovered(dis) && !s.locked {
 				status_set(&app.status, "Disabled: it is hovered (and shows the not-allowed cursor) but absorbs clicks")
 			}
-			if niello.clicked(button("Reset count")) {
+			if niello.clicked(controls.button("Reset count")) {
 				s.clicks = 0
 			}
 		}
@@ -58,12 +59,12 @@ page_controls :: proc(app: ^App) {
 	}
 
 	if niello.begin(ui.card) {
-		heading("Toggles and checkboxes")
+		heading("Toggles, switches and checkboxes")
 		if niello.begin(ui.row) {
-			if toggle("Notifications", &s.notify) {
+			if controls.toggle_button("Notifications", &s.notify) {
 				status_set(&app.status, "Notifications %s (a variant overlay)", s.notify ? "on" : "off")
 			}
-			toggle("Sound", &s.sound)
+			controls.toggle_switch("Sound", &s.sound)
 			checkbox("Option A", &s.opt_a)
 			checkbox("Option B", &s.opt_b)
 			if checkbox("Enable the disabled button", &s.locked) {
@@ -74,7 +75,7 @@ page_controls :: proc(app: ^App) {
 
 	if niello.begin(ui.card) {
 		heading("Hover, tooltips and cursors")
-		s.hover_i = button("Hover me")
+		s.hover_i = controls.button("Hover me")
 		tooltip(s.hover_i, "Tooltips are popups shown once hover_duration passes 0.5 s.")
 		d := niello.hover_duration(s.hover_i)
 		note(d > 0 ? fmt.tprintf("hovered for %.1f s", d) : "not hovered")
@@ -92,7 +93,7 @@ page_controls :: proc(app: ^App) {
 // =====================================================================
 
 Layout_State :: struct {
-	squeeze: Slider,
+	squeeze: controls.Slider,
 }
 
 layout_units: struct {
@@ -142,7 +143,7 @@ page_layout :: proc(app: ^App) {
 	if niello.begin(ui.card) {
 		heading("Shrinking and ellipsis")
 		note("Drag the slider to squeeze the row. Fit children shrink fairly toward their floors; text past its box is trimmed with an ellipsis at paint time.")
-		slider(&s.squeeze, "Row width")
+		controls.slider(&s.squeeze, "Row width")
 		w := 160 + s.squeeze.value * 480 // 160: three padded labels at their floors
 		niello.set(L.squeeze_row, .Size, size(fixed(w), fixed(34)))
 		if niello.begin(L.squeeze_row) {
@@ -178,7 +179,7 @@ page_layout :: proc(app: ^App) {
 // =====================================================================
 
 Text_State :: struct {
-	width: Slider,
+	width: controls.Slider,
 }
 
 text_units: struct {
@@ -231,7 +232,7 @@ page_text :: proc(app: ^App) {
 
 	if niello.begin(ui.card) {
 		heading("Wrapping")
-		slider(&s.width, "Paragraph width")
+		controls.slider(&s.width, "Paragraph width")
 		w := 160 + s.width.value * 500
 		niello.set(T.wrapped, .Size, size(fixed(w), fit()))
 		niello.show(T.wrapped, {text = WRAP_TEXT})
@@ -279,7 +280,7 @@ page_text :: proc(app: ^App) {
 KEY_LOG :: 10
 
 Input_State :: struct {
-	name, email:  Text_Field,
+	name, email:  controls.Text_Box,
 	submitted:    string,
 	key_box_i:    niello.Instance,
 	key_log:      [KEY_LOG]niello.Key_Event,
@@ -298,27 +299,24 @@ page_input :: proc(app: ^App) {
 	note("Tab / Shift+Tab walk the focusable instances in declaration order; clicking focuses. The engine draws the focus ring for keyboard focus only (clicking a button shows none, the next key press does); fields and the key box opt into it on click with focus_ring = .Always, and Tab scrolls the focused control into view. Text and keys route to the focused instance only: input_text for typed characters, input_keys for key events as Key_Codes.")
 
 	if niello.begin(ui.card) {
-		heading("Text fields")
-		if text_field_input(&s.name) {
-			niello.focus_next()
-		}
-		if text_field_input(&s.email) {
-			niello.focus_next()
-		}
+		heading("Text boxes (niello/controls)")
 		niello.show(ui.small, {text = "NAME"})
-		text_field(&s.name, "e.g. Ada Lovelace")
+		if controls.text_box(&s.name, "e.g. Ada Lovelace").submitted {
+			niello.focus_next()
+		}
 		niello.show(ui.small, {text = "EMAIL"})
-		text_field(&s.email, "ada@example.com")
-		note("Backspace, Delete, Left/Right, Home/End; Ctrl+Backspace and Ctrl+Left jump by word; Enter moves on.")
+		if controls.text_box(&s.email, "ada@example.com").submitted {
+			niello.focus_next()
+		}
+		note("Select with Shift+arrows or the mouse (double-click a word, triple-click all); Ctrl+A / C / X / V use the system clipboard; Ctrl+Z / Ctrl+Y undo and redo; Ctrl+Backspace and Ctrl+Left/Right work by word; Enter moves on.")
 		if niello.begin(ui.row) {
-			if niello.clicked(button("Submit", .Primary)) {
+			if niello.clicked(controls.button("Submit", .Primary)) {
 				delete(s.submitted)
 				s.submitted = fmt.aprintf("Submitted: %q <%s>", string(s.name.buf[:]), string(s.email.buf[:]))
 			}
-			if niello.clicked(button("Clear")) {
-				clear(&s.name.buf)
-				clear(&s.email.buf)
-				s.name.caret, s.email.caret = 0, 0
+			if niello.clicked(controls.button("Clear")) {
+				controls.text_box_set(&s.name, "")
+				controls.text_box_set(&s.email, "")
 				niello.focus(s.name.inst)
 			}
 		}
@@ -367,14 +365,14 @@ page_input :: proc(app: ^App) {
 // =====================================================================
 
 mint_pages_basic :: proc(t: Theme) {
-	label := niello.Style_Decl{font_size = 13, font_color = t.ink, groups = []niello.Group{groups.ink}}
+	label := niello.Style_Decl{font_size = 13, font_color = t.ink, groups = []niello.Group{controls.groups.ink}}
 
 	for k in niello.Cursor_Kind {
 		niello.mint(&cursor_units[k], niello.NO_UNIT, {
 			size = size(fit(), fixed(28)), padding = pad_xy(10, 6), corner_radius = 6,
 			color = t.raised, font_size = 12, font_color = t.ink, cursor = k,
-			hover = ui.button.hover,
-			groups = []niello.Group{groups.raised, groups.ink},
+			hover = controls.parts.button.hover,
+			groups = []niello.Group{controls.groups.raised, controls.groups.ink},
 		})
 	}
 
@@ -383,14 +381,14 @@ mint_pages_basic :: proc(t: Theme) {
 	box := niello.Style_Decl{
 		size = size(fixed(140), grow()), padding = pad_xy(10, 13), corner_radius = 6,
 		color = t.raised, font_size = 13, font_color = t.ink,
-		groups = []niello.Group{groups.raised, groups.ink},
+		groups = []niello.Group{controls.groups.raised, controls.groups.ink},
 	}
 	niello.mint(&L.fixed_b, niello.NO_UNIT, box)
 	box.size = size(fit(), grow())
 	niello.mint(&L.fit_b, niello.NO_UNIT, box)
 	box.size = size(percent(0.2), grow())
 	niello.mint(&L.percent_b, niello.NO_UNIT, box)
-	box.groups = []niello.Group{groups.ink}
+	box.groups = []niello.Group{controls.groups.ink}
 	box.size = size(grow(), grow())
 	box.color = rgb(0x3d5a8c)
 	niello.mint(&L.grow_b, niello.NO_UNIT, box)
@@ -408,23 +406,23 @@ mint_pages_basic :: proc(t: Theme) {
 			layout = .Stack, size = size(fixed(64), fixed(64)), padding = pad(6),
 			corner_radius = 6, color = t.raised,
 			align = niello.align(kinds[k % 3], kinds[k / 3]),
-			groups = []niello.Group{groups.raised},
+			groups = []niello.Group{controls.groups.raised},
 		})
 	}
 	niello.mint(&L.squeeze_row, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fixed(400), fixed(34)), gap = 6,
 		padding = pad(4), corner_radius = 6, color = t.bg,
-		groups = []niello.Group{groups.bg},
+		groups = []niello.Group{controls.groups.bg},
 	})
 	niello.mint(&L.squeeze_label, niello.NO_UNIT, {
 		size = size(fit(), grow()), padding = pad_xy(8, 4), corner_radius = 4,
 		color = t.raised, font_size = 13, font_color = t.ink,
-		groups = []niello.Group{groups.raised, groups.ink},
+		groups = []niello.Group{controls.groups.raised, controls.groups.ink},
 	})
 	niello.mint(&L.squeeze_label_low, niello.NO_UNIT, {
 		size = size(fit(priority = -1), grow()), padding = pad_xy(8, 4), corner_radius = 4,
 		color = t.raised, font_size = 13, font_color = t.ink,
-		groups = []niello.Group{groups.raised, groups.ink},
+		groups = []niello.Group{controls.groups.raised, controls.groups.ink},
 	})
 	niello.mint(&L.spill_box, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(200), fixed(50)), padding = pad(8),
@@ -466,7 +464,7 @@ mint_pages_basic :: proc(t: Theme) {
 	b3, e3 := span_of(SPAN_TEXT, "italic")
 	b4, e4 := span_of(SPAN_TEXT, "BIG")
 	niello.mint(&T.spans, niello.NO_UNIT, {
-		font_size = 16, font_color = t.ink, groups = []niello.Group{groups.ink},
+		font_size = 16, font_color = t.ink, groups = []niello.Group{controls.groups.ink},
 		text_spans = []niello.Text_Span{
 			{start = b1, end = e1, font_weight = .Bold},
 			{start = b2, end = e2, font_color = WARM},
@@ -477,38 +475,38 @@ mint_pages_basic :: proc(t: Theme) {
 	niello.mint(&T.wrapped, niello.NO_UNIT, {
 		font_size = 14, font_color = t.ink, wrap = .Word,
 		color = t.raised, padding = pad(10), corner_radius = 6,
-		groups = []niello.Group{groups.ink, groups.raised},
+		groups = []niello.Group{controls.groups.ink, controls.groups.raised},
 	})
 	niello.mint(&T.justified, T.wrapped, {justify = true})
-	niello.group_add(groups.ink, T.justified)
-	niello.group_add(groups.raised, T.justified)
+	niello.group_add(controls.groups.ink, T.justified)
+	niello.group_add(controls.groups.raised, T.justified)
 	aligns := [3]niello.Align_Kind{.Start, .Center, .End}
 	for k in 0 ..< 3 {
 		niello.mint(&T.valign[k], niello.NO_UNIT, {
 			size = size(fixed(170), fixed(70)), padding = pad(8), corner_radius = 6,
 			color = t.raised, font_size = 13, font_color = t.ink,
 			align = niello.align(aligns[k], aligns[k]),
-			groups = []niello.Group{groups.raised, groups.ink},
+			groups = []niello.Group{controls.groups.raised, controls.groups.ink},
 		})
 	}
 	niello.mint(&T.ws_box, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fit(), fit()),
-		color = t.bg, corner_radius = 4, groups = []niello.Group{groups.bg},
+		color = t.bg, corner_radius = 4, groups = []niello.Group{controls.groups.bg},
 	})
-	niello.mint(&T.collapse, niello.NO_UNIT, {font_size = 14, font_color = t.ink, color = rgb(0x3d5a8c, 160), groups = []niello.Group{groups.ink}})
-	niello.mint(&T.preserve, niello.NO_UNIT, {font_size = 14, font_color = t.ink, whitespace = .Preserve, color = rgb(0x3d5a8c, 160), groups = []niello.Group{groups.ink}})
+	niello.mint(&T.collapse, niello.NO_UNIT, {font_size = 14, font_color = t.ink, color = rgb(0x3d5a8c, 160), groups = []niello.Group{controls.groups.ink}})
+	niello.mint(&T.preserve, niello.NO_UNIT, {font_size = 14, font_color = t.ink, whitespace = .Preserve, color = rgb(0x3d5a8c, 160), groups = []niello.Group{controls.groups.ink}})
 	niello.mint(&T.trim_box, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fixed(240), fixed(30)), padding = pad_xy(8, 6),
-		overflow = .Clip, corner_radius = 4, color = t.raised, groups = []niello.Group{groups.raised},
+		overflow = .Clip, corner_radius = 4, color = t.raised, groups = []niello.Group{controls.groups.raised},
 	})
-	niello.mint(&T.ellipsis, niello.NO_UNIT, {font_size = 13, font_color = t.ink, groups = []niello.Group{groups.ink}})
-	niello.mint(&T.no_ellipsis, niello.NO_UNIT, {font_size = 13, font_color = t.ink, ellipsis = false, groups = []niello.Group{groups.ink}})
+	niello.mint(&T.ellipsis, niello.NO_UNIT, {font_size = 13, font_color = t.ink, groups = []niello.Group{controls.groups.ink}})
+	niello.mint(&T.no_ellipsis, niello.NO_UNIT, {font_size = 13, font_color = t.ink, ellipsis = false, groups = []niello.Group{controls.groups.ink}})
 
 	niello.mint(&input_units.key_box, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), fixed(230)), padding = pad(12), gap = 2,
 		color = t.bg, corner_radius = 8, focusable = true, cursor = .Text,
 		focus_ring = .Always, overflow = .Clip,
-		groups = []niello.Group{groups.bg},
+		groups = []niello.Group{controls.groups.bg},
 	})
 }
 
@@ -522,7 +520,7 @@ span_of :: proc(s, word: string) -> (start, end: int) {
 }
 
 destroy_pages_basic :: proc(app: ^App) {
-	text_field_destroy(&app.input.name)
-	text_field_destroy(&app.input.email)
+	controls.text_box_destroy(&app.input.name)
+	controls.text_box_destroy(&app.input.email)
 	delete(app.input.submitted)
 }
