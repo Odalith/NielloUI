@@ -1397,7 +1397,7 @@ context_create :: proc() -> ^Context {
 		store.text_cache = make(map[u64]Text_Entry)
 	}
 	if store.ellipsis_widths == nil {
-		store.ellipsis_widths = make(map[u64]f32)
+		store.ellipsis_widths = make(map[u64]Ellipsis_Width)
 	}
 	append(&store.contexts, ctx)
 	return ctx
@@ -1615,6 +1615,7 @@ frame_end :: proc() -> Frame_Result {
 	focus_ring_resolve()
 	// Debug snapshot (TODO #18): after the commit — a no-op
 	// unless built with NIELLO_DEBUG.
+	text_cache_sweep()
 	debug_snapshot_build()
 	// Accessibility mirror (§3.9, TODO #23): same position, but
 	// UNGATED — screen readers are prod behavior.
@@ -2037,6 +2038,15 @@ text_width :: proc(u: Unit, text: string) -> f32 {
 	s := style_of(u)
 	w, _ := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, text)
 	return w
+}
+
+// text_line_height is the height of one line of text in u's font, size,
+// weight and slant, in DIP: what a caret or a selection highlight is
+// sized from, so it follows the text when its size changes.
+text_line_height :: proc(u: Unit) -> f32 {
+	s := style_of(u)
+	h, _ := frag_line_height(s.font, s.font_weight, s.font_slant, s.font_size)
+	return h
 }
 
 // ============ clipboard ============

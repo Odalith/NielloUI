@@ -116,7 +116,8 @@ Store :: struct {
 	images:           [dynamic]Image_Rec, // the image registry (§3.25);
 	                                      // index = Image id, slot 0 sentinel
 	text_cache:       map[u64]Text_Entry,
-	ellipsis_widths: map[u64]f32,
+	ellipsis_widths: map[u64]Ellipsis_Width,
+	text_epoch:       u64, // frames completed, any window: the text cache's clock
 	font_epoch:       u64, // bumped by fonts_changed(); mixed into both
 	                       // text cache keys so a (re)registered font
 	                       // invalidates everything it measured (txt-5)

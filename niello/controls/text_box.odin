@@ -75,9 +75,7 @@ when ODIN_OS == .Darwin {
 	WORD_MOD :: niello.Modifier.Ctrl
 }
 
-TEXT_BOX_H :: 36
 CARET_W :: 2
-LINE_H :: 20
 
 @(private)
 mint_text_box :: proc(t: Theme) {
@@ -85,20 +83,30 @@ mint_text_box :: proc(t: Theme) {
 	niello.mint(&P.focus, niello.NO_UNIT, {color = t.bg, groups = roles(groups.bg)})
 	niello.mint(&P.disabled, niello.NO_UNIT, {color = t.panel, cursor = .Not_Allowed, groups = roles(groups.panel)})
 	niello.mint(&P.box, niello.NO_UNIT, {
-		layout = .Stack, size = niello.size(niello.grow(), niello.fixed(TEXT_BOX_H)),
-		padding = niello.pad_xy(10, 0), align = niello.align(.Start, .Center),
+		// Its height is a line of its text plus the vertical control_pad:
+		// it follows the type and the spacing.
+		layout = .Stack, size = niello.size(niello.grow(), niello.fit()),
+		padding = niello.pad_xy(spacing.control_pad[0], spacing.control_pad[1]),
+		align = niello.align(.Start, .Center),
+		group_masks = joins(as(groups.control_pad, .Padding)),
 		scroll = .Horizontal, color = t.raised, corner_radius = 6, cursor = .Text,
 		focusable = true, focus_ring = .Always, text_input = true, focus = P.focus, disabled = P.disabled,
 		groups = roles(groups.raised),
 	})
 	niello.mint(&P.text, niello.NO_UNIT, {
-		font_size = 14, font_color = t.ink, whitespace = .Preserve, ellipsis = false,
-		disabled = parts.label.disabled, groups = roles(groups.ink),
+		font_size = type_sizes.body, font_color = t.ink, whitespace = .Preserve, ellipsis = false,
+		disabled = parts.label.disabled,
+		group_masks = joins(as(groups.ink, .Font_Color), as(groups.body, .Font_Size)),
 	})
-	niello.mint(&P.placeholder, niello.NO_UNIT, {font_size = 14, font_color = t.dim, ellipsis = false, groups = roles(groups.dim)})
-	niello.mint(&P.layer, niello.NO_UNIT, {layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fixed(LINE_H)), align = niello.align(.Start, .Center)})
+	niello.mint(&P.placeholder, niello.NO_UNIT, {
+		font_size = type_sizes.body, font_color = t.dim, ellipsis = false,
+		group_masks = joins(as(groups.dim, .Font_Color), as(groups.body, .Font_Size)),
+	})
+	niello.mint(&P.layer, niello.NO_UNIT, {layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fit()), align = niello.align(.Start, .Center)})
 	niello.mint(&P.spacer, niello.NO_UNIT, {})
-	niello.mint(&P.caret, niello.NO_UNIT, {size = niello.size(niello.fixed(CARET_W), niello.fixed(LINE_H - 2)), color = t.accent, groups = roles(groups.accent)})
+	// The caret's and the selection's height is the text's line height, set
+	// per frame (text_box), so both follow the type.
+	niello.mint(&P.caret, niello.NO_UNIT, {size = niello.size(niello.fixed(CARET_W), niello.fixed(type_sizes.body)), color = t.accent, groups = roles(groups.accent)})
 	niello.mint(&P.selection, niello.NO_UNIT, {corner_radius = 2, color = t.selection, groups = roles(groups.selection)})
 }
 
@@ -115,6 +123,7 @@ text_box :: proc(tb: ^Text_Box, placeholder: string, key: niello.Key = 0, loc :=
 		w.a11y_flags += {.ReadOnly}
 	}
 	focused := niello.focused(tb.inst)
+	lh := niello.text_line_height(P.text)
 	if niello.begin(P.box, w, key = key, out = &tb.inst, loc = loc) {
 		lo, hi := selection(tb)
 		if focused && lo != hi {
@@ -122,7 +131,7 @@ text_box :: proc(tb: ^Text_Box, placeholder: string, key: niello.Key = 0, loc :=
 			x1 := niello.text_width(P.text, string(tb.buf[:hi]))
 			if niello.begin(P.layer) {
 				niello.show(P.spacer, {size = niello.size(niello.fixed(x0), niello.fixed(1))})
-				niello.show(P.selection, {size = niello.size(niello.fixed(x1 - x0), niello.fixed(LINE_H))})
+				niello.show(P.selection, {size = niello.size(niello.fixed(x1 - x0), niello.fixed(lh))})
 			}
 		}
 		if len(tb.buf) == 0 {
@@ -134,7 +143,7 @@ text_box :: proc(tb: ^Text_Box, placeholder: string, key: niello.Key = 0, loc :=
 			cx := niello.text_width(P.text, string(tb.buf[:tb.caret]))
 			if niello.begin(P.layer) {
 				niello.show(P.spacer, {size = niello.size(niello.fixed(cx), niello.fixed(1))})
-				niello.show(P.caret)
+				niello.show(P.caret, {size = niello.size(niello.fixed(CARET_W), niello.fixed(lh))})
 			}
 			keep_caret_visible(tb, cx)
 		}
