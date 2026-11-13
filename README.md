@@ -22,6 +22,16 @@ OS events and wakes on the nearest engine deadline across windows.
 Still ahead: a packaged component collection and the remaining
 parity work.
 
+## Documentation
+
+The user guide lives in `docs/` (an [mdBook](https://rust-lang.github.io/mdBook/)) and is
+published at <https://odalith.github.io/NielloUI/>. Its code examples are compiled, and the
+headless ones run as tests, every time it is built. Preview it locally with live reload:
+
+```sh
+tools/docs.sh            # needs odin and mdbook on PATH
+```
+
 ## The model in one paragraph
 
 You `mint` Units — retained objects that own their style values — then declare

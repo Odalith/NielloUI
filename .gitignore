@@ -48,6 +48,9 @@ third_party/native/**
 /build/
 /dist/
 
+# The built documentation site (docs/: mdbook build)
+/docs/book/
+
 # Local logs and traces
 /debug-*.out
 /neat.txt
