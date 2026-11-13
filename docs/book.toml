@@ -1,0 +1,20 @@
+[book]
+title = "NielloUI"
+description = "A cross-platform desktop UI framework in Odin: retained styling, immediate-mode declaration, Skia Graphite behind SDL3."
+authors = ["Odalith"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Odalith/NielloUI"
+edit-url-template = "https://github.com/Odalith/NielloUI/edit/main/docs/{path}"
+site-url = "/NielloUI/"
+additional-js = ["theme/odin-highlight.js"]
+
+[output.html.search]
+enable = true
