@@ -24,14 +24,19 @@ mint_buttons :: proc(t: Theme) {
 	niello.mint(&B.press, niello.NO_UNIT, {color = t.press, groups = roles(groups.press)})
 	niello.mint(&B.disabled, niello.NO_UNIT, {color = t.panel, cursor = .Not_Allowed, groups = roles(groups.panel)})
 	niello.mint(&B.root, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fixed(36)),
-		padding = niello.pad_xy(16, 0), align = niello.CENTER, gap = 6,
+		// Its height is the label's line plus the vertical control_pad:
+		// it follows the type and the spacing.
+		layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fit()),
+		padding = niello.pad_xy(spacing.control_pad[0], spacing.control_pad[1]),
+		align = niello.CENTER, gap = spacing.control_gap,
 		color = t.raised, corner_radius = 8, cursor = .Pointer, focusable = true,
 		hover = B.hover, press = B.press, disabled = B.disabled,
 		groups = roles(groups.raised),
+		group_masks = joins(as(groups.control_pad, .Padding), as(groups.control_gap, .Gap)),
 	})
 	niello.mint(&B.label, niello.NO_UNIT, {
-		font_size = 14, font_color = t.ink, disabled = parts.label.disabled, groups = roles(groups.ink),
+		font_size = type_sizes.body, font_color = t.ink, disabled = parts.label.disabled,
+		group_masks = joins(as(groups.ink, .Font_Color), as(groups.body, .Font_Size)),
 	})
 
 	// The accent kinds are variants of the base: its shape, padding and
@@ -41,15 +46,20 @@ mint_buttons :: proc(t: Theme) {
 	// each member joins the role for the one field it uses, or a theme
 	// broadcast would paint a background behind this label.
 	niello.mint(&on_accent_label, niello.NO_UNIT, {
-		font_size = 14, font_color = t.on_accent,
-		group_masks = []niello.Group_Mask{{groups.on_accent, {.Font_Color}}},
+		font_size = type_sizes.body, font_color = t.on_accent,
+		group_masks = joins(as(groups.on_accent, .Font_Color), as(groups.body, .Font_Size)),
 	})
 	accent_kind :: proc(dst: ^Button_Parts, base: Button_Parts, label: niello.Unit, color, hot: Color, color_role, hot_role: niello.Group) {
 		dst^ = base
 		dst.label = label
 		niello.mint(&dst.hover, niello.NO_UNIT, {color = hot, groups = roles(hot_role)})
 		niello.mint(&dst.press, niello.NO_UNIT, {color = color, groups = roles(color_role)})
-		niello.mint(&dst.root, base.root, {color = color, hover = dst.hover, press = dst.press, groups = roles(color_role)})
+		// Group memberships are not inherited: the variant joins the
+		// spacing roles itself.
+		niello.mint(&dst.root, base.root, {
+			color = color, hover = dst.hover, press = dst.press, groups = roles(color_role),
+			group_masks = joins(as(groups.control_pad, .Padding), as(groups.control_gap, .Gap)),
+		})
 	}
 	accent_kind(&parts.primary, parts.button, on_accent_label, t.accent, t.accent_hot, groups.accent, groups.accent_hot)
 	accent_kind(&parts.danger, parts.button, on_accent_label, t.danger, t.danger_hot, groups.danger, groups.danger_hot)
@@ -132,9 +142,10 @@ SWITCH_H :: 20
 mint_switch :: proc(t: Theme) {
 	S := &parts.switch_
 	niello.mint(&S.row, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fixed(28)), gap = 10,
-		align = niello.align(.Start, .Center), padding = niello.pad_xy(2, 0), corner_radius = 6,
+		layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fit()), gap = spacing.control_gap,
+		align = niello.align(.Start, .Center), padding = niello.pad_xy(2, 4), corner_radius = 6,
 		cursor = .Pointer, focusable = true,
+		group_masks = joins(as(groups.control_gap, .Gap)),
 	})
 	niello.mint(&S.track_disabled, niello.NO_UNIT, {color = t.panel, groups = roles(groups.panel)})
 	niello.mint(&S.track, niello.NO_UNIT, {

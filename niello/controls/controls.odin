@@ -60,21 +60,74 @@ LIGHT :: Theme{
 	selection = {50, 104, 210, 80},
 }
 
-// Roles are the theme's groups, one per Theme color. apply_theme writes
-// each role's color into the field its members use it for: surfaces take
-// .Color, ink and dim take .Font_Color.
+// Type_Sizes is the type ramp: the font size of each text role. Every
+// control's text plays one role, and an app's text joins the same roles
+// (niello.group_add(controls.groups.body, my_label, {.Font_Size}) or a
+// group_masks entry at mint), so one apply_type resizes all of it in
+// proportion: apply_type(scale_type(DEFAULT_TYPE, 1.25)).
+Type_Sizes :: struct {
+	caption:  f32, // secondary text: notes, captions, status
+	body:     f32, // control labels and running text
+	subtitle: f32, // section headings
+	title:    f32, // page titles
+}
+
+DEFAULT_TYPE :: Type_Sizes{caption = 12, body = 14, subtitle = 16, title = 22}
+
+// Spacing is the space between and inside things. Controls size from
+// their content plus control_pad (a button is its label's line plus the
+// vertical pad), so spacing and type together set their size. The layout
+// roles are for an app's own containers.
+Spacing :: struct {
+	control_pad: [2]u16, // inside buttons and text boxes: horizontal, vertical
+	control_gap: u16,    // between a control's own parts (a switch and its label)
+	gap:         u16,    // layout: between the items of an app's rows and columns
+	panel_pad:   u16,    // layout: inside an app's panels and cards
+}
+
+DEFAULT_SPACING :: Spacing{control_pad = {14, 8}, control_gap = 8, gap = 10, panel_pad = 16}
+
+// scale_type is ty with every size times f.
+scale_type :: proc(ty: Type_Sizes, f: f32) -> Type_Sizes {
+	return Type_Sizes{caption = ty.caption * f, body = ty.body * f, subtitle = ty.subtitle * f, title = ty.title * f}
+}
+
+// scale_spacing is sp with every distance times f, rounded to whole DIP.
+scale_spacing :: proc(sp: Spacing, f: f32) -> Spacing {
+	s :: proc(v: u16, f: f32) -> u16 {
+		return u16(max(0, f32(v) * f + 0.5))
+	}
+	return Spacing{
+		control_pad = {s(sp.control_pad[0], f), s(sp.control_pad[1], f)},
+		control_gap = s(sp.control_gap, f), gap = s(sp.gap, f), panel_pad = s(sp.panel_pad, f),
+	}
+}
+
+// Roles are the groups the theme, the type ramp and the spacing broadcast
+// through, one per token. Each member joins a role for the one field it
+// uses the token for (a label joins ink for .Font_Color and body for
+// .Font_Size): apply_theme, apply_type and apply_spacing write the token
+// into that field of every member.
 Roles :: struct {
+	// colors (Theme)
 	bg, panel, raised, hover, press: niello.Group,
 	ink, dim:                        niello.Group,
 	accent, accent_hot, on_accent:   niello.Group,
 	danger, danger_hot, success:     niello.Group,
 	selection:                       niello.Group,
+	// type (Type_Sizes): .Font_Size
+	caption, body, subtitle, title:  niello.Group,
+	// spacing (Spacing): control_pad and panel_pad .Padding, the gaps .Gap
+	control_pad, control_gap:        niello.Group,
+	gap, panel_pad:                  niello.Group,
 }
 
 groups: Roles
 
-// theme is the theme last applied (init or apply_theme).
-theme: Theme
+// theme, type_sizes and spacing are the tokens last applied.
+theme:      Theme
+type_sizes: Type_Sizes
+spacing:    Spacing
 
 // Parts are every control's units, minted once by init.
 Parts :: struct {
@@ -97,11 +150,11 @@ Label_Parts :: struct {
 	text, disabled: niello.Unit,
 }
 
-// init creates the role groups and mints every part from t, and sets the
-// engine focus ring to t's accent. Call it once, before declaring any
-// control (again after niello.shutdown, which frees units and groups).
-init :: proc(t := DARK) {
-	theme = t
+// init creates the role groups and mints every part from the tokens, and
+// sets the engine focus ring to t's accent. Call it once, before declaring
+// any control (again after niello.shutdown, which frees units and groups).
+init :: proc(t := DARK, ty := DEFAULT_TYPE, sp := DEFAULT_SPACING) {
+	theme, type_sizes, spacing = t, ty, sp
 	groups = Roles{
 		bg = niello.group_new("controls.bg"), panel = niello.group_new("controls.panel"),
 		raised = niello.group_new("controls.raised"), hover = niello.group_new("controls.hover"),
@@ -110,6 +163,10 @@ init :: proc(t := DARK) {
 		accent_hot = niello.group_new("controls.accent_hot"), on_accent = niello.group_new("controls.on_accent"),
 		danger = niello.group_new("controls.danger"), danger_hot = niello.group_new("controls.danger_hot"),
 		success = niello.group_new("controls.success"), selection = niello.group_new("controls.selection"),
+		caption = niello.group_new("controls.caption"), body = niello.group_new("controls.body"),
+		subtitle = niello.group_new("controls.subtitle"), title = niello.group_new("controls.title"),
+		control_pad = niello.group_new("controls.control_pad"), control_gap = niello.group_new("controls.control_gap"),
+		gap = niello.group_new("controls.gap"), panel_pad = niello.group_new("controls.panel_pad"),
 	}
 	mint_label(t)
 	mint_buttons(t)
@@ -145,7 +202,38 @@ apply_theme :: proc(t: Theme, ms: u32 = 0) {
 	niello.set_focus_ring({color = t.accent, width = 2, offset = 2})
 }
 
+// apply_type resizes every member of the type roles, gliding over ms.
+apply_type :: proc(ty: Type_Sizes, ms: u32 = 0) {
+	type_sizes = ty
+	niello.group_set(groups.caption, .Font_Size, ty.caption, ms)
+	niello.group_set(groups.body, .Font_Size, ty.body, ms)
+	niello.group_set(groups.subtitle, .Font_Size, ty.subtitle, ms)
+	niello.group_set(groups.title, .Font_Size, ty.title, ms)
+}
+
+// apply_spacing respaces every member of the spacing roles, gliding over ms.
+apply_spacing :: proc(sp: Spacing, ms: u32 = 0) {
+	spacing = sp
+	niello.group_set(groups.control_pad, .Padding, niello.pad_xy(sp.control_pad[0], sp.control_pad[1]), ms)
+	niello.group_set(groups.control_gap, .Gap, sp.control_gap, ms)
+	niello.group_set(groups.gap, .Gap, sp.gap, ms)
+	niello.group_set(groups.panel_pad, .Padding, niello.pad(sp.panel_pad), ms)
+}
+
 // ---- shared helpers --------------------------------------------------------
+
+// as joins a role for one field: a group_masks entry.
+as :: proc(g: niello.Group, f: niello.Field) -> niello.Group_Mask {
+	return niello.Group_Mask{group = g, fields = {f}}
+}
+
+// joins builds a decl's group_masks from as() entries.
+@(private)
+joins :: proc(ms: ..niello.Group_Mask) -> []niello.Group_Mask {
+	out := make([]niello.Group_Mask, len(ms), context.temp_allocator)
+	copy(out, ms)
+	return out
+}
 
 // role joins a decl to role groups for every field.
 @(private)
@@ -160,7 +248,8 @@ mint_label :: proc(t: Theme) {
 	P := &parts.label
 	niello.mint(&P.disabled, niello.NO_UNIT, {font_color = t.dim, groups = roles(groups.dim)})
 	niello.mint(&P.text, niello.NO_UNIT, {
-		font_size = 14, font_color = t.ink, disabled = P.disabled, groups = roles(groups.ink),
+		font_size = type_sizes.body, font_color = t.ink, disabled = P.disabled,
+		group_masks = joins(as(groups.ink, .Font_Color), as(groups.body, .Font_Size)),
 	})
 }
 

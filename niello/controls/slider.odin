@@ -53,7 +53,14 @@ slider_range :: proc(s: ^Slider) -> (lo, hi, step: f32) {
 // Left/Down and Right/Up step, Page Up/Down move ten steps, Home/End go
 // to the ends. Reports whether s.value changed. a11y: Slider with its value
 // and range.
-slider :: proc(s: ^Slider, label: string, disabled := false, key: niello.Key = 0, loc := #caller_location) -> (changed: bool) {
+slider :: proc(
+	s: ^Slider,
+	label: string,
+	disabled := false,
+	with: niello.With = {}, // per-instance values (a width: With.size)
+	key: niello.Key = 0,
+	loc := #caller_location,
+) -> (changed: bool) {
 	lo, hi, step := slider_range(s)
 	before := s.value
 	// Seek on the pointer only: Space/Enter also press a focused slider.
@@ -79,7 +86,7 @@ slider :: proc(s: ^Slider, label: string, disabled := false, key: niello.Key = 0
 	changed = s.value != before
 
 	P := &parts.slider
-	w := with_a11y({}, .Slider, label, disabled)
+	w := with_a11y(with, .Slider, label, disabled)
 	w.value = niello.A11y_Value{num = s.value, has_num = true, min = lo, max = hi}
 	if niello.begin(P.track, w, key = key, out = &s.inst, loc = loc) {
 		frac := (s.value - lo) / (hi - lo)

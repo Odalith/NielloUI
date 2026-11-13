@@ -200,8 +200,7 @@ test_controls_switch_knob_and_theme :: proc(t: ^testing.T) {
 
 // ---- text box ---------------------------------------------------------------
 // Mock metrics: 7 DIP per byte at the box's 14 px. The root is 500 wide
-// with padding 10, so a box is 480 wide; its padding is 10 (text starts
-// 10 in).
+// with padding 10, so a box is 480 wide; tb_point reads its padding.
 
 Tb_App :: struct {
 	tb, ro:    controls.Text_Box,
@@ -253,7 +252,8 @@ WORD :: niello.Modifiers{controls.WORD_MOD}
 // tb_point is the window point at text-space x in box b.
 tb_point :: proc(b: niello.Instance, x: f32) -> niello.Vec2 {
 	r, _ := niello.rect(b)
-	return {r.pos.x + 10 + x - niello.scroll_offset(b).x, r.pos.y + r.size.y / 2}
+	pad := f32(niello.style_of(controls.parts.text_box.box).padding[0])
+	return {r.pos.x + pad + x - niello.scroll_offset(b).x, r.pos.y + r.size.y / 2}
 }
 
 @(test)
@@ -614,4 +614,70 @@ test_controls_slider_track_clips :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, clip_at >= 0 && fill_at > clip_at, "the fill paints inside the track's rounded clip")
+}
+
+// ---- type and spacing roles -------------------------------------------------
+
+@(test)
+test_controls_type_and_spacing_roles :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	// An app's own text joins a type role for its font size.
+	note: niello.Unit
+	niello.mint(&note, niello.NO_UNIT, {
+		font_size = controls.DEFAULT_TYPE.caption,
+		group_masks = []niello.Group_Mask{controls.as(controls.groups.caption, .Font_Size)},
+	})
+	ct_frame(ct_declare_buttons)
+	ct_frame(ct_declare_buttons)
+	r0, _ := niello.rect(ct_app.save)
+	// Mock line height is the font size: 14 + 2 * 8.
+	testing.expect_value(t, r0.size.y, f32(14 + 2 * 8))
+
+	controls.apply_type(controls.scale_type(controls.DEFAULT_TYPE, 1.5))
+	ct_frame(ct_declare_buttons)
+	testing.expect_value(t, niello.style_of(controls.parts.button.label).font_size, f32(21))
+	testing.expect_value(t, niello.style_of(controls.parts.primary.label).font_size, f32(21))
+	testing.expect_value(t, niello.style_of(note).font_size, f32(18))
+	r1, _ := niello.rect(ct_app.save)
+	testing.expect_value(t, r1.size.y, f32(21 + 2 * 8))
+
+	controls.apply_spacing(controls.scale_spacing(controls.DEFAULT_SPACING, 2))
+	ct_frame(ct_declare_buttons)
+	testing.expect_value(t, niello.style_of(controls.parts.button.root).padding, [4]u16{28, 16, 28, 16})
+	testing.expect_value(t, niello.style_of(controls.parts.primary.root).padding, [4]u16{28, 16, 28, 16})
+	testing.expect_value(t, niello.style_of(controls.parts.danger.root).padding, [4]u16{28, 16, 28, 16})
+	testing.expect_value(t, niello.style_of(controls.parts.switch_.row).gap, u16(16))
+	r2, _ := niello.rect(ct_app.save)
+	testing.expect_value(t, r2.size.y, f32(21 + 2 * 16))
+}
+
+@(test)
+test_text_box_follows_type :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer tb_teardown()
+	tb_setup()
+	ct_click(tb_declare, tb_app.tb.inst)
+	tb_type("abc")
+	caret_h :: proc() -> f32 {
+		for cmd in niello.draw_list() {
+			if cmd.tag == .Rect && cmd.color == controls.DARK.accent && cmd.bounds.size.x == controls.CARET_W {
+				return cmd.bounds.size.y
+			}
+		}
+		return 0
+	}
+	testing.expect_value(t, caret_h(), f32(14))
+	controls.apply_type(controls.scale_type(controls.DEFAULT_TYPE, 2))
+	ct_frame(tb_declare)
+	ct_frame(tb_declare)
+	testing.expect_value(t, caret_h(), f32(28))
+	box, _ := niello.rect(tb_app.tb.inst)
+	testing.expect_value(t, box.size.y, f32(28 + 2 * 8))
+	// Caret placement follows the new size too: a press at 2 characters.
+	p := tb_point(tb_app.tb.inst, 2 * 14 + 2)
+	ct_frame(tb_declare, mouse = p, press = true, clicks = 1)
+	ct_frame(tb_declare, mouse = p, release = true)
+	testing.expect_value(t, tb_app.tb.caret, 2)
 }
