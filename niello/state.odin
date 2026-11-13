@@ -120,6 +120,9 @@ Store :: struct {
 	                       // text cache keys so a (re)registered font
 	                       // invalidates everything it measured (txt-5)
 
+	// The headless clipboard (set_clipboard_text with no glue hook).
+	clipboard: string,
+
 	// The engine focus ring (set_focus_ring): app-wide, like a
 	// theme value. nil = DEFAULT_FOCUS_RING. Cold: read once per
 	// frame, so it sits after everything hot.
@@ -370,6 +373,7 @@ Context :: struct {
 	// queued at declare and built in frame_end after the main layout
 	// (run_sections). section_host is the host whose build is running,
 	// -1 otherwise; section_lo is the first node index of that build.
+	press_clicks: int, // the left press that began this dispatch: its click count, 0 none
 	sections:     [dynamic]Section_Rec,
 	section_host: int,
 	section_lo:   int,
@@ -471,6 +475,7 @@ free_store :: proc() {
 	}
 	delete(store.groups)
 	delete(store.contexts)
+	delete(store.clipboard)
 	delete(store.debug_ovf_scratch)
 }
 

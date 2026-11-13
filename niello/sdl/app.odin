@@ -101,6 +101,7 @@ Glue_Window :: struct {
 	buttons_down:     niello.Buttons,
 	buttons_pressed:  niello.Buttons, // edges latched since the last frame
 	buttons_released: niello.Buttons,
+	clicks:        u8, // click count of the last left press since the last frame
 	wheel:         niello.Vec2, // accumulated since the last frame
 	keys:          [16]niello.Key_Event,
 	key_count:     int,
@@ -545,6 +546,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 		buttons_down     = win.buttons_down,
 		buttons_pressed  = win.buttons_pressed,
 		buttons_released = win.buttons_released,
+		clicks           = win.clicks,
 		wheel            = win.wheel,
 		keys             = win.keys,
 		key_count        = win.key_count,
@@ -571,6 +573,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	// Edges and accumulations are per-frame: this frame_begin consumes them.
 	win.buttons_pressed = {}
 	win.buttons_released = {}
+	win.clicks = 0
 	win.wheel = {}
 	win.key_count = 0
 	win.targeted = false
@@ -762,6 +765,9 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 			if event.button.down {
 				win.buttons_down += {b}
 				win.buttons_pressed += {b}
+				if b == .Left {
+					win.clicks = event.button.clicks
+				}
 			} else {
 				win.buttons_down -= {b}
 				win.buttons_released += {b}
@@ -1144,4 +1150,27 @@ run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> 
 	}
 	app_quit()
 	return g_run_error
+}
+
+// The system clipboard behind niello.clipboard_text / set_clipboard_text
+// (text only). Wired at package init like the backend hooks; the calls
+// happen during frames, after run has started SDL's video subsystem.
+@(init)
+wire_clipboard_hooks :: proc "contextless" () {
+	niello.clipboard_get_hook = hook_clipboard_get
+	niello.clipboard_set_hook = hook_clipboard_set
+}
+
+hook_clipboard_get :: proc(allocator: runtime.Allocator) -> string {
+	raw := sdl.GetClipboardText()
+	if raw == nil {
+		return ""
+	}
+	defer sdl.free(raw)
+	return strings.clone(string(cstring(raw)), allocator)
+}
+
+hook_clipboard_set :: proc(text: string) {
+	ctext := strings.clone_to_cstring(text, context.temp_allocator)
+	_ = sdl.SetClipboardText(ctext)
 }

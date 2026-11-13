@@ -9,6 +9,7 @@
 // each is a subsystem on the roadmap, not an oversight.
 package niello
 
+import "base:runtime"
 import "core:strings"
 import "core:sync"
 
@@ -620,6 +621,10 @@ Input :: struct {
 	buttons_down:     Buttons,
 	buttons_pressed:  Buttons,
 	buttons_released: Buttons,
+	clicks:           u8, // the click count of the last left press this
+	                      // frame, as the platform reports it (1 single,
+	                      // 2 double, 3 triple…); 0 when unknown (counted
+	                      // as 1). Read it back with press_clicks.
 
 	wheel: Vec2, // accumulated scroll delta since the last frame, in wheel
 	             // units (fractional on smooth wheels/trackpads). Sign is
@@ -1833,6 +1838,14 @@ hover_duration :: proc(i: Instance) -> f32 {
 	return 0
 }
 
+// press_clicks is the click count of the left press that began this
+// frame's dispatch — 1 for a single click, 2 for a double click, 3 for a
+// triple — or 0 when no left press began. Read with pressed/clicked
+// during declare: a text box selects a word on press_clicks() == 2.
+press_clicks :: proc() -> int {
+	return g.press_clicks
+}
+
 // focused reports i holds programmatic keyboard focus (see focus).
 focused :: proc(i: Instance) -> bool {
 	return i != 0 && i == g.focus_id
@@ -2004,6 +2017,49 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 // on word-cache miss.
 measure_word_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> f32
 line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> f32
+
+// text_width is the width of text set in u's font, size, weight and
+// slant, in DIP: one measurement through the backend (the mock metrics
+// headless), never cached — an editor measures caret prefixes, and the
+// text cache keeps everything it is given. Spans are not applied.
+text_width :: proc(u: Unit, text: string) -> f32 {
+	if len(text) == 0 {
+		return 0
+	}
+	s := style_of(u)
+	w, _ := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, text)
+	return w
+}
+
+// ============ clipboard ============
+// The system clipboard, text only. The core has no OS code: the glue
+// sets the hooks (niello/sdl does at startup). Without them — headless,
+// in tests — an in-memory clipboard stands in, owned by the store.
+
+// clipboard_get_hook returns the clipboard's text, allocated with the
+// given allocator ("" when empty or not text). clipboard_set_hook
+// replaces it.
+clipboard_get_hook: proc(allocator: runtime.Allocator) -> string
+clipboard_set_hook: proc(text: string)
+
+// clipboard_text returns the clipboard's text ("" when it holds none),
+// allocated with allocator (by default the temp allocator).
+clipboard_text :: proc(allocator := context.temp_allocator) -> string {
+	if clipboard_get_hook != nil {
+		return clipboard_get_hook(allocator)
+	}
+	return strings.clone(store.clipboard, allocator)
+}
+
+// set_clipboard_text puts text on the clipboard.
+set_clipboard_text :: proc(text: string) {
+	if clipboard_set_hook != nil {
+		clipboard_set_hook(text)
+		return
+	}
+	delete(store.clipboard)
+	store.clipboard = strings.clone(text)
+}
 
 // fonts_changed invalidates every cached text measurement. The
 // backend clears its own font cache when a family is (re)registered;

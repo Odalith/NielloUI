@@ -538,6 +538,10 @@ dispatch_keys :: proc(input: Input) {
 dispatch_input :: proc(input: Input, dt: f32) {
 	g.pointer_pos = input.mouse
 	g.pointer_valid = input.mouse_valid
+	g.press_clicks = 0
+	if .Left in input.buttons_pressed {
+		g.press_clicks = max(1, int(input.clicks))
+	}
 	// clicked answers for exactly one declare: the one following the
 	// dispatch that produced it. Consumed or not, it ends here.
 	clear(&g.clicked_chain)
