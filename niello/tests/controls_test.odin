@@ -564,3 +564,54 @@ test_controls_scrollbar :: proc(t: ^testing.T) {
 	ct_frame(sl_declare, mouse = below, release = true)
 	testing.expect(t, niello.scroll_offset(sl_app.list_i).y > off, "a track press pages down")
 }
+
+// A theme broadcast paints no background behind on_accent labels: the
+// role colors text (labels) and fills (the switch knob), and each member
+// takes only its own field. (The labels of Primary/Danger buttons turned
+// into white blocks on the first theme switch.)
+@(test)
+test_controls_theme_keeps_labels_clear :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ct_frame(ct_declare_buttons)
+	for th in ([]controls.Theme{controls.LIGHT, controls.DARK}) {
+		controls.apply_theme(th)
+		ct_frame(ct_declare_buttons)
+		knobs, others := 0, 0
+		for cmd in niello.draw_list() {
+			if cmd.tag == .Rect && cmd.color == th.on_accent {
+				if cmd.bounds.size == {16, 16} {
+					knobs += 1
+				} else {
+					others += 1
+				}
+			}
+		}
+		testing.expect_value(t, knobs, 1)
+		testing.expect_value(t, others, 0)
+	}
+}
+
+// The slider track clips its fill to its rounded shape.
+@(test)
+test_controls_slider_track_clips :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	sl_setup()
+	sl_app.vol.value = 0.01
+	ct_frame(sl_declare)
+	r, _ := niello.rect(sl_app.vol.inst)
+	cmds := niello.draw_list()
+	clip_at, fill_at := -1, -1
+	for cmd, k in cmds {
+		if cmd.tag == .Push_Clip && cmd.bounds == r && clip_at < 0 {
+			clip_at = k
+			testing.expect_value(t, cmd.radius, u8(controls.SLIDER_H / 2))
+		}
+		if cmd.tag == .Rect && cmd.color == controls.DARK.accent && cmd.bounds.pos == r.pos && fill_at < 0 {
+			fill_at = k
+		}
+	}
+	testing.expect(t, clip_at >= 0 && fill_at > clip_at, "the fill paints inside the track's rounded clip")
+}

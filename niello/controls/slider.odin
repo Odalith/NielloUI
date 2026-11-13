@@ -28,6 +28,9 @@ mint_slider :: proc(t: Theme) {
 	niello.mint(&P.track, niello.NO_UNIT, {
 		layout = .Stack, size = niello.size(niello.grow(), niello.fixed(SLIDER_H)),
 		color = t.raised, corner_radius = SLIDER_H / 2, cursor = .Pointer,
+		// Clipped to its rounded shape: a short fill (under two radii
+		// long) would otherwise stick out past the track's round end.
+		overflow = .Clip,
 		focusable = true, disabled = P.track_disabled,
 		groups = roles(groups.raised),
 	})

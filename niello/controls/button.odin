@@ -37,8 +37,12 @@ mint_buttons :: proc(t: Theme) {
 	// The accent kinds are variants of the base: its shape, padding and
 	// focusability, their own surface, overlays and label.
 	on_accent_label: niello.Unit
+	// on_accent colors text here and fills elsewhere (the switch's knob):
+	// each member joins the role for the one field it uses, or a theme
+	// broadcast would paint a background behind this label.
 	niello.mint(&on_accent_label, niello.NO_UNIT, {
-		font_size = 14, font_color = t.on_accent, groups = roles(groups.on_accent),
+		font_size = 14, font_color = t.on_accent,
+		group_masks = []niello.Group_Mask{{groups.on_accent, {.Font_Color}}},
 	})
 	accent_kind :: proc(dst: ^Button_Parts, base: Button_Parts, label: niello.Unit, color, hot: Color, color_role, hot_role: niello.Group) {
 		dst^ = base
@@ -144,7 +148,8 @@ mint_switch :: proc(t: Theme) {
 	})
 	niello.mint(&S.knob, niello.NO_UNIT, {
 		size = niello.size(niello.fixed(SWITCH_H - 4), niello.fixed(SWITCH_H - 4)),
-		corner_radius = (SWITCH_H - 4) / 2, color = t.on_accent, groups = roles(groups.on_accent),
+		corner_radius = (SWITCH_H - 4) / 2, color = t.on_accent,
+		group_masks = []niello.Group_Mask{{groups.on_accent, {.Color}}},
 	})
 }
 

@@ -134,6 +134,8 @@ apply_theme :: proc(t: Theme, ms: u32 = 0) {
 	niello.group_set(G.dim, .Font_Color, t.dim, ms)
 	niello.group_set(G.accent, .Color, t.accent, ms)
 	niello.group_set(G.accent_hot, .Color, t.accent_hot, ms)
+	// on_accent members join for the field they use: labels for
+	// .Font_Color, the switch knob for .Color.
 	niello.group_set(G.on_accent, .Font_Color, t.on_accent, ms)
 	niello.group_set(G.on_accent, .Color, t.on_accent, ms)
 	niello.group_set(G.danger, .Color, t.danger, ms)
