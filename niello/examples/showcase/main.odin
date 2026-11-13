@@ -53,6 +53,8 @@ App :: struct {
 	ctx:          ^niello.Context,
 	page:         Page,
 	dark:         bool,
+	text_scale:   controls.Slider, // the header's text-size slider (a factor)
+	spacing:      controls.Slider, // the header's spacing slider (a factor)
 	status:       Status,
 	content_i:    niello.Instance,
 	content_bar:  controls.Scrollbar,
@@ -82,13 +84,19 @@ mint_shell :: proc(t: Theme) {
 		layout = .Top_To_Bottom, size = size(percent(1), percent(1)),
 		color = t.bg, groups = []niello.Group{controls.groups.bg},
 	})
+	G := &controls.groups
+	// The header, the nav items and the status bar size from their text
+	// (fit plus padding), so the text-size slider grows them too.
 	niello.mint(&shell.header, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = size(grow(), fixed(56)),
-		padding = pad_xy(18, 0), gap = 10, align = START_CENTER,
-		color = t.panel, groups = []niello.Group{controls.groups.panel},
+		layout = .Left_To_Right, size = size(grow(), fit()),
+		padding = pad_xy(18, 12), gap = controls.DEFAULT_SPACING.gap, align = START_CENTER,
+		color = t.panel,
+		group_masks = []niello.Group_Mask{controls.as(G.panel, .Color), controls.as(G.gap, .Gap)},
 	})
-	niello.mint(&shell.header_title, ui.title, {font_size = 18})
-	niello.group_add(controls.groups.ink, shell.header_title)
+	niello.mint(&shell.header_title, ui.title, {
+		font_size = controls.DEFAULT_TYPE.subtitle,
+		group_masks = []niello.Group_Mask{controls.as(G.ink, .Font_Color), controls.as(G.subtitle, .Font_Size)},
+	})
 	niello.mint(&shell.spacer, niello.NO_UNIT, {size = size(grow(), fixed(1))})
 	niello.mint(&shell.body, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), grow())})
 	niello.mint(&shell.sidebar, niello.NO_UNIT, {
@@ -99,13 +107,14 @@ mint_shell :: proc(t: Theme) {
 	niello.mint(&shell.nav_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{controls.groups.hover}})
 	niello.mint(&shell.nav_item_on, niello.NO_UNIT, {color = t.accent})
 	niello.mint(&shell.nav_item, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = size(grow(), fixed(34)),
-		padding = pad_xy(12, 0), align = START_CENTER, corner_radius = 6,
+		layout = .Left_To_Right, size = size(grow(), fit()),
+		padding = pad_xy(12, 8), align = START_CENTER, corner_radius = 6,
 		cursor = .Pointer, focusable = true,
 		hover = shell.nav_hover,
 	})
-	niello.mint(&shell.nav_label, ui.body, {})
-	niello.group_add(controls.groups.ink, shell.nav_label)
+	niello.mint(&shell.nav_label, ui.body, {
+		group_masks = []niello.Group_Mask{controls.as(G.ink, .Font_Color), controls.as(G.body, .Font_Size)},
+	})
 	// The content area scrolls vertically; align [x, y] puts its
 	// anchored scrollbar at the right edge, top.
 	niello.mint(&shell.content, niello.NO_UNIT, {
@@ -114,10 +123,13 @@ mint_shell :: proc(t: Theme) {
 		align = niello.align(.End, .Start),
 		padding = niello.pad_each(22, 20, 26, 24),
 	})
-	niello.mint(&shell.page, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(grow(), fit()), gap = 14})
+	niello.mint(&shell.page, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = size(grow(), fit()), gap = controls.DEFAULT_SPACING.gap,
+		group_masks = []niello.Group_Mask{controls.as(G.gap, .Gap)},
+	})
 	niello.mint(&shell.status_bar, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = size(grow(), fixed(28)),
-		padding = pad_xy(14, 0), gap = 18, align = START_CENTER,
+		layout = .Left_To_Right, size = size(grow(), fit()),
+		padding = pad_xy(14, 5), gap = 18, align = START_CENTER,
 		color = t.panel, groups = []niello.Group{controls.groups.panel},
 	})
 }
@@ -147,6 +159,19 @@ declare_header :: proc(app: ^App) {
 			text = niello.NIELLO_DEBUG ? "debug build — F12 opens the debugger" : "build with -define:NIELLO_DEBUG=true for the F12 debugger",
 		})
 		niello.show(shell.spacer)
+		// Text size and spacing are broadcasts too: one apply call each,
+		// through the type and spacing roles every unit joined at mint.
+		slider_w := niello.With{size = size(fixed(110), fixed(controls.SLIDER_H))}
+		niello.show(ui.small, {text = fmt.tprintf("Text %.0f%%", app.text_scale.value * 100)})
+		if controls.slider(&app.text_scale, "Text size", with = slider_w) {
+			controls.apply_type(controls.scale_type(controls.DEFAULT_TYPE, app.text_scale.value))
+			status_set(&app.status, "Text size %.0f%% (one broadcast per type role)", app.text_scale.value * 100)
+		}
+		niello.show(ui.small, {text = fmt.tprintf("Spacing %.0f%%", app.spacing.value * 100)})
+		if controls.slider(&app.spacing, "Spacing", with = slider_w) {
+			controls.apply_spacing(controls.scale_spacing(controls.DEFAULT_SPACING, app.spacing.value))
+			status_set(&app.status, "Spacing %.0f%% (one broadcast per spacing role)", app.spacing.value * 100)
+		}
 		if controls.toggle_switch("Dark theme", &app.dark) {
 			controls.apply_theme(app.dark ? DARK_THEME : LIGHT_THEME, 250)
 			status_set(&app.status, "Theme: %s (one group broadcast per role, 250 ms glide)", app.dark ? "dark" : "light")
@@ -214,6 +239,8 @@ declare_status :: proc(app: ^App) {
 // main and the headless smoke test (showcase_test.odin).
 app_init :: proc(app: ^App) {
 	app.dark = true
+	app.text_scale = controls.Slider{value = 1, min = 0.75, max = 1.75, step = 0.05}
+	app.spacing = controls.Slider{value = 1, min = 0.5, max = 2, step = 0.1}
 	status_set(&app.status, "Pick a page on the left. Tab moves focus; Space/Enter activates.")
 	controls.init(DARK_THEME) // the shipped controls and the theme's role groups
 	mint_units(DARK_THEME)

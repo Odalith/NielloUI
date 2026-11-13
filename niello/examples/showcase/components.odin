@@ -64,31 +64,65 @@ ui: Units
 
 // mint_units mints the showcase's own units. controls.init has run: the
 // role groups exist.
+//
+// Each unit joins the roles it plays, for the field it plays them in:
+// a color role (ink, dim, panel…), a type role for its font size, a
+// spacing role for its gap or padding. The header's text-size and
+// spacing sliders, like the theme switch, are then one broadcast each.
 mint_units :: proc(t: Theme) {
-	groups := &controls.groups
-	ink := []niello.Group{groups.ink}
-	dim := []niello.Group{groups.dim}
+	G := &controls.groups
+	as :: controls.as
+	ty := controls.DEFAULT_TYPE
+	sp := controls.DEFAULT_SPACING
 
-	niello.mint(&ui.title, niello.NO_UNIT, {font_size = 22, font_weight = .SemiBold, font_color = t.ink, groups = ink})
-	niello.mint(&ui.heading, niello.NO_UNIT, {font_size = 15, font_weight = .SemiBold, font_color = t.ink, groups = ink})
-	niello.mint(&ui.body, niello.NO_UNIT, {font_size = 14, font_color = t.ink, groups = ink})
+	niello.mint(&ui.title, niello.NO_UNIT, {
+		font_size = ty.title, font_weight = .SemiBold, font_color = t.ink,
+		group_masks = []niello.Group_Mask{as(G.ink, .Font_Color), as(G.title, .Font_Size)},
+	})
+	niello.mint(&ui.heading, niello.NO_UNIT, {
+		font_size = ty.subtitle, font_weight = .SemiBold, font_color = t.ink,
+		group_masks = []niello.Group_Mask{as(G.ink, .Font_Color), as(G.subtitle, .Font_Size)},
+	})
+	niello.mint(&ui.body, niello.NO_UNIT, {
+		font_size = ty.body, font_color = t.ink,
+		group_masks = []niello.Group_Mask{as(G.ink, .Font_Color), as(G.body, .Font_Size)},
+	})
 	// Notes fill their parent's width (a Fit-width paragraph would
 	// wrap at the offered width too; grow just makes every note
 	// span the card).
-	niello.mint(&ui.dim, niello.NO_UNIT, {size = size(grow(), fit()), font_size = 13, font_color = t.dim, wrap = .Word, groups = dim})
-	niello.mint(&ui.small, niello.NO_UNIT, {font_size = 12, font_color = t.dim, groups = dim})
-	niello.mint(&ui.mono, niello.NO_UNIT, {font_size = 13, font_color = t.ink, whitespace = .Preserve, groups = ink})
-	niello.mint(&ui.accent_text, niello.NO_UNIT, {font_size = 14, font_weight = .SemiBold, font_color = t.accent})
+	niello.mint(&ui.dim, niello.NO_UNIT, {
+		size = size(grow(), fit()), font_size = ty.caption, font_color = t.dim, wrap = .Word,
+		group_masks = []niello.Group_Mask{as(G.dim, .Font_Color), as(G.caption, .Font_Size)},
+	})
+	niello.mint(&ui.small, niello.NO_UNIT, {
+		font_size = ty.caption, font_color = t.dim,
+		group_masks = []niello.Group_Mask{as(G.dim, .Font_Color), as(G.caption, .Font_Size)},
+	})
+	niello.mint(&ui.mono, niello.NO_UNIT, {
+		font_size = ty.body, font_color = t.ink, whitespace = .Preserve,
+		group_masks = []niello.Group_Mask{as(G.ink, .Font_Color), as(G.body, .Font_Size)},
+	})
+	niello.mint(&ui.accent_text, niello.NO_UNIT, {
+		font_size = ty.body, font_weight = .SemiBold, font_color = t.accent,
+		group_masks = []niello.Group_Mask{as(G.body, .Font_Size)},
+	})
 
-	niello.mint(&ui.column, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(grow(), fit()), gap = 10})
-	niello.mint(&ui.row, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), fit()), gap = 10, align = START_CENTER})
+	niello.mint(&ui.column, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = size(grow(), fit()), gap = sp.gap,
+		group_masks = []niello.Group_Mask{as(G.gap, .Gap)},
+	})
+	niello.mint(&ui.row, niello.NO_UNIT, {
+		layout = .Left_To_Right, size = size(grow(), fit()), gap = sp.gap, align = START_CENTER,
+		group_masks = []niello.Group_Mask{as(G.gap, .Gap)},
+	})
+	card_roles := []niello.Group_Mask{as(G.panel, .Color), as(G.panel_pad, .Padding), as(G.gap, .Gap)}
 	niello.mint(&ui.card, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), fit()),
-		color = t.panel, corner_radius = 10, padding = pad(16), gap = 10,
-		groups = []niello.Group{groups.panel},
+		color = t.panel, corner_radius = 10, padding = pad(sp.panel_pad), gap = sp.gap,
+		group_masks = card_roles,
 	})
-	niello.mint(&ui.card_row, ui.card, {layout = .Left_To_Right, align = START_CENTER})
-	niello.group_add(groups.panel, ui.card_row)
+	// A variant shares its base's look, not its memberships: it joins too.
+	niello.mint(&ui.card_row, ui.card, {layout = .Left_To_Right, align = START_CENTER, group_masks = card_roles})
 	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(fixed(300), fit())})
 
 	ui.check = checkbox_mint(t)
@@ -102,9 +136,9 @@ mint_units :: proc(t: Theme) {
 		layout = .Top_To_Bottom, size = size(fixed(190), fit()),
 		color = t.panel, corner_radius = 8, border_width = 1, border_color = t.hover,
 		padding = pad(4), gap = 2,
-		groups = []niello.Group{groups.panel},
+		groups = []niello.Group{G.panel},
 	})
-	niello.mint(&ui.menu_item_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{groups.hover}})
+	niello.mint(&ui.menu_item_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{G.hover}})
 	niello.mint(&ui.menu_item, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fixed(30)),
 		corner_radius = 5, padding = pad_xy(10, 0), align = START_CENTER,
@@ -116,7 +150,7 @@ mint_units :: proc(t: Theme) {
 		layout = .Top_To_Bottom, size = size(fixed(360), fit()),
 		color = t.panel, corner_radius = 12, padding = pad(20), gap = 14,
 		border_width = 1, border_color = t.hover,
-		groups = []niello.Group{groups.panel},
+		groups = []niello.Group{G.panel},
 	})
 }
 

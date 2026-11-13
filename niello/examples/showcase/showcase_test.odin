@@ -11,6 +11,7 @@
 // except in the two boxes that demonstrate exactly that.
 package main
 
+import "core:fmt"
 import "core:testing"
 import "core:time"
 import niello "../.."
@@ -138,6 +139,30 @@ showcase_smoke :: proc(t: ^testing.T) {
 			}
 		}
 	}
+
+	// The header's text-size and spacing sliders: keyboard to the top of
+	// each range, and the whole UI follows through its roles. Every page
+	// still settles (debug builds: nothing draws outside its parent).
+	niello.focus(app.text_scale.inst)
+	key(&app, .End)
+	testing.expect_value(t, app.text_scale.value, f32(1.75))
+	testing.expect_value(t, niello.style_of(ui.title).font_size, controls.DEFAULT_TYPE.title * 1.75)
+	testing.expect_value(t, niello.style_of(controls.parts.button.label).font_size, controls.DEFAULT_TYPE.body * 1.75)
+	niello.focus(app.spacing.inst)
+	key(&app, .End)
+	testing.expect_value(t, app.spacing.value, f32(2))
+	testing.expect_value(t, niello.style_of(ui.card).padding, niello.pad(controls.DEFAULT_SPACING.panel_pad * 2))
+	testing.expect_value(t, niello.style_of(ui.card_row).gap, controls.DEFAULT_SPACING.gap * 2)
+	for p in Page {
+		click(&app, app.nav_i[p])
+		settles(t, &app, fmt.tprintf("%s, large text and spacing", PAGE_NAMES[p]))
+	}
+	niello.focus(app.text_scale.inst)
+	key(&app, .Home)
+	niello.focus(app.spacing.inst)
+	key(&app, .Home)
+	testing.expect_value(t, niello.style_of(ui.body).font_size, controls.DEFAULT_TYPE.body * 0.75)
+	click(&app, app.nav_i[.Controls])
 
 	// Controls: the counter button.
 	click(&app, app.nav_i[.Controls])
