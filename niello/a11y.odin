@@ -159,10 +159,42 @@ A11y_Entry :: struct {
 // declaration order, parents before children. The platform exporters (AT-SPI
 // on Linux) read it; so can tests. Valid until ctx's next frame_end.
 a11y_tree :: proc(ctx: ^Context) -> []A11y_Node {
-	if ctx == nil {
+	if ctx == nil || ctx.a11y_off {
 		return nil
 	}
 	return ctx.a11y_order[:]
+}
+
+// a11y_generation is a number that changes whenever ctx's accessibility
+// tree does (a node added, removed or moved; a name, value, state or rect
+// changed), and only then. A platform exporter compares it with the last
+// one it sent and skips unchanged frames.
+a11y_generation :: proc(ctx: ^Context) -> u64 {
+	if ctx == nil {
+		return 0
+	}
+	return ctx.a11y_version
+}
+
+// set_a11y turns ctx's accessibility tree on or off. It is on by default;
+// a host turns it off where nothing reads it (no platform exporter, or no
+// accessibility bus), which saves its upkeep every frame. Off, a11y_tree
+// returns nil; turned on again, the next frame builds it afresh.
+set_a11y :: proc(ctx: ^Context, on: bool) {
+	if ctx == nil || ctx.a11y_off == !on {
+		return
+	}
+	ctx.a11y_off = !on
+	if !on {
+		for _, e in ctx.a11y_entries {
+			ee := e
+			a11y_free_entry(&ee)
+		}
+		clear(&ctx.a11y_entries)
+		clear(&ctx.a11y_order)
+		clear(&ctx.a11y_prev)
+	}
+	ctx.a11y_version += 1
 }
 
 // a11y_declared: does this With carry any semantics? A node with
@@ -336,9 +368,13 @@ a11y_free_mirror :: proc(ctx: ^Context) {
 	delete(ctx.a11y_entries)
 	delete(ctx.a11y_order)
 	delete(ctx.a11y_idx)
+	delete(ctx.a11y_prev)
+	delete(ctx.a11y_dead)
 	ctx.a11y_entries = nil
 	ctx.a11y_order = nil
 	ctx.a11y_idx = nil
+	ctx.a11y_prev = nil
+	ctx.a11y_dead = nil
 }
 
 // a11y_state_for derives the engine-known state for one frame
@@ -377,12 +413,19 @@ a11y_state_for :: proc(i: int, nd: ^Frame_Node, rec: ^Inst_Rec) -> A11y_State {
 // with no semantics and nodes with no committed record (culled);
 // rebuild the payload only when the semantics digest moved (or
 // the fallback name's gathered text moved); refresh state and
-// rect every frame; sweep entries whose instances left the tree.
+// rect every frame; sweep entries whose instances left the tree. The
+// build is compared with the previous one, and a11y_version bumps only
+// when they differ, so an exporter can skip unchanged frames.
 @(private)
 a11y_mirror_build :: proc() {
+	if g.a11y_off {
+		return
+	}
 	g.a11y_gen += 1
 	gen := g.a11y_gen
+	g.a11y_order, g.a11y_prev = g.a11y_prev, g.a11y_order
 	clear(&g.a11y_order)
+	changed := false
 	if len(g.a11y_idx) < len(g.nodes) {
 		resize(&g.a11y_idx, len(g.nodes))
 	}
@@ -439,38 +482,55 @@ a11y_mirror_build :: proc() {
 				name = a11y_gather_text(i, buf[:])
 			}
 			ent = a11y_build_entry(nd, w, digest, name)
+			changed = true
 		}
 		ent.gen = gen
 		g.a11y_entries[nd.identity] = ent
-		g.a11y_idx[i] = len(g.a11y_order)
-		append(
-			&g.a11y_order,
-			A11y_Node{
-				instance = nd.identity,
-				parent = parent,
-				unit = nd.unit,
-				role = ent.role,
-				name = ent.name,
-				description = ent.description,
-				value = ent.value,
-				flags = ent.flags,
-				state = a11y_state_for(i, nd, &rec),
-				rect = rec.rect,
-			},
-		)
+		k := len(g.a11y_order)
+		g.a11y_idx[i] = k
+		node := A11y_Node{
+			instance = nd.identity,
+			parent = parent,
+			unit = nd.unit,
+			role = ent.role,
+			name = ent.name,
+			description = ent.description,
+			value = ent.value,
+			flags = ent.flags,
+			state = a11y_state_for(i, nd, &rec),
+			rect = rec.rect,
+		}
+		// Unchanged payloads keep the same entry strings, so comparing
+		// the rest of the node (and the rebuilt flag above) is enough.
+		if !changed {
+			if k >= len(g.a11y_prev) {
+				changed = true
+			} else {
+				p := &g.a11y_prev[k]
+				changed = p.instance != node.instance || p.parent != node.parent ||
+					p.unit != node.unit || p.state != node.state || p.rect != node.rect
+			}
+		}
+		append(&g.a11y_order, node)
+	}
+	if len(g.a11y_order) != len(g.a11y_prev) {
+		changed = true
 	}
 	// Sweep: entries not seen this build left the tree. Collect
 	// first — deleting during map iteration is not safe.
-	dead: [dynamic]Instance
+	clear(&g.a11y_dead)
 	for id, ent in g.a11y_entries {
 		if ent.gen != gen {
-			append(&dead, id)
+			append(&g.a11y_dead, id)
 		}
 	}
-	for id in dead {
+	for id in g.a11y_dead {
 		ent := g.a11y_entries[id]
 		a11y_free_entry(&ent)
 		delete_key(&g.a11y_entries, id)
+		changed = true
 	}
-	delete(dead)
+	if changed {
+		g.a11y_version += 1
+	}
 }

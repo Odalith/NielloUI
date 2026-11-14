@@ -295,3 +295,87 @@ test_a11y_parent_links :: proc(t: ^testing.T) {
 		testing.expect(t, tree[0].role == .Group && tree[2].role == .Button, "roles in order")
 	}
 }
+
+// ---- change detection and the off switch
+
+a11y_gen_label: string = "Play"
+a11y_gen_show_second: bool
+a11y_gen_wide: bool
+
+a11y_gen_declare :: proc() {
+	if niello.begin(a11y_root) {
+		w := niello.With{role = .Button, label = a11y_gen_label}
+		if a11y_gen_wide {
+			w.size = niello.Size{niello.fixed(160), niello.fixed(40)}
+		}
+		niello.show(a11y_btn, w)
+		if a11y_gen_show_second {
+			niello.show(a11y_lbl, {role = .ListItem, label = "Second"})
+		}
+	}
+}
+
+// The generation moves when the tree does, and only then: an exporter
+// that skips unchanged generations misses nothing.
+@(test)
+test_a11y_generation_tracks_change :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	a11y_mint()
+	a11y_gen_label, a11y_gen_show_second, a11y_gen_wide = "Play", false, false
+	ctx := niello.test_context()
+	a11y_frame(a11y_gen_declare)
+	g0 := niello.a11y_generation(ctx)
+	a11y_frame(a11y_gen_declare)
+	testing.expect_value(t, niello.a11y_generation(ctx), g0) // nothing changed
+
+	a11y_gen_label = "Pause" // a name
+	a11y_frame(a11y_gen_declare)
+	g1 := niello.a11y_generation(ctx)
+	testing.expect(t, g1 != g0, "a renamed node moves the generation")
+	a11y_frame(a11y_gen_declare)
+	testing.expect_value(t, niello.a11y_generation(ctx), g1)
+
+	a11y_gen_wide = true // a rect
+	a11y_frame(a11y_gen_declare)
+	g2 := niello.a11y_generation(ctx)
+	testing.expect(t, g2 != g1, "a resized node moves the generation")
+
+	a11y_gen_show_second = true // a node added
+	a11y_frame(a11y_gen_declare)
+	g3 := niello.a11y_generation(ctx)
+	testing.expect(t, g3 != g2, "an added node moves the generation")
+	testing.expect_value(t, len(niello.a11y_tree(ctx)), 2)
+
+	a11y_gen_show_second = false // and removed
+	a11y_frame(a11y_gen_declare)
+	testing.expect(t, niello.a11y_generation(ctx) != g3, "a removed node moves the generation")
+	testing.expect_value(t, len(niello.a11y_tree(ctx)), 1)
+}
+
+// Off, the tree is not built and reads as empty; on again, the next frame
+// builds it afresh.
+@(test)
+test_a11y_off_builds_nothing :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	a11y_mint()
+	a11y_gen_label, a11y_gen_show_second, a11y_gen_wide = "Play", true, false
+	ctx := niello.test_context()
+	a11y_frame(a11y_gen_declare)
+	testing.expect_value(t, len(niello.a11y_tree(ctx)), 2)
+
+	niello.set_a11y(ctx, false)
+	testing.expect(t, niello.a11y_tree(ctx) == nil, "off: no tree")
+	a11y_frame(a11y_gen_declare)
+	testing.expect(t, niello.a11y_tree(ctx) == nil, "off: frames build nothing")
+
+	niello.set_a11y(ctx, true)
+	a11y_frame(a11y_gen_declare)
+	tree := niello.a11y_tree(ctx)
+	testing.expect_value(t, len(tree), 2)
+	if len(tree) == 2 {
+		testing.expect_value(t, tree[0].name, "Play")
+		testing.expect_value(t, tree[1].name, "Second")
+	}
+}
