@@ -678,3 +678,164 @@ test_text_box_follows_type :: proc(t: ^testing.T) {
 	ct_frame(tb_declare, mouse = p, release = true)
 	testing.expect_value(t, tb_app.tb.caret, 2)
 }
+
+// ---- check box and radio group ----
+
+ck_on:       bool
+ck_changed:  bool
+ck_disabled: bool
+ck_i:        niello.Instance
+rg_sel:      int
+rg_changed:  bool
+rg_horiz:    bool
+rg_before:   niello.Instance
+
+ck_declare :: proc() {
+	if niello.begin(ct_root) {
+		rg_before = controls.button("Before")
+		ck_changed = controls.checkbox("Remember me", &ck_on, disabled = ck_disabled)
+		rg_changed = controls.radio_group({"Small", "Medium", "Large"}, &rg_sel, horizontal = rg_horiz, label = "Size")
+	}
+}
+
+// ck_row finds the check box row (the CheckBox node) in the a11y tree.
+ck_node :: proc(role: niello.A11y_Role, name: string) -> (niello.A11y_Node, bool) {
+	for n in niello.a11y_tree(niello.test_context()) {
+		if n.role == role && n.name == name {
+			return n, true
+		}
+	}
+	return {}, false
+}
+
+ck_reset :: proc() {
+	ck_on, ck_changed, ck_disabled = false, false, false
+	rg_sel, rg_changed, rg_horiz = -1, false, false
+}
+
+@(test)
+test_checkbox_toggles :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ck_reset()
+	ct_frame(ck_declare)
+	ct_frame(ck_declare)
+	n, ok := ck_node(.CheckBox, "Remember me")
+	testing.expect(t, ok && .Checked not_in n.flags, "an unchecked CheckBox")
+	ct_click(ck_declare, n.instance)
+	testing.expect(t, ck_on && ck_changed, "a click checks it and reports the change")
+	ct_frame(ck_declare)
+	testing.expect(t, !ck_changed, "the change is reported once")
+	n, ok = ck_node(.CheckBox, "Remember me")
+	testing.expect(t, ok && .Checked in n.flags, "Checked in the a11y tree")
+
+	// the checked box shows the mark
+	marked := false
+	for c in niello.draw_list() {
+		if c.tag == .Text && string(c.text_ptr[:c.text_len]) == controls.CHECK_MARK {
+			marked = true
+		}
+	}
+	testing.expect(t, marked, "a checked box draws the check mark")
+
+	// Space while focused toggles it back
+	niello.focus(n.instance)
+	ct_frame(ck_declare)
+	ct_frame(ck_declare, keys = {niello.Key_Event{key = .Space, physical = .Space, down = true}})
+	ct_frame(ck_declare, keys = {niello.Key_Event{key = .Space, physical = .Space, down = false}})
+	testing.expect(t, !ck_on, "Space toggles a focused check box")
+
+	// disabled: no clicks, no Tab stop
+	ck_disabled = true
+	ct_frame(ck_declare)
+	ct_click(ck_declare, n.instance)
+	testing.expect(t, !ck_on, "a disabled check box takes no click")
+}
+
+@(test)
+test_radio_group_selects_and_moves :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ck_reset()
+	ct_frame(ck_declare)
+	ct_frame(ck_declare)
+	group, gok := ck_node(.Group, "Size")
+	testing.expect(t, gok, "the group is a Group named by its label")
+	medium, _ := ck_node(.RadioButton, "Medium")
+	testing.expect(t, medium.parent >= 0, "options sit under the group")
+
+	ct_click(ck_declare, medium.instance)
+	testing.expect(t, rg_sel == 1 && rg_changed, "a click selects")
+	ct_frame(ck_declare)
+	checked := 0
+	for n in niello.a11y_tree(niello.test_context()) {
+		if n.role == .RadioButton && .Checked in n.flags {
+			checked += 1
+			testing.expect_value(t, n.name, "Medium")
+		}
+	}
+	testing.expect_value(t, checked, 1)
+	_ = group
+
+	// One Tab stop, on the selected option: Tab from the check box lands on
+	// Medium, and the next Tab leaves the group.
+	ckbox, _ := ck_node(.CheckBox, "Remember me")
+	niello.focus(ckbox.instance)
+	ct_frame(ck_declare)
+	tab := []niello.Key_Event{{key = .Tab, physical = .Tab, down = true}}
+	ct_frame(ck_declare, keys = tab)
+	medium, _ = ck_node(.RadioButton, "Medium")
+	testing.expect(t, niello.focused(medium.instance), "Tab enters the group on the selected option")
+
+	// arrows move the selection and focus, wrapping
+	down := []niello.Key_Event{{key = .Down, physical = .Down, down = true}}
+	up := []niello.Key_Event{{key = .Up, physical = .Up, down = true}}
+	ct_frame(ck_declare, keys = down)
+	testing.expect(t, rg_sel == 2 && rg_changed, "Down selects the next option")
+	ct_frame(ck_declare)
+	large, _ := ck_node(.RadioButton, "Large")
+	testing.expect(t, niello.focused(large.instance), "focus follows the selection")
+	ct_frame(ck_declare, keys = down)
+	testing.expect_value(t, rg_sel, 0) // wraps to the first
+	ct_frame(ck_declare)
+	ct_frame(ck_declare, keys = up)
+	testing.expect_value(t, rg_sel, 2) // and back to the last
+}
+
+@(test)
+test_radio_group_layout_and_first_stop :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ck_reset()
+	rg_horiz = true
+	ct_frame(ck_declare)
+	ct_frame(ck_declare)
+	small, _ := ck_node(.RadioButton, "Small")
+	large, _ := ck_node(.RadioButton, "Large")
+	rs, _ := niello.rect(small.instance)
+	rl, _ := niello.rect(large.instance)
+	testing.expect(t, rs.pos.y == rl.pos.y && rl.pos.x > rs.pos.x, "horizontal: options in a row")
+	// with nothing selected the first option is the Tab stop
+	niello.focus(rg_before)
+	ct_frame(ck_declare)
+	tab := []niello.Key_Event{{key = .Tab, physical = .Tab, down = true}}
+	ct_frame(ck_declare, keys = tab) // the check box
+	ct_frame(ck_declare, keys = tab) // the group's stop
+	small, _ = ck_node(.RadioButton, "Small")
+	testing.expect(t, niello.focused(small.instance), "the first option is the stop when none is selected")
+	testing.expect_value(t, rg_sel, -1) // focusing selects nothing
+}
+
+@(test)
+test_check_outline_follows_the_theme :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	controls.apply_theme(controls.LIGHT)
+	testing.expect_value(t, niello.style_of(controls.parts.check.box).border_color, controls.LIGHT.dim)
+	testing.expect_value(t, niello.style_of(controls.parts.radio.ring).border_color, controls.LIGHT.dim)
+	testing.expect_value(t, niello.style_of(controls.parts.check.box_on).color, controls.LIGHT.accent)
+}

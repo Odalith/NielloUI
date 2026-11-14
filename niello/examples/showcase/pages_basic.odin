@@ -15,6 +15,9 @@ Controls_State :: struct {
 	notify, sound: bool,
 	opt_a, opt_b:  bool,
 	locked:        bool,
+	density:       int, // the horizontal radio group's selection
+	order:         int, // the vertical one's
+	frozen:        int, // the disabled one's
 	count_i:       niello.Instance,
 	hover_i:       niello.Instance,
 	cursor_i:      [niello.Cursor_Kind]niello.Instance,
@@ -59,18 +62,25 @@ page_controls :: proc(app: ^App) {
 	}
 
 	if niello.begin(ui.card) {
-		heading("Toggles, switches and checkboxes")
-		if niello.begin(ui.row) {
+		heading("Toggles, switches, check boxes and radio buttons")
+		if niello.begin(ui.flow) {
 			if controls.toggle_button("Notifications", &s.notify) {
 				status_set(&app.status, "Notifications %s (a variant overlay)", s.notify ? "on" : "off")
 			}
 			controls.toggle_switch("Sound", &s.sound)
-			checkbox("Option A", &s.opt_a)
-			checkbox("Option B", &s.opt_b)
-			if checkbox("Enable the disabled button", &s.locked) {
+			controls.checkbox("Option A", &s.opt_a)
+			controls.checkbox("Option B", &s.opt_b)
+			if controls.checkbox("Enable the disabled button", &s.locked) {
 				status_set(&app.status, "Disabled button %s", s.locked ? "enabled" : "disabled")
 			}
 		}
+		densities := []string{"Compact", "Comfortable", "Spacious"}
+		if controls.radio_group(densities, &s.density, horizontal = true, label = "Density") {
+			status_set(&app.status, "Density: %s", densities[s.density])
+		}
+		note("A radio group is one Tab stop, on its selected option; the arrow keys move the selection.")
+		controls.radio_group({"First", "Second", "Third"}, &s.order, label = "Order")
+		controls.radio_group({"Can't", "change", "this"}, &s.frozen, horizontal = true, label = "Disabled", disabled = true)
 	}
 
 	if niello.begin(ui.card) {

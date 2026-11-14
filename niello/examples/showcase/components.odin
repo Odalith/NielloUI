@@ -1,7 +1,7 @@
 // components.odin — the showcase's reusable pieces: style helpers, the
 // shared units, and the small components niello/controls does not ship
-// yet (checkbox, tooltip). Buttons, toggles, the switch, text boxes,
-// sliders, progress bars and scrollbars are niello/controls'.
+// yet (tooltip). Buttons, toggles, the switch, check boxes, radio groups,
+// text boxes, sliders, progress bars and scrollbars are niello/controls'.
 //
 // The component convention: a component's units are its PARTS — public
 // fields of a struct minted once (button_mint, slider_mint, …). A
@@ -54,9 +54,7 @@ Units :: struct {
 	// text
 	title, heading, body, dim, small, mono, accent_text: niello.Unit,
 	// containers
-	column, row, card, card_row, wrap_box: niello.Unit,
-	// components, by their parts (the shipped ones: controls.parts)
-	check:     Checkbox,
+	column, row, flow, card, card_row, wrap_box: niello.Unit,
 	// popups
 	tooltip, tooltip_text, menu, menu_item, menu_item_hover, backdrop, dialog: niello.Unit,
 }
@@ -115,6 +113,12 @@ mint_units :: proc(t: Theme) {
 		layout = .Left_To_Right, size = size(grow(), fit()), gap = sp.gap, align = START_CENTER,
 		group_masks = []niello.Group_Mask{as(G.gap, .Gap)},
 	})
+	// A row that wraps: controls flow onto further lines instead of
+	// squeezing into ellipses when the window is narrow.
+	niello.mint(&ui.flow, niello.NO_UNIT, {
+		layout = .Wrap, size = size(grow(), fit()), gap = sp.gap, line_gap = 4,
+		align = START_CENTER, group_masks = []niello.Group_Mask{as(G.gap, .Gap)},
+	})
 	card_roles := []niello.Group_Mask{as(G.panel, .Color), as(G.panel_pad, .Padding), as(G.gap, .Gap)}
 	niello.mint(&ui.card, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), fit()),
@@ -124,8 +128,6 @@ mint_units :: proc(t: Theme) {
 	// A variant shares its base's look, not its memberships: it joins too.
 	niello.mint(&ui.card_row, ui.card, {layout = .Left_To_Right, align = START_CENTER, group_masks = card_roles})
 	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(fixed(300), fit())})
-
-	ui.check = checkbox_mint(t)
 
 	niello.mint(&ui.tooltip, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fit(max = 260), fit()),
@@ -162,46 +164,6 @@ heading :: proc(text: string, loc := #caller_location) {
 
 note :: proc(text: string, loc := #caller_location) {
 	niello.show(ui.dim, {text = text}, loc = loc)
-}
-
-// ---- checkbox --------------------------------------------------------------
-
-Checkbox :: struct {
-	row, box, box_on: niello.Unit, // box_on: the checked variant of box
-}
-
-checkbox_mint :: proc(t: Theme) -> (c: Checkbox) {
-	niello.mint(&c.row, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = size(fit(), fixed(28)), gap = 8,
-		align = START_CENTER, cursor = .Pointer, focusable = true,
-		padding = pad_xy(4, 0), corner_radius = 6,
-	})
-	niello.mint(&c.box, niello.NO_UNIT, {
-		size = size(fixed(18), fixed(18)), corner_radius = 4, align = CENTER,
-		border_width = 2, border_color = t.dim, font_size = 13,
-		font_color = niello.rgb(0xffffff),
-	})
-	niello.mint(&c.box_on, niello.NO_UNIT, {color = t.accent, border_color = t.accent})
-	return
-}
-
-checkbox :: proc(text: string, checked: ^bool, loc := #caller_location) -> bool {
-	c := &ui.check
-	w := niello.With{role = .CheckBox, label = text, a11y_flags = checked^ ? {.Checked} : {}}
-	i: niello.Instance
-	if niello.begin(c.row, w, out = &i, loc = loc) {
-		box_w := niello.With{text = checked^ ? "✓" : ""}
-		if checked^ {
-			box_w.variant = c.box_on
-		}
-		niello.show(c.box, box_w)
-		niello.show(ui.body, {text = text})
-	}
-	if niello.clicked(i) {
-		checked^ = !checked^
-		return true
-	}
-	return false
 }
 
 // ---- tooltip ---------------------------------------------------------------
