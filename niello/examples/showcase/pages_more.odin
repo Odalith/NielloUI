@@ -411,7 +411,7 @@ drag_overlay :: proc(app: ^App) {
 	if niello.begin_popup(D.dlg, 0, .At, opts = {at = s.dlg_pos, stay = true}, out = &s.dlg_i) {
 		if niello.begin(D.dlg_header, out = &s.header_i) {
 			niello.show(ui.heading, {text = "Drag me by the header"})
-			niello.show(shell.spacer)
+			niello.show(drag_spacer)
 			s.close_i = controls.button("Close")
 		}
 		note(fmt.tprintf("position (%.0f, %.0f)", s.dlg_pos.x, s.dlg_pos.y))
@@ -704,6 +704,9 @@ inspector_shutdown :: proc(app: ^App) {
 // Minting the remaining pages' units
 // =====================================================================
 
+// drag_spacer pushes the drag dialog's close button to its header's end.
+drag_spacer: niello.Unit
+
 mint_pages_more :: proc(app: ^App, t: Theme) {
 	S := &scroll_units
 	list := niello.Style_Decl{
@@ -810,10 +813,11 @@ mint_pages_more :: proc(app: ^App, t: Theme) {
 	})
 	niello.mint(&D.dlg, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(340), fit()),
-		color = t.panel, corner_radius = 10, border_width = 1, border_color = t.hover,
+		color = t.panel, corner_radius = 12, border_width = 1, border_color = LINE_DARK,
 		padding = niello.pad_each(0, 0, 0, 14), gap = 10,
-		groups = []niello.Group{controls.groups.panel},
+		group_masks = []niello.Group_Mask{controls.as(controls.groups.panel, .Color), controls.as(line, .Border_Color)},
 	})
+	niello.mint(&drag_spacer, niello.NO_UNIT, {size = size(grow(), fixed(1))})
 	niello.mint(&D.dlg_header, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fixed(48)),
 		padding = pad_xy(14, 0), align = START_CENTER, gap = 8,

@@ -42,8 +42,46 @@ START_CENTER :: [2]niello.Align_Kind{.Start, .Center}
 // alike.
 
 Theme       :: controls.Theme
-DARK_THEME  :: controls.DARK
-LIGHT_THEME :: controls.LIGHT
+// The showcase's own palettes: a darker page under distinct sidebar and
+// card surfaces, an indigo accent dark enough for white text on it, and
+// secondary text with real contrast.
+DARK_THEME :: Theme{
+	bg = {12, 14, 19, 255}, panel = {21, 24, 32, 255}, raised = {40, 45, 58, 255},
+	hover = {52, 58, 75, 255}, press = {66, 73, 94, 255},
+	ink = {233, 236, 242, 255}, dim = {148, 155, 173, 255},
+	accent = {84, 114, 240, 255}, accent_hot = {106, 134, 250, 255}, on_accent = {255, 255, 255, 255},
+	danger = {205, 64, 64, 255}, danger_hot = {222, 84, 84, 255},
+	success = {52, 176, 120, 255}, selection = {84, 114, 240, 110},
+}
+LIGHT_THEME :: Theme{
+	bg = {243, 245, 249, 255}, panel = {255, 255, 255, 255}, raised = {236, 239, 245, 255},
+	hover = {224, 229, 238, 255}, press = {210, 216, 228, 255},
+	ink = {20, 24, 34, 255}, dim = {90, 98, 117, 255},
+	accent = {59, 91, 219, 255}, accent_hot = {47, 77, 199, 255}, on_accent = {255, 255, 255, 255},
+	danger = {200, 50, 50, 255}, danger_hot = {178, 40, 40, 255},
+	success = {24, 135, 86, 255}, selection = {59, 91, 219, 70},
+}
+
+// accent_soft is the accent at low strength (the selected page's fill): a
+// role of the showcase's own, since a Theme has no slot for it.
+accent_soft: niello.Group
+ACCENT_SOFT_DARK :: niello.Color{84, 114, 240, 46}
+ACCENT_SOFT_LIGHT :: niello.Color{59, 91, 219, 30}
+
+// line is the hairline color (card and panel edges), another role of the
+// showcase's own: controls' roles each broadcast one field (hover is a
+// .Color), so a border can't ride one of them.
+line: niello.Group
+LINE_DARK :: niello.Color{38, 43, 56, 255}
+LINE_LIGHT :: niello.Color{222, 227, 236, 255}
+
+// apply_showcase_theme re-themes the controls and the showcase's own roles
+// together, gliding over ms.
+apply_showcase_theme :: proc(dark: bool, ms: u32) {
+	controls.apply_theme(dark ? DARK_THEME : LIGHT_THEME, ms)
+	niello.group_set(accent_soft, .Color, dark ? ACCENT_SOFT_DARK : ACCENT_SOFT_LIGHT, ms)
+	niello.group_set(line, .Border_Color, dark ? LINE_DARK : LINE_LIGHT, ms)
+}
 
 DANGER  :: niello.Color{190, 64, 60, 255}
 SUCCESS :: niello.Color{70, 160, 105, 255}
@@ -90,7 +128,8 @@ mint_units :: proc(t: Theme) {
 	// wrap at the offered width too; grow just makes every note
 	// span the card).
 	niello.mint(&ui.dim, niello.NO_UNIT, {
-		size = size(grow(), fit()), font_size = ty.caption, font_color = t.dim, wrap = .Word,
+		// Capped: a line of prose much past 90 characters is hard to read.
+		size = size(grow(max = 760), fit()), font_size = ty.caption, font_color = t.dim, wrap = .Word,
 		group_masks = []niello.Group_Mask{as(G.dim, .Font_Color), as(G.caption, .Font_Size)},
 	})
 	niello.mint(&ui.small, niello.NO_UNIT, {
@@ -121,20 +160,26 @@ mint_units :: proc(t: Theme) {
 		align = START_CENTER, group_masks = []niello.Group_Mask{as(G.gap, .Gap)},
 	})
 	card_roles := []niello.Group_Mask{as(G.panel, .Color), as(G.panel_pad, .Padding), as(G.gap, .Gap)}
+	// A card: the panel surface with a hairline edge (the line role).
+	line = niello.group_new("showcase.line")
+	card_roles = []niello.Group_Mask{as(G.panel, .Color), as(line, .Border_Color), as(G.panel_pad, .Padding), as(G.gap, .Gap)}
 	niello.mint(&ui.card, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), fit()),
-		color = t.panel, corner_radius = 10, padding = pad(sp.panel_pad), gap = sp.gap,
+		color = t.panel, corner_radius = 12, border_width = 1, border_color = LINE_DARK,
+		padding = pad(sp.panel_pad), gap = sp.gap,
 		group_masks = card_roles,
 	})
 	// A variant shares its base's look, not its memberships: it joins too.
-	niello.mint(&ui.card_row, ui.card, {layout = .Left_To_Right, align = START_CENTER, group_masks = card_roles})
+	// Columns in a card row hang from the top: centered, a shorter
+	// column's heading sat lower than its neighbour's.
+	niello.mint(&ui.card_row, ui.card, {layout = .Left_To_Right, align = niello.align(.Start, .Start), group_masks = card_roles})
 	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(fixed(300), fit())})
 
 	niello.mint(&ui.menu, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(190), fit()),
-		color = t.panel, corner_radius = 8, border_width = 1, border_color = t.hover,
+		color = t.panel, corner_radius = 8, border_width = 1, border_color = LINE_DARK,
 		padding = pad(4), gap = 2,
-		groups = []niello.Group{G.panel},
+		group_masks = []niello.Group_Mask{as(G.panel, .Color), as(line, .Border_Color)},
 	})
 	niello.mint(&ui.menu_item_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{G.hover}})
 	niello.mint(&ui.menu_item, niello.NO_UNIT, {
@@ -147,8 +192,8 @@ mint_units :: proc(t: Theme) {
 	niello.mint(&ui.dialog, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(360), fit()),
 		color = t.panel, corner_radius = 12, padding = pad(20), gap = 14,
-		border_width = 1, border_color = t.hover,
-		groups = []niello.Group{G.panel},
+		border_width = 1, border_color = LINE_DARK,
+		group_masks = []niello.Group_Mask{as(G.panel, .Color), as(line, .Border_Color)},
 	})
 }
 

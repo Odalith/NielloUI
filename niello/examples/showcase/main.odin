@@ -83,95 +83,115 @@ nav_gap: niello.Group
 NAV_GAP :: u16(2)
 
 shell: struct {
-	root, header, header_title, spacer, body, sidebar, nav_item, nav_item_on: niello.Unit,
-	nav_hover, nav_label, content, page, status_bar: niello.Unit,
-	nav_list, display, display_title, display_label, main: niello.Unit,
+	root, sidebar, brand, brand_title, brand_sub, section_label: niello.Unit,
+	nav_list, nav_item, nav_item_on, nav_hover, nav_label, nav_label_on, nav_mark, nav_mark_off: niello.Unit,
+	display, display_title, display_label, vdivider, hdivider: niello.Unit,
+	main, content, page, status_bar: niello.Unit,
 }
 
 mint_shell :: proc(t: Theme) {
-	niello.mint(&shell.root, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = size(percent(1), percent(1)),
-		color = t.bg, groups = []niello.Group{controls.groups.bg},
-	})
 	G := &controls.groups
-	// The header, the nav items and the status bar size from their text
-	// (fit plus padding), so the text-size slider grows them too.
-	niello.mint(&shell.header, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = size(grow(), fit()),
-		padding = pad_xy(18, 12), gap = controls.DEFAULT_SPACING.gap, align = START_CENTER,
-		color = t.panel,
-		group_masks = []niello.Group_Mask{controls.as(G.panel, .Color), controls.as(G.gap, .Gap)},
+	as :: controls.as
+	// One row: the sidebar, a hairline, and the main column (the pages over
+	// the status bar). A style has no one-sided border, so the hairlines
+	// are 1-DIP nodes of the raised color.
+	niello.mint(&shell.root, niello.NO_UNIT, {
+		layout = .Left_To_Right, size = size(percent(1), percent(1)),
+		color = t.bg, groups = []niello.Group{G.bg},
 	})
-	niello.mint(&shell.header_title, ui.title, {
-		font_size = controls.DEFAULT_TYPE.subtitle,
-		group_masks = []niello.Group_Mask{controls.as(G.ink, .Font_Color), controls.as(G.subtitle, .Font_Size)},
-	})
-	niello.mint(&shell.spacer, niello.NO_UNIT, {size = size(grow(), fixed(1))})
-	niello.mint(&shell.body, niello.NO_UNIT, {layout = .Left_To_Right, size = size(grow(), grow())})
+	niello.mint(&shell.vdivider, niello.NO_UNIT, {size = size(fixed(1), grow()), color = t.raised, groups = []niello.Group{G.raised}})
+	niello.mint(&shell.hdivider, niello.NO_UNIT, {size = size(grow(), fixed(1)), color = t.raised, groups = []niello.Group{G.raised}})
 	niello.mint(&shell.main, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(grow(), grow())})
-	// The sidebar: the page list over the Display panel. Its padding is
-	// fixed (it sets the panel's width). The page list grows into the
-	// space above the panel and scrolls when its items (which grow with
-	// the text and the spacing) no longer fit, so the panel stays put.
-	// The gap between the pages is the showcase's own spacing token.
+
+	// The sidebar: the brand, the page list, the Display panel. Its width
+	// and padding are fixed (see declare_display); the page list grows into
+	// the space between and scrolls when its items no longer fit.
 	nav_gap = niello.group_new("showcase.nav_gap")
+	accent_soft = niello.group_new("showcase.accent_soft")
 	niello.mint(&shell.sidebar, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = size(fixed(200), grow()),
-		padding = pad(6), gap = 8,
+		layout = .Top_To_Bottom, size = size(fixed(224), grow()),
+		padding = niello.pad_each(12, 18, 12, 12), gap = 6,
 		color = t.panel,
-		group_masks = []niello.Group_Mask{controls.as(G.panel, .Color)},
+		group_masks = []niello.Group_Mask{as(G.panel, .Color)},
+	})
+	niello.mint(&shell.brand, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(grow(), fit()), padding = niello.pad_each(10, 0, 10, 12), gap = 2})
+	niello.mint(&shell.brand_title, niello.NO_UNIT, {
+		font_size = 18, font_weight = .Bold, font_color = t.ink,
+		group_masks = []niello.Group_Mask{as(G.ink, .Font_Color)},
+	})
+	niello.mint(&shell.brand_sub, niello.NO_UNIT, {
+		font_size = 12, font_color = t.dim,
+		group_masks = []niello.Group_Mask{as(G.dim, .Font_Color)},
+	})
+	niello.mint(&shell.section_label, niello.NO_UNIT, {
+		padding = niello.pad_each(10, 6, 10, 2),
+		font_size = 11, font_weight = .SemiBold, font_color = t.dim,
+		group_masks = []niello.Group_Mask{as(G.dim, .Font_Color)},
 	})
 	niello.mint(&shell.nav_list, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), grow()),
-		padding = pad(4), gap = NAV_GAP, scroll = .Vertical,
+		gap = NAV_GAP, scroll = .Vertical,
 		align = niello.align(.End, .Start), // the anchored bar: right edge, top
-		group_masks = []niello.Group_Mask{controls.as(nav_gap, .Gap)},
+		group_masks = []niello.Group_Mask{as(nav_gap, .Gap)},
 	})
-	// The Display panel: fixed geometry (see declare_display).
-	niello.mint(&shell.display, niello.NO_UNIT, {
-		// An inset (bg) box: on a raised one, the sliders' raised tracks
-		// vanished (found in an agent-harness picture).
-		layout = .Top_To_Bottom, size = size(grow(), fit()), padding = pad(10), gap = 6,
-		color = t.bg, corner_radius = 8,
-		group_masks = []niello.Group_Mask{controls.as(G.bg, .Color)},
-	})
-	niello.mint(&shell.display_title, niello.NO_UNIT, {
-		font_size = 11, font_weight = .SemiBold, font_color = t.dim,
-		group_masks = []niello.Group_Mask{controls.as(G.dim, .Font_Color)},
-	})
-	niello.mint(&shell.display_label, niello.NO_UNIT, {
-		font_size = 12, font_color = t.ink,
-		group_masks = []niello.Group_Mask{controls.as(G.ink, .Font_Color)},
-	})
-	niello.mint(&shell.nav_hover, niello.NO_UNIT, {color = t.hover, groups = []niello.Group{controls.groups.hover}})
-	niello.mint(&shell.nav_item_on, niello.NO_UNIT, {color = t.accent})
+	// A page item: a mark (an accent bar on the current page, an empty slot
+	// on the rest, so labels line up) and the label. The current page is
+	// an accent-tinted fill with a bolder label, readable under the hover
+	// fill too.
+	niello.mint(&shell.nav_hover, niello.NO_UNIT, {color = t.raised, groups = []niello.Group{G.raised}})
+	niello.mint(&shell.nav_item_on, niello.NO_UNIT, {color = ACCENT_SOFT_DARK, groups = []niello.Group{accent_soft}})
 	niello.mint(&shell.nav_item, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fit()),
 		padding = pad_xy(controls.DEFAULT_SPACING.control_pad[0], controls.DEFAULT_SPACING.control_pad[1]),
-		align = START_CENTER, corner_radius = 6,
+		gap = 10, align = START_CENTER, corner_radius = 8,
 		cursor = .Pointer, focusable = true,
 		hover = shell.nav_hover,
-		group_masks = []niello.Group_Mask{controls.as(G.control_pad, .Padding)},
+		group_masks = []niello.Group_Mask{as(G.control_pad, .Padding)},
 	})
+	niello.mint(&shell.nav_mark_off, niello.NO_UNIT, {size = size(fixed(3), fixed(16)), corner_radius = 2})
+	niello.mint(&shell.nav_mark, shell.nav_mark_off, {color = t.accent, groups = []niello.Group{G.accent}})
 	niello.mint(&shell.nav_label, ui.body, {
-		group_masks = []niello.Group_Mask{controls.as(G.ink, .Font_Color), controls.as(G.body, .Font_Size)},
+		font_color = t.dim,
+		group_masks = []niello.Group_Mask{as(G.dim, .Font_Color), as(G.body, .Font_Size)},
 	})
-	// The content area scrolls vertically; align [x, y] puts its
-	// anchored scrollbar at the right edge, top.
+	niello.mint(&shell.nav_label_on, ui.body, {
+		font_weight = .SemiBold,
+		group_masks = []niello.Group_Mask{as(G.ink, .Font_Color), as(G.body, .Font_Size)},
+	})
+
+	// The Display panel: fixed geometry (see declare_display). An inset
+	// (bg) box with a hairline edge: on a raised one, the sliders' raised
+	// tracks vanished (found in an agent-harness picture).
+	niello.mint(&shell.display, niello.NO_UNIT, {
+		layout = .Top_To_Bottom, size = size(grow(), fit()), padding = pad(12), gap = 8,
+		color = t.bg, corner_radius = 10, border_width = 1, border_color = LINE_DARK,
+		group_masks = []niello.Group_Mask{as(G.bg, .Color), as(line, .Border_Color)},
+	})
+	niello.mint(&shell.display_title, niello.NO_UNIT, {
+		font_size = 11, font_weight = .SemiBold, font_color = t.dim,
+		group_masks = []niello.Group_Mask{as(G.dim, .Font_Color)},
+	})
+	niello.mint(&shell.display_label, niello.NO_UNIT, {
+		font_size = 12, font_color = t.ink,
+		group_masks = []niello.Group_Mask{as(G.ink, .Font_Color)},
+	})
+
+	// The pages scroll vertically; align [x, y] puts the anchored
+	// scrollbar at the right edge, top.
 	niello.mint(&shell.content, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(grow(), grow()),
 		scroll = .Vertical, smooth_scroll = true,
 		align = niello.align(.End, .Start),
-		padding = niello.pad_each(22, 20, 26, 24),
+		padding = niello.pad_each(32, 28, 34, 32),
 	})
 	niello.mint(&shell.page, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = size(grow(), fit()), gap = controls.DEFAULT_SPACING.gap,
-		group_masks = []niello.Group_Mask{controls.as(G.gap, .Gap)},
+		layout = .Top_To_Bottom, size = size(grow(), fit()), gap = controls.DEFAULT_SPACING.gap + 4,
+		group_masks = []niello.Group_Mask{as(G.gap, .Gap)},
 	})
 	niello.mint(&shell.status_bar, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(grow(), fit()),
-		padding = pad_xy(14, 5), gap = 18, align = START_CENTER,
-		color = t.panel, groups = []niello.Group{controls.groups.panel},
+		padding = pad_xy(32, 7), gap = 20, align = START_CENTER,
+		color = t.bg, groups = []niello.Group{G.bg},
 	})
 }
 
@@ -180,16 +200,15 @@ declare :: proc(app: ^App) {
 	inspector_reap(app)
 
 	if niello.begin(shell.root) {
-		declare_header(app)
-		// The sidebar runs to the window's bottom edge, and the status bar
-		// sits under the content only: the Display panel at the sidebar's
-		// foot then has fixed edges to hold to (see declare_display).
-		if niello.begin(shell.body) {
-			declare_sidebar(app)
-			if niello.begin(shell.main) {
-				declare_content(app)
-				declare_status(app)
-			}
+		// The sidebar runs the window's full height, and the status bar sits
+		// under the pages only: the Display panel at the sidebar's foot then
+		// has fixed edges to hold to (see declare_display).
+		declare_sidebar(app)
+		niello.show(shell.vdivider)
+		if niello.begin(shell.main) {
+			declare_content(app)
+			niello.show(shell.hdivider)
+			declare_status(app)
 		}
 	}
 	// Popups and dialogs are overlay roots: declared after the main
@@ -198,22 +217,13 @@ declare :: proc(app: ^App) {
 	drag_overlay(app)
 }
 
-declare_header :: proc(app: ^App) {
-	if niello.begin(shell.header) {
-		niello.show(shell.header_title, {text = "NielloUI showcase", role = .Header})
-		niello.show(ui.small, {
-			text = niello.NIELLO_DEBUG ? "debug build — F12 opens the debugger" : "build with -define:NIELLO_DEBUG=true for the F12 debugger",
-		})
-		niello.show(shell.spacer)
-		if controls.toggle_switch("Dark theme", &app.dark) {
-			controls.apply_theme(app.dark ? DARK_THEME : LIGHT_THEME, 250)
-			status_set(&app.status, "Theme: %s (one group broadcast per role, 250 ms glide)", app.dark ? "dark" : "light")
-		}
-	}
-}
-
 declare_sidebar :: proc(app: ^App) {
 	if niello.begin(shell.sidebar) {
+		if niello.begin(shell.brand) {
+			niello.show(shell.brand_title, {text = "NielloUI", role = .Header})
+			niello.show(shell.brand_sub, {text = "Component showcase"})
+		}
+		niello.show(shell.section_label, {text = "PAGES"})
 		if niello.begin(shell.nav_list, out = &app.nav_list_i) {
 			declare_nav(app)
 			controls.scrollbar(&app.nav_bar, app.nav_list_i)
@@ -231,7 +241,8 @@ declare_nav :: proc(app: ^App) {
 			w.variant = shell.nav_item_on
 		}
 		if niello.begin(shell.nav_item, w, out = &app.nav_i[p]) {
-			niello.show(on ? controls.parts.primary.label : shell.nav_label, {text = PAGE_NAMES[p]})
+			niello.show(on ? shell.nav_mark : shell.nav_mark_off)
+			niello.show(on ? shell.nav_label_on : shell.nav_label, {text = PAGE_NAMES[p]})
 		}
 		if niello.clicked(app.nav_i[p]) && p != app.page {
 			app.page = p
@@ -258,6 +269,10 @@ declare_nav :: proc(app: ^App) {
 declare_display :: proc(app: ^App) {
 	if niello.begin(shell.display) {
 		niello.show(shell.display_title, {text = "DISPLAY", role = .Header})
+		if controls.toggle_switch("Dark theme", &app.dark) {
+			apply_showcase_theme(app.dark, 250)
+			status_set(&app.status, "Theme: %s (one group broadcast per role, 250 ms glide)", app.dark ? "dark" : "light")
+		}
 		niello.show(shell.display_label, {text = fmt.tprintf("Text size · %.0f%%", app.text_scale.value * 100)})
 		if controls.slider(&app.text_scale, "Text size") {
 			controls.apply_type(controls.scale_type(controls.DEFAULT_TYPE, app.text_scale.value))
@@ -302,6 +317,7 @@ declare_status :: proc(app: ^App) {
 		if p, mok := niello.mouse_position(); mok {
 			mouse = fmt.tprintf("%.0f, %.0f", p.x, p.y)
 		}
+		niello.show(ui.small, {text = niello.NIELLO_DEBUG ? "Debug build · F12 debugger" : "Release build"})
 		niello.show(ui.small, {text = fmt.tprintf("mouse %s", mouse)})
 		niello.show(ui.small, {text = fmt.tprintf("instances %d", niello.instance_count(app.ctx))})
 		niello.show(ui.small, {text = status_text(&app.status)})

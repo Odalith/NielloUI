@@ -157,7 +157,7 @@ when niello.NIELLO_DEBUG {
 			// label's own line is inside the component.
 			o := owner(tree, k, s)
 			if ink[k].cut {
-				add_finding(s, .Truncated, .Error, n.instance, tree[o].loc, "%s is cut short: %s does not fit its %.0f DIP width (it needs %.0f more)",
+				add_finding(s, .Truncated, .Error, n.instance, tree[o].loc, "%s is cut short: %s does not fit its %.0f DIP width (it needs %.1f more)",
 					describe_in(s, tree, k, o), quote(n.text), n.rect.size.x, n.spill.x, axis = 0, label = label)
 				continue
 			}

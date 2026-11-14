@@ -8,6 +8,7 @@
 // the partial-repaint check.
 package main
 
+import "core:fmt"
 import "core:testing"
 import niello "../.."
 import "../../agent"
@@ -44,5 +45,30 @@ when niello.NIELLO_DEBUG {
 		// The showcase imports niello/sdl: every snapshot is a picture too.
 		testing.expect(t, s.pictures == s.snapshots, "a picture for every snapshot and the crop")
 		testing.expect(t, agent.report(s) == 0, "the showcase has no findings")
+	}
+
+	// showcase_look: every page at the window's own size, in both themes,
+	// as pictures, for judging the design (no assertions beyond findings).
+	@(test)
+	showcase_look :: proc(t: ^testing.T) {
+		app: App
+		app_init(&app)
+		defer app_destroy(&app)
+		s := agent.session_open(declare, &app, ctx = app.ctx, viewport = {1180, 780})
+		defer agent.session_close(s)
+		agent.allow(s, .Overflow, layout_units.spill_box)
+		agent.allow(s, .Truncated, layout_units.squeeze_label)
+		agent.allow(s, .Truncated, layout_units.squeeze_label_low)
+		agent.allow(s, .Truncated, text_units.ellipsis)
+		for theme in ([]string{"dark", "light"}) {
+			if theme == "light" {
+				agent.click(s, agent.find(s, role = .CheckBox, name = "Dark theme"))
+			}
+			for p in Page {
+				agent.click(s, agent.find(s, role = .TabItem, name = PAGE_NAMES[p]))
+				agent.snapshot(s, fmt.tprintf("%s-%s", theme, PAGE_NAMES[p]))
+			}
+		}
+		testing.expect(t, agent.report(s) == 0, "no findings")
 	}
 }
