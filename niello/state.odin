@@ -427,7 +427,6 @@ g: ^Context
 @(private)
 test_ctx: ^Context
 
-
 // free_store deletes every heap-owning container in the global store.
 @(private)
 free_store :: proc() {
@@ -542,53 +541,8 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.state_stamp)
 }
 
-
 // ---------------------------------------------------------------------------
 // Mutation helpers (used by the public set/set_many in public.odin)
-
-
-// explicit_fields reports which decl fields were set (non-nil Maybe). Recorded
-// at mint for propagate; also read by set_many's write tail.
-@(private)
-explicit_fields :: proc(d: Style_Decl) -> Fields {
-	f: Fields
-	if d.color         != nil { f += {.Color} }
-	if d.font_color    != nil { f += {.Font_Color} }
-	if d.border_color  != nil { f += {.Border_Color} }
-	if d.text          != nil { f += {.Text} }
-	if d.font          != nil { f += {.Font} }
-	if d.font_size     != nil { f += {.Font_Size} }
-	if d.font_weight   != nil { f += {.Font_Weight} }
-	if d.font_slant    != nil { f += {.Font_Slant} }
-	if d.text_spans    != nil { f += {.Text_Spans} }
-	if d.padding       != nil { f += {.Padding} }
-	if d.gap           != nil { f += {.Gap} }
-	if d.border_width  != nil { f += {.Border_Width} }
-	if d.corner_radius != nil { f += {.Corner_Radius} }
-	if d.opacity       != nil { f += {.Opacity} }
-	if d.layout        != nil { f += {.Layout} }
-	if d.size          != nil { f += {.Size} }
-	if d.scroll        != nil { f += {.Scroll} }
-	if d.align         != nil { f += {.Align} }
-	if d.wrap          != nil { f += {.Text_Wrap} }
-	if d.whitespace    != nil { f += {.Whitespace} }
-	if d.ellipsis      != nil { f += {.Ellipsis} }
-	if d.justify       != nil { f += {.Justify} }
-	if d.overflow      != nil { f += {.Overflow} }
-	if d.overlay_color        != nil { f += {.Overlay_Color} }
-	if d.overlay_border_color  != nil { f += {.Overlay_Border_Color} }
-	if d.overlay_border_width  != nil { f += {.Overlay_Border_Width} }
-	if d.cursor       != nil { f += {.Cursor} }
-	if d.scroll_chain != nil { f += {.Scroll_Chain} }
-	if d.smooth_scroll != nil { f += {.Smooth_Scroll} }
-	if d.smooth_ms != nil { f += {.Smooth_Ms} }
-	if d.overscroll != nil { f += {.Overscroll} }
-	if d.overscroll_px != nil { f += {.Overscroll_Px} }
-	if d.image       != nil { f += {.Image} }
-	if d.image_fit   != nil { f += {.Image_Fit} }
-	if d.image_interp != nil { f += {.Image_Interp} }
-	return f
-}
 
 // touch records a write through set/set_many: the fields become
 // explicit (every such write is a deliberate choice, and overlay
@@ -649,7 +603,6 @@ unit_index :: #force_inline proc "contextless" (u: Unit) -> int {
 unit_handle :: #force_inline proc "contextless" (index: int, generation: u32) -> Unit {
 	return Unit(u64(generation) << 32 | u64(index))
 }
-
 
 // ---------------------------------------------------------------------------
 // Hashing (FNV-1a; identity = hash(parent_id, unit, key))
