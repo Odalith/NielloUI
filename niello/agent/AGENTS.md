@@ -218,7 +218,9 @@ fix the code instead.
   control for screen readers and for `find`, and draw nothing. For a
   visible caption, put the control in a `controls.field("Caption")`
   block, and still give the control its own label. `checkbox` and
-  `radio_group` draw their labels, and wrap long ones.
+  `radio_group` draw their labels, and wrap long ones by themselves:
+  don't give them a size to make them wrap. A size replaces the row's
+  give-way priority, and then a button beside it gets cut instead.
 - **One axis of a size:** a `With.size` sets both axes. To set only one,
   `keep()` the other: `with = {size = niello.size(niello.fixed(240),
   niello.keep())}`.

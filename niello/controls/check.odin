@@ -95,9 +95,12 @@ mint_check :: proc(t: Theme) {
 
 // checkbox is a check box labelled label: a click (or Space/Enter while
 // focused) flips checked^. Reports whether checked^ changed this frame.
-// A label wider than the row's room wraps onto more lines. with carries
-// per-instance values for the row (a size, a11y overrides); the checkbox
-// fills in its role (CheckBox), its name (label) and disabled.
+// A label wider than the row's room wraps onto more lines, and the row
+// gives way first beside a neighbour (fit(priority = -1)), so it needs no
+// size to wrap. with carries per-instance values for the row (a size,
+// a11y overrides); the checkbox fills in its role (CheckBox), its name
+// (label) and disabled. A size replaces the row's give-way: to fill a
+// row and still give way, use grow(priority = -1).
 // a11y: CheckBox, Checked while checked.
 checkbox :: proc(
 	label: string,
