@@ -1448,7 +1448,9 @@ int32_t nui_render_png(const UiDrawCmd* commands, int32_t count,
             std::fprintf(stderr, "nui: render_png: cannot write %s\n", path);
             return 0;
         }
-        if (!SkPngEncoder::Encode(&file, pixmap, SkPngEncoder::Options{})) {
+        SkPngEncoder::Options options;
+        options.fZLibLevel = 1; // fast: pictures are looked at, not kept
+        if (!SkPngEncoder::Encode(&file, pixmap, options)) {
             Log("render_png: PNG encoding failed");
             return 0;
         }
