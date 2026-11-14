@@ -1250,3 +1250,53 @@ test_checkbox_and_radio_labels_wrap :: proc(t: ^testing.T) {
 	rz, _ := niello.rect(ckw_sized_i)
 	testing.expect_value(t, rz.size.x, f32(300))
 }
+
+// ---- field, and a text box's label ----
+
+fld_cb: controls.Combo_Box
+fld_tb, fld_tb2: controls.Text_Box
+FLD_LANGS := []string{"English", "Deutsch", "Français"}
+
+fld_declare :: proc() {
+	if niello.begin(ct_root) {
+		if controls.field("Language") {
+			controls.combo_box(&fld_cb, FLD_LANGS, label = "Language")
+		}
+		controls.text_box(&fld_tb, "e.g. Ada", label = "Name")
+		controls.text_box(&fld_tb2, "Search")
+	}
+}
+
+@(test)
+test_field_and_text_box_label :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	defer controls.text_box_destroy(&fld_tb)
+	defer controls.text_box_destroy(&fld_tb2)
+	ct_frame(fld_declare)
+	ct_frame(fld_declare)
+
+	// The caption is drawn above the control, which is named on its own.
+	combo, ok := ck_node(.ComboBox, "Language")
+	testing.expect(t, ok, "the combo box is named by its label")
+	caption: niello.Rect
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text && string(c.text_ptr[:c.text_len]) == "Language" {
+			caption, found = c.bounds, true
+		}
+	}
+	testing.expect(t, found, "the caption is drawn")
+	testing.expectf(t, caption.pos.y + caption.size.y <= combo.rect.pos.y + EPS, "above the control (%v, %v)", caption, combo.rect)
+	testing.expect(t, abs(caption.pos.x - combo.rect.pos.x) < EPS, "aligned with it")
+	testing.expect_value(t, niello.style_of(controls.parts.field.caption).font_color, controls.DARK.dim)
+	controls.apply_theme(controls.LIGHT)
+	testing.expect_value(t, niello.style_of(controls.parts.field.caption).font_color, controls.LIGHT.dim)
+
+	// A text box's label names it; without one, its placeholder does.
+	_, named := ck_node(.Edit, "Name")
+	testing.expect(t, named, "the text box is named by its label, not its placeholder")
+	_, by_placeholder := ck_node(.Edit, "Search")
+	testing.expect(t, by_placeholder, "without a label, the placeholder names it")
+}

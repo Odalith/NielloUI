@@ -23,8 +23,8 @@ import niello ".."
 // keep the caret in view. Not in v1: multi-line, IME composition display,
 // Shift+click.
 //
-// a11y: Edit, named by the placeholder, valued by the text, ReadOnly while
-// read-only.
+// a11y: Edit, named by its label (by the placeholder when it has none),
+// valued by the text, ReadOnly while read-only.
 
 // Text_Box_Parts are the text box's parts: the box and its state overlays,
 // the text and placeholder, and the caret and selection marks.
@@ -128,13 +128,17 @@ mint_text_box :: proc(t: Theme) {
 }
 
 // text_box applies this frame's input to tb, then declares it. placeholder
-// shows while the box is empty, and names it for accessibility.
-text_box :: proc(tb: ^Text_Box, placeholder: string, key: niello.Key = 0, loc := #caller_location) -> (r: Text_Box_Result) {
+// shows while the box is empty. label names it for screen readers (and
+// for find in niello/agent); it draws nothing, so show a caption beside
+// it when the screen needs one (controls.field). Without a label the
+// placeholder names it, but a placeholder is a hint, not a label: it is
+// gone once the user types.
+text_box :: proc(tb: ^Text_Box, placeholder: string, label := "", key: niello.Key = 0, loc := #caller_location) -> (r: Text_Box_Result) {
 	P := &parts.text_box
 	clamp_state(tb)
 	r = apply_input(tb)
 
-	w := with_a11y({}, .Edit, placeholder, tb.disabled)
+	w := with_a11y({}, .Edit, len(label) > 0 ? label : placeholder, tb.disabled)
 	w.value = niello.A11y_Value{text = string(tb.buf[:])}
 	if tb.read_only {
 		w.a11y_flags += {.ReadOnly}

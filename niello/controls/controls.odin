@@ -1,6 +1,7 @@
 // Package controls is NielloUI's shipped control collection: buttons, a
 // switch, check boxes, radio groups, combo boxes, tooltips, a text box, a
-// slider, a progress bar and a scrollbar, built on niello's public API only.
+// slider, a progress bar, a scrollbar and a captioned field, built on
+// niello's public API only.
 //
 //	controls.init()                       // once, after niello is up: mints every part
 //	if niello.clicked(controls.button("Save", .Primary)) { save() }
@@ -156,6 +157,7 @@ Parts :: struct {
 	text_box:  Text_Box_Parts,
 	slider:    Slider_Parts,
 	scrollbar: Scrollbar_Parts,
+	field:     Field_Parts,
 }
 
 // parts holds every control's parts (minted by init): restyle one with
@@ -196,6 +198,7 @@ init :: proc(t := DARK, ty := DEFAULT_TYPE, sp := DEFAULT_SPACING) {
 	mint_text_box(t)
 	mint_slider(t)
 	mint_scrollbar(t)
+	mint_field(t)
 	niello.set_focus_ring({color = t.accent, width = 2, offset = 2})
 }
 

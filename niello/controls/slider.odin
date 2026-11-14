@@ -49,8 +49,10 @@ slider_range :: proc(s: ^Slider) -> (lo, hi, step: f32) {
 	return
 }
 
-// slider declares a horizontal slider for s, labelled label for
-// accessibility. A pointer press seeks and a drag scrubs; while focused,
+// slider declares a horizontal slider for s. label names it for screen
+// readers (and for find in niello/agent); it draws nothing, so show a
+// caption beside it when the screen needs one (controls.field). A
+// pointer press seeks and a drag scrubs; while focused,
 // Left/Down and Right/Up step, Page Up/Down move ten steps, Home/End go
 // to the ends. Reports whether s.value changed. a11y: Slider with its value
 // and range.
@@ -96,8 +98,9 @@ slider :: proc(
 	return
 }
 
-// progress_bar declares a bar filled to value (0..1), labelled label for
-// accessibility. a11y: ProgressBar, valued 0..100.
+// progress_bar declares a bar filled to value (0..1). label names it for
+// screen readers; it draws nothing (controls.field shows a caption).
+// a11y: ProgressBar, valued 0..100.
 progress_bar :: proc(value: f32, label: string, key: niello.Key = 0, loc := #caller_location) {
 	P := &parts.slider
 	v := clamp(value, 0, 1)

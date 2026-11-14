@@ -88,10 +88,15 @@ page_controls :: proc(app: ^App) {
 	if niello.begin(ui.card) {
 		heading("Combo box")
 		if niello.begin(ui.flow) {
-			if controls.combo_box(&s.fruit, FRUITS[:], label = "Fruit", placeholder = "Pick a fruit") {
-				status_set(&app.status, "Fruit: %s", FRUITS[s.fruit.selected])
+			// A field draws the caption; the label names the box itself.
+			if controls.field("Fruit", {size = niello.size(niello.fit(), niello.fit())}) {
+				if controls.combo_box(&s.fruit, FRUITS[:], label = "Fruit", placeholder = "Pick a fruit") {
+					status_set(&app.status, "Fruit: %s", FRUITS[s.fruit.selected])
+				}
 			}
-			controls.combo_box(&s.city, CITIES[:], label = "City", placeholder = "Pick a city")
+			if controls.field("City", {size = niello.size(niello.fit(), niello.fit())}) {
+				controls.combo_box(&s.city, CITIES[:], label = "City", placeholder = "Pick a city")
+			}
 		}
 		note("Click to open, or focus it and use the keyboard: Up/Down change the choice, Space opens the list, Enter picks, Esc closes, a letter jumps. The city list is long: it scrolls.")
 	}

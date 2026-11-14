@@ -337,7 +337,9 @@ page_drag :: proc(app: ^App) {
 
 	if niello.begin(ui.card) {
 		heading("Slider (press to seek, drag to scrub, arrows when focused)")
-		controls.slider(&s.volume, "Volume")
+		if controls.field("Volume") {
+			controls.slider(&s.volume, "Volume")
+		}
 		note(fmt.tprintf("value %.0f%%", s.volume.value * 100))
 	}
 
