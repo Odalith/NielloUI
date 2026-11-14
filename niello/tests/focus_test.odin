@@ -243,6 +243,45 @@ test_focus_next_prev_verbs :: proc(t: ^testing.T) {
 	testing.expect(t, niello.focused(fo_a), "focus_prev steps back")
 }
 
+// focus_next during declare moves along the whole tree: called right
+// after A is declared, it lands on B, declared after the call.
+fo_next_after_a: bool
+
+fo_declare_next :: proc() {
+	if niello.begin(fo_root) {
+		fo_a = niello.show(fo_btn, key = niello.key_int(1))
+		if fo_next_after_a {
+			niello.focus_next()
+			testing_focus_mid = niello.focused(fo_a)
+		}
+		fo_b = niello.show(fo_btn, key = niello.key_int(2))
+		fo_c = niello.show(fo_btn, key = niello.key_int(3))
+	}
+}
+
+testing_focus_mid: bool
+
+@(test)
+test_focus_next_during_declare_reaches_later_nodes :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	fo_mint()
+	frame :: proc() {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {800, 600}}, 0.016)
+		fo_declare_next()
+		niello.frame_end()
+	}
+	frame()
+	niello.focus(fo_a)
+	fo_next_after_a = true
+	frame()
+	fo_next_after_a = false
+	testing.expect(t, testing_focus_mid, "the rest of the frame still sees the old focus")
+	testing.expect(t, niello.focused(fo_b), "focus moves on to B, declared after the call")
+	frame()
+	testing.expect(t, niello.focused(fo_b), "and stays")
+}
+
 // With.focusable: the per-instance override. A unit that is NOT
 // focusable contributes a tab stop only where shown with
 // focusable = true; a focusable unit's instance shown with

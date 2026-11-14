@@ -994,6 +994,9 @@ clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 //		return
 //	}
 show :: #force_inline proc(unit: Unit, with: With = {}, key: Key = 0, loc := #caller_location) -> Instance {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return show_at(unit, with, key, site_hash(loc))
 }
 
@@ -1038,6 +1041,9 @@ begin :: #force_inline proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return begin_at(unit, with, key, out, site_hash(loc))
 }
 
@@ -1154,6 +1160,9 @@ begin_section :: proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return begin_section_at(unit, b, with, key, out, site_hash(loc))
 }
 
@@ -1279,6 +1288,9 @@ begin_popup :: #force_inline proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return begin_popup_at(unit, anchor, placement, with, key, opts, out, site_hash(loc))
 }
 
@@ -1441,6 +1453,9 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	clear(&g.nodes)
 	g.ring_idx = -1 // re-resolved by frame_end over the new tree
 	clear(&g.withs)
+	when NIELLO_DEBUG {
+		clear(&g.debug_locs)
+	}
 	clear(&g.size_overrides)
 	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
 	g.text_off = 0
@@ -1460,6 +1475,7 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	clear(&g.draw_cmds)
 	g.viewport = input.viewport
 	g.dt = dt
+	g.declaring = true
 	// Cold units, the instance map, and the text cache persist across frames.
 }
 
@@ -1478,6 +1494,15 @@ frame_end :: proc() -> Frame_Result {
 	sweep_transients()
 	resolve_styles()
 	layout_pass(g.viewport)
+	// Focus steps asked for during declare move now, along the whole
+	// tree: a box that hands on (Enter) reaches the one declared after it.
+	g.declaring = false
+	for ; g.focus_steps > 0; g.focus_steps -= 1 {
+		traverse_focus(1)
+	}
+	for ; g.focus_steps < 0; g.focus_steps += 1 {
+		traverse_focus(-1)
+	}
 	// Focus survival (§3.17): focus cannot outlive its instance. If
 	// the focused instance left the tree this frame or became
 	// disabled, focus clears (set_focus_id also cancels a pending
@@ -1812,6 +1837,30 @@ hover_duration :: proc(i: Instance) -> f32 {
 	return 0
 }
 
+// hovered_for reports whether the pointer has rested on i, or its
+// descendants, for at least seconds. Until then it arms one wake for the
+// moment the time is up, so a sleeping host loop wakes to show what waits
+// on it (a tooltip); once it is true it arms nothing. Prefer it to
+// comparing hover_duration, which keeps frames coming for as long as the
+// hover lasts.
+hovered_for :: proc(i: Instance, seconds: f32) -> bool {
+	since, ok := g.hover_since[i]
+	if !ok {
+		return false
+	}
+	left := seconds - (g.hover_clock - since)
+	if left <= 0 {
+		return true
+	}
+	// Rounded up, so the woken frame finds the time reached.
+	ms := u32(left * 1000)
+	if f32(ms) < left * 1000 {
+		ms += 1
+	}
+	schedule_wake_in(ms)
+	return false
+}
+
 // press_clicks is the click count of the left press that began this frame:
 // 1 for a single click, 2 for a double click, 3 for a triple, or 0 when no
 // left press began. A text box selects a word on press_clicks() == 2.
@@ -1889,15 +1938,26 @@ focus_visible :: proc(i: Instance) -> bool {
 }
 
 // focus_next moves keyboard focus to the next focusable instance in
-// declaration order (wrapping), as Tab does. Called during declare it
-// moves focus at once; this frame's keys and text still go where they
-// were routed.
+// declaration order (wrapping), as Tab does. Called during declare, it
+// moves focus when the frame ends, along the whole tree, so a control can
+// hand focus to one declared after it (a text box on Enter); until then
+// this frame's queries, keys and text see the focus as it was. Between
+// frames it moves at once.
 focus_next :: proc() {
+	if g.declaring {
+		g.focus_steps += 1
+		return
+	}
 	traverse_focus(1)
 }
 
-// focus_prev moves keyboard focus back one step, as Shift+Tab does.
+// focus_prev moves keyboard focus back one step, as Shift+Tab does. Called
+// during declare, it moves when the frame ends, like focus_next.
 focus_prev :: proc() {
+	if g.declaring {
+		g.focus_steps -= 1
+		return
+	}
 	traverse_focus(-1)
 }
 
@@ -2412,9 +2472,12 @@ group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) 
 // intervening set on an untouched field is never clobbered. Repeated
 // edit calls in one frame return the same shadow. The pointer is
 // valid until frame_end; holding it across frames is a contract
-// violation.
+// violation. The shadow lives with the bound context (it applies at that
+// context's frame_end), so edit needs one: call it during a frame. Before
+// the first frame, set or set_many write a unit directly.
 edit :: proc(u: Unit) -> ^Style {
 	assert(unit_live(u), "niello.edit: unit is not minted")
+	assert(g != nil, "niello.edit: no context is bound (it applies at a context's frame_end): call it during a frame, or use set_many before the first one")
 	if es, ok := g.edits[u]; ok {
 		return &es.shadow
 	}

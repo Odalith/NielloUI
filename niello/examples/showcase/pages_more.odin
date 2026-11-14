@@ -46,7 +46,11 @@ page_scrolling :: proc(app: ^App) {
 			rng := niello.scroll_range(s.list_i)
 			note(fmt.tprintf("offset %.0f of %.0f", off.y, rng.y))
 		}
-		if niello.begin(ui.column) {
+		// This column's scrollers carry their whole content as their
+		// width; shrinking fairly would squeeze the list column beside
+		// it to its floor. A lower priority makes this one give way
+		// first (its scrollers scroll what does not fit).
+		if niello.begin(ui.column, {size = size(grow(priority = -1), fit())}) {
 			heading("Smooth + overscroll")
 			scroll_smooth(s)
 			note("smooth_scroll glides each wheel tick; overscroll pulls past the ends with resistance and springs back.")

@@ -886,6 +886,35 @@ test_tooltip_shows_after_the_delay :: proc(t: ^testing.T) {
 	testing.expect(t, !shown, "the tooltip goes when the pointer leaves")
 }
 
+// A resting pointer costs one wake, at the end of the delay: no refresh
+// frames before it, and none once the tooltip shows.
+@(test)
+test_tooltip_wakes_once_for_its_delay :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ct_frame(tt_declare)
+	ct_frame(tt_declare)
+	at := ct_center(tt_btn)
+	step :: proc(at: niello.Vec2, dt: f32) -> niello.Frame_Result {
+		niello.frame_begin(niello.test_context(), {viewport = {500, 400}, window_focused = true, mouse = at, mouse_valid = true}, dt)
+		tt_declare()
+		return niello.frame_end()
+	}
+	res := step(at, 0.016)
+	res = step(at, 0.016)
+	testing.expectf(t, res.next_wake_ms > 400 && res.next_wake_ms <= 500, "one wake, for the end of the delay (got %d ms)", res.next_wake_ms)
+	res = step(at, f32(res.next_wake_ms) / 1000)
+	res = step(at, 0.016) // the popup places against its anchor
+	_, ok := tt_node()
+	testing.expect(t, ok, "the woken frame shows the tooltip")
+	for _ in 0 ..< 3 {
+		res = step(at, 0.016)
+	}
+	testing.expect(t, !res.changed, "then nothing changes")
+	testing.expect_value(t, res.next_wake_ms, max(u32))
+}
+
 @(test)
 test_tooltip_shows_on_keyboard_focus :: proc(t: ^testing.T) {
 	niello.test_reset()

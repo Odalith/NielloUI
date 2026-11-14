@@ -220,6 +220,12 @@ Context :: struct {
 	// inert header in prod builds — the snapshot work and the API
 	// that reads it are what the NIELLO_DEBUG gate removes.
 	debug_nodes: [dynamic]Debug_Node,
+	// debug_locs is each kept With's declaration call site, parallel to
+	// withs (every node keeps one in debug builds); debug_site carries the
+	// call site from show/begin into declare_as. Debug builds only: the
+	// public wrappers set debug_site under NIELLO_DEBUG.
+	debug_locs: [dynamic]runtime.Source_Code_Location,
+	debug_site: runtime.Source_Code_Location,
 
 	// Accessibility mirror (§3.9, TODO #23, a11y.odin): this
 	// context's last completed frame as a flat A11y_Node array,
@@ -308,6 +314,11 @@ Context :: struct {
 	focus_id:      Instance, // keyboard focus (§3.17): traversal, click,
 	                         // or programmatic; input_keys/input_text
 	                         // route to it
+	declaring:     bool, // between frame_begin and frame_end
+	focus_steps:   int,  // focus_next/focus_prev calls made during
+	                     // declare, net: applied at frame_end against
+	                     // the whole tree (mid-declare, the nodes after
+	                     // the caller do not exist yet)
 	key_press_id:    Instance, // Space/Enter capture on the focused
 	                         // instance between key-down and key-up
 	key_press_code:  Key_Code,
@@ -507,6 +518,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.repaint)
 	when NIELLO_DEBUG {
 		delete(ctx.debug_nodes)
+		delete(ctx.debug_locs)
 	}
 	a11y_free_mirror(ctx)
 	delete(ctx.instances)

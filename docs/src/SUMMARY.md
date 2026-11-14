@@ -32,3 +32,4 @@
     - [niello/virtual](reference/virtual.md)
     - [niello/inbox](reference/inbox.md)
     - [niello/debugui](reference/debugui.md)
+    - [niello/agent](reference/agent.md)

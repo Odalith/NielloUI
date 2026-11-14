@@ -471,6 +471,9 @@ when niello.NIELLO_DEBUG {
 		if file, line, lok := niello.debug_unit_loc(dn.unit); lok {
 			kv("minted", fmt.bprintf(buf[:], "%s:%d", basename(file), line))
 		}
+		if dn.loc.line > 0 {
+			kv("declared", fmt.bprintf(buf[:], "%s:%d", basename(dn.loc.file_path), dn.loc.line))
+		}
 		kv("rect", fmt.bprintf(buf[:], "(%.0f, %.0f)  %.0f x %.0f", dn.rect.pos.x, dn.rect.pos.y, dn.rect.size.x, dn.rect.size.y))
 		kv("overfl", fmt.bprintf(buf[:], "(%.0f, %.0f)", dn.overfl.x, dn.overfl.y))
 		kv("spill", fmt.bprintf(buf[:], "(%.0f, %.0f)", dn.spill.x, dn.spill.y))

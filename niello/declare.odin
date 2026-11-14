@@ -278,6 +278,10 @@ declare_as :: proc(
 	if NIELLO_DEBUG || a11y_declared(with) {
 		with_idx = i32(len(g.withs))
 		append(&g.withs, with)
+		when NIELLO_DEBUG {
+			append(&g.debug_locs, g.debug_site)
+			g.debug_site = {}
+		}
 		w := &g.withs[with_idx]
 		if lb, ok := w.label.?; ok {
 			w.label = copy_frame_text(lb)

@@ -751,3 +751,46 @@ test_offscreen_scroller_keeps_its_offset :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, niello.scroll_offset(cs_inner_i), niello.Vec2{0, 90})
 }
+
+// Overflow is measured from a container's own content origin: rows
+// scrolled up past the window's top report none, and a scroller there
+// keeps its true range.
+sc_far_list, sc_far_row, sc_far_cell, sc_far_outer, sc_far_inner: niello.Unit
+sc_far_list_i, sc_far_inner_i: niello.Instance
+sc_far_rows: [30]niello.Instance
+
+@(test)
+test_overflow_above_the_window :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&sc_far_list, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(300), niello.fixed(200)), scroll = .Vertical, gap = 4})
+	niello.mint(&sc_far_row, niello.NO_UNIT, {layout = .Left_To_Right, size = niello.size(niello.grow(), niello.fit())})
+	niello.mint(&sc_far_cell, niello.NO_UNIT, {size = niello.size(niello.fixed(50), niello.fixed(30))})
+	niello.mint(&sc_far_inner, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.grow(), niello.fixed(60)), scroll = .Vertical})
+	frame :: proc() {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 400}}, 0.016)
+		if niello.begin(sc_far_list, out = &sc_far_list_i) {
+			if niello.begin(sc_far_inner, out = &sc_far_inner_i) {
+				for k in 0 ..< 4 {
+					niello.show(sc_far_cell, key = niello.key_int(k)) // 120 of content in 60
+				}
+			}
+			for k in 0 ..< 30 {
+				if niello.begin(sc_far_row, key = niello.key_int(k), out = &sc_far_rows[k]) {
+					niello.show(sc_far_cell)
+				}
+			}
+		}
+		niello.frame_end()
+	}
+	frame()
+	frame()
+	testing.expect_value(t, niello.scroll_range(sc_far_inner_i), niello.Vec2{0, 60})
+	niello.scroll_to(sc_far_list_i, {0, 1e9})
+	frame()
+	frame()
+	r, _ := niello.rect(sc_far_rows[0])
+	testing.expectf(t, r.pos.y + r.size.y < 0, "the first row is scrolled above the window (%v)", r)
+	testing.expect_value(t, niello.test_overflow(sc_far_rows[0]), niello.Vec2{0, 0})
+	testing.expect_value(t, niello.scroll_range(sc_far_inner_i), niello.Vec2{0, 60})
+}

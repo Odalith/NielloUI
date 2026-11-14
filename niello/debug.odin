@@ -22,6 +22,8 @@ package niello
 // context is bound, because on the one UI thread a peer sits at
 // a frame boundary.
 
+import "base:runtime"
+
 // DEBUG_OVERFLOW_COLOR tints instances in the overflow report (debug builds):
 // a translucent red fill with a solid red border.
 DEBUG_OVERFLOW_COLOR :: Color{255, 60, 60, 56}
@@ -51,12 +53,19 @@ Debug_Node :: struct {
 	unit:     Unit,
 	rect:     Rect, // committed rect; zero when culled
 	overfl:   Vec2, // how far children extend past its bounds, per axis
-	spill:    Vec2, // how far its own content exceeds its box, per axis
-	                // (truncated text, a container squeezed below its
-	                // content)
+	spill:    Vec2, // how far its own content exceeds its box, per axis:
+	                // text cut short (unwrapped) or a word wider than the
+	                // box (wrapped), a container squeezed below what its
+	                // children can shrink to, content taller than the box
 	flags:    Debug_Flags,
 	with:     Debug_With, // the With overrides this instance was
 	                      // declared with
+	// text is what it shows: With.text, or its unit's text. Borrowed:
+	// valid until the context's next frame_begin.
+	text:     string,
+	// loc is where it was declared: the show or begin call, which for a
+	// component is its caller's line (components forward loc).
+	loc:      runtime.Source_Code_Location,
 }
 
 // Overflow_Axis is the axis of an overflow report entry.
@@ -178,6 +187,15 @@ debug_snapshot_build :: proc() {
 					max(0, g.lay[i].content.x - g.lay[i].size.x),
 					max(0, g.lay[i].content.y - g.lay[i].size.y),
 				}
+				// Across, content is the one-line width, which wrapped
+				// text (and every container holding it) only needs before
+				// it wraps. What really spills is the box squeezed below its
+				// floor: for wrapped text a word wider than the box, for a
+				// container what its children cannot shrink below. Unwrapped
+				// text keeps content: its spill is what the ellipsis trims.
+				if !nd.has_text || s.wrap == .Word {
+					spill.x = max(0, g.lay[i].min_c.x - g.lay[i].size.x)
+				}
 			}
 			append(
 				&g.debug_nodes,
@@ -190,6 +208,8 @@ debug_snapshot_build :: proc() {
 					spill = spill,
 					flags = flags,
 					with = dw,
+					text = nd.text,
+					loc = nd.with_idx >= 0 ? g.debug_locs[nd.with_idx] : {},
 				},
 			)
 		}
