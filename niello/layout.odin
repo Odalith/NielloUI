@@ -94,7 +94,7 @@ resolve_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 		v = sz.value
 	case .Percent:
 		v = sz.value * viewport_extent
-	case .Fit, .Grow:
+	case .Fit, .Grow, .Keep: // .Keep never reaches layout: the style merge resolves it
 	// fill the viewport
 	}
 	return clamp(v, sz.min, sz.max)
@@ -111,7 +111,7 @@ resolve_popup_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 		v = sz.value
 	case .Percent:
 		v = sz.value * viewport_extent
-	case .Fit, .Grow:
+	case .Fit, .Grow, .Keep: // .Keep never reaches layout: the style merge resolves it
 	}
 	return clamp(v, sz.min, sz.max)
 }
@@ -459,7 +459,7 @@ resolve_cross :: proc(c: int, axis: int, inner: f32, parent_scrolls: bool) {
 		set_size(c, axis, clamp(sz.value, sz.min, sz.max))
 	case .Percent:
 		set_size(c, axis, clamp(sz.value * inner, sz.min, sz.max))
-	case .Fit:
+	case .Fit, .Keep: // .Keep never reaches layout: the style merge resolves it
 		// FIT grants content, bounded by the space the parent offers — the
 		// cross-axis mirror of the main axis's waterfill bound. Without the
 		// offer bound a FIT child keeps its full intrinsic size however
@@ -631,7 +631,7 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 			v := clamp(sz.value * inner, sz.min, sz.max)
 			set_size(c, axis, v)
 			committed += v
-		case .Fit:
+		case .Fit, .Keep: // .Keep never reaches layout: the style merge resolves it
 			v := clamp(g.lay[c].content[axis], sz.min, sz.max)
 			set_size(c, axis, v)
 			committed += v
@@ -706,7 +706,7 @@ distribute_wrap_x :: proc(i: int, inner: f32) {
 			v = sz.value
 		case .Percent:
 			v = sz.value * inner
-		case .Fit, .Grow:
+		case .Fit, .Grow, .Keep: // .Keep never reaches layout: the style merge resolves it
 			v = max(min(g.lay[c].content.x, limit), floor_of(c, X_AXIS))
 		}
 		set_size(c, X_AXIS, clamp(v, sz.min, sz.max))
@@ -1527,9 +1527,10 @@ reorder_tree :: proc() {
 // ---------------------------------------------------------------------------
 // Focus reveal (§3.17): keyboard focus scrolls into view
 
-// focus_reveal scrolls the scrollers around a keyboard-focused instance
-// just far enough to show it — with the focus ring's margin — after the
-// move set g.reveal_id (set_focus_id). It runs at the end of frame_end,
+// focus_reveal serves this frame's scroll_into_view request (g.view_id),
+// then scrolls the scrollers around a keyboard-focused instance just far
+// enough to show it — with the focus ring's margin — after the move set
+// g.reveal_id (set_focus_id). It runs at the end of frame_end,
 // when this frame's rects are known, innermost scroller first; each
 // scroller's move shifts the rect the next one out tests. The offsets
 // land next frame (a wake is scheduled), the same lag as a declare-time
@@ -1537,6 +1538,12 @@ reorder_tree :: proc() {
 // Pointer focus never reveals: the instance is under the pointer.
 @(private)
 focus_reveal :: proc() {
+	// A scroll_into_view request first: keyboard focus, when it also
+	// moved this frame, has the last word.
+	if id := g.view_id; id != 0 {
+		g.view_id = 0
+		reveal_instance(id, 0)
+	}
 	id := g.reveal_id
 	if id == 0 {
 		return
@@ -1545,6 +1552,17 @@ focus_reveal :: proc() {
 	if id != g.focus_id {
 		return
 	}
+	cfg := store.focus_ring.? or_else DEFAULT_FOCUS_RING
+	reveal_instance(id, cfg.width > 0 ? max(0, f32(cfg.offset) + f32(cfg.width)) : 0)
+}
+
+// reveal_instance scrolls the scrollers around instance id just far
+// enough to show it whole, with margin m around it (focus_reveal: the
+// focus ring), innermost first; each scroller's move shifts the rect the
+// next one out tests. A smooth_scroll scroller glides there like the
+// wheel. Not declared this frame, or culled: nothing moves.
+@(private)
+reveal_instance :: proc(id: Instance, m: f32) {
 	idx := -1
 	for k in 0 ..< len(g.nodes) {
 		if g.nodes[k].identity == id {
@@ -1555,8 +1573,6 @@ focus_reveal :: proc() {
 	if idx < 0 || g.nodes[idx].culled {
 		return
 	}
-	cfg := store.focus_ring.? or_else DEFAULT_FOCUS_RING
-	m := cfg.width > 0 ? max(0, f32(cfg.offset) + f32(cfg.width)) : 0
 	target := Rect{g.lay[idx].pos - {m, m}, g.lay[idx].size + {2 * m, 2 * m}}
 	moved := false
 	child := idx

@@ -78,7 +78,7 @@ Key :: distinct u64
 // neither.
 Field :: enum u8 {
 	Color, Font_Color, Border_Color,
-	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Whitespace, Ellipsis, Justify,
+	Text, Font, Font_Size, Font_Weight, Font_Slant, Wrap, Whitespace, Ellipsis, Justify,
 	Padding, Gap, Line_Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
@@ -94,7 +94,7 @@ Fields :: bit_set[Field]
 // ALL_FIELDS is every Field: the mask a unit joins a group with by default.
 ALL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
-	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Wrap, .Whitespace, .Ellipsis, .Justify,
 	.Padding, .Gap, .Line_Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
@@ -109,7 +109,7 @@ ALL_FIELDS :: Fields{
 // repaints.
 VISUAL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
-	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Wrap, .Whitespace, .Ellipsis, .Justify,
 	.Padding, .Gap, .Line_Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
@@ -132,12 +132,14 @@ Layout :: enum u8 {
 	Wrap,
 }
 
-// Sizing_Kind is how a Sizing resolves (see fit, grow, fixed, percent).
+// Sizing_Kind is how a Sizing resolves (see fit, grow, fixed, percent,
+// keep).
 Sizing_Kind :: enum u8 {
 	Fit,     // the content's size
 	Grow,    // a share of the parent's leftover space
 	Fixed,   // a value in DIP
 	Percent, // a fraction of the parent's content box
+	Keep,    // With.size only: this axis keeps the unit's own sizing
 }
 
 // Sizing is one axis of a Size. Build it with fit, grow, fixed or percent.
@@ -189,6 +191,15 @@ grow :: proc(weight: f32 = 1, min: f32 = 0, max: f32 = INF, priority: i8 = 0) ->
 	assert(weight >= 0, "niello.grow: weight must not be negative")
 	assert(min <= max, "niello.grow: min must not exceed max")
 	return Sizing{kind = .Grow, min = min, max = max, weight = weight, priority = priority}
+}
+
+// keep is an axis a With.size leaves alone: it keeps the sizing the
+// instance has without the override (its unit's, through its variant and
+// state overlays). size(fixed(240), keep()) sets a width only, so a
+// control keeps its own height. A style has no own sizing to keep, so
+// setting keep() in one (mint, set, edit, a glide) asserts.
+keep :: proc "contextless" () -> Sizing {
+	return Sizing{kind = .Keep}
 }
 
 // ============ style shorthands ============
@@ -548,9 +559,10 @@ With :: struct {
 	// value or flags appears in the accessibility tree (a11y_tree); one with
 	// none of them does not.
 	label: Maybe(string),       // the accessible name; unset, the instance's
-	                            // text names it
+	                            // text names it. Copied, like text, so a
+	                            // temporary string is fine
 	role:        A11y_Role,     // .None = unset
-	description: Maybe(string), // the accessible description
+	description: Maybe(string), // the accessible description; copied too
 	value:       A11y_Value,    // the value of a slider, progress bar or edit field
 	a11y_flags: A11y_Flags,     // Checked, Selected, Expanded, ReadOnly…
 }
@@ -870,6 +882,9 @@ write_style_field :: proc(u: Unit, f: Field, v: any) -> bool {
 		}
 	}
 	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
+	if f == .Size {
+		assert_style_size(must(v, Size))
+	}
 	#partial switch f {
 	case .Text:
 		store_text(&rec.style.text, must(v, string))
@@ -1047,6 +1062,36 @@ begin :: #force_inline proc(
 	return begin_at(unit, with, key, out, site_hash(loc))
 }
 
+// open_container opens a container as begin does, without closing it:
+// the caller closes it with end. It is for a component that opens a
+// container its caller's block fills, which begin can't do: begin's end
+// runs when the scope that called begin closes, inside the component.
+// Mark the component @(deferred_out = …) with a proc that calls end, and
+// its users write it as an if-initializer, like begin. out, identity and
+// loc work as for begin.
+//
+//	@(deferred_out = card_end)
+//	card :: proc(title: string, loc := #caller_location) -> (open: bool) {
+//		open = niello.open_container(card_u, loc = loc)
+//		niello.show(title_u, {text = title})
+//		return
+//	}
+//	card_end :: proc(open: bool) {
+//		niello.end(open)
+//	}
+open_container :: #force_inline proc(
+	unit: Unit,
+	with: With = {},
+	key: Key = 0,
+	out: ^Instance = nil,
+	loc := #caller_location,
+) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
+	return begin_at(unit, with, key, out, site_hash(loc))
+}
+
 @(private)
 begin_at :: proc(unit: Unit, with: With, key: Key, out: ^Instance, site: u64) -> (open: bool) {
 	i, idx := declare(unit, key, with, true, site)
@@ -1171,7 +1216,11 @@ begin_section_at :: proc(unit: Unit, b: Builder, with: With, key: Key, out: ^Ins
 	when NIELLO_DEBUG {
 		sz := unit_style(unit).size
 		if ws, ok := with.size.?; ok {
-			sz = ws
+			for a in 0 ..< 2 {
+				if ws[a].kind != .Keep {
+					sz[a] = ws[a]
+				}
+			}
 		}
 		assert(sz[X_AXIS].kind != .Fit && sz[Y_AXIS].kind != .Fit,
 			"niello: a begin_section host cannot be Fit-sized: its children are declared after it is laid out")
@@ -1333,10 +1382,29 @@ begin_popup_at :: proc(
 // dismiss_requested reports that the user asked to close popup i this
 // frame: a press outside it (and outside every popup above it), or Esc.
 // The engine keeps no open state: stop declaring the popup and it is
-// closed. Like clicked, it answers for one frame.
+// closed. Like clicked, it answers for one frame. dismiss_reason says
+// which of the two it was, for a popup that closes on one only (a
+// dialog that Esc cancels but a click on its backdrop doesn't).
 dismiss_requested :: proc(i: Instance) -> bool {
-	_, ok := g.dismiss_flags[i]
-	return ok
+	return dismiss_reason(i) != .None
+}
+
+// Dismiss_Reason is why the user asked to close a popup (dismiss_reason).
+Dismiss_Reason :: enum u8 {
+	None,          // no request this frame
+	Escape,        // Esc
+	Press_Outside, // a press outside it and every popup above it
+}
+
+// dismiss_reason is why the user asked to close popup i this frame, or
+// .None when they didn't. Like dismiss_requested, it answers for one
+// frame.
+//
+//	if r := niello.dismiss_reason(dialog_i); r == .Escape {
+//		app.dialog_open = false // Esc cancels; a backdrop click doesn't
+//	}
+dismiss_reason :: proc(i: Instance) -> Dismiss_Reason {
+	return g.dismiss_flags[i] or_else .None
 }
 
 // ============ contexts ============
@@ -1360,7 +1428,7 @@ context_create :: proc() -> ^Context {
 	ctx.scroll_max = make(map[Instance]Vec2)
 	ctx.scroll_glides = make(map[Instance]Scroll_Glide)
 	ctx.hover_since = make(map[Instance]f32)
-	ctx.dismiss_flags = make(map[Instance]bool)
+	ctx.dismiss_flags = make(map[Instance]Dismiss_Reason)
 	ctx.transients = make(map[Instance]Transient_Rec)
 	ctx.edits = make(map[Unit]^Edit_State)
 	// The store's two caches are shared by all contexts: the
@@ -2012,10 +2080,29 @@ scroll_range :: proc(i: Instance) -> Vec2 {
 	return g.scroll_max[i] or_else Vec2{0, 0}
 }
 
+// scroll_into_view scrolls every scroller holding instance i just far
+// enough to show it whole (its start, when it is larger than the view),
+// innermost first, as keyboard focus reveals what it lands on. It acts at
+// frame_end, against that frame's layout: an instance declared this
+// frame, such as a row just added, is found, and the scroll range already
+// counts it. The offsets show from the next frame, which is scheduled; a
+// smooth_scroll scroller glides there. One instance per frame: a later
+// call replaces an earlier one. An instance not declared this frame is
+// ignored. To keep a list on its newest item, reveal the item:
+//
+//	row_i := niello.show(row_u, {text = item}, niello.key_int(id))
+//	if just_added == id {
+//		niello.scroll_into_view(row_i)
+//	}
+scroll_into_view :: proc(i: Instance) {
+	g.view_id = i
+}
+
 // scroll_to sets scroller i's offset in DIP: scroll_to(list_i, {0, 0}) is
 // back to the top. It jumps (a glide in flight stops), and an offset past
-// the range lands on its end. Called during declare it applies to this
-// frame.
+// the range lands on its end: the range as of the last frame, so content
+// added this frame is not in it yet (to show an item, use
+// scroll_into_view). Called during declare it applies to this frame.
 scroll_to :: proc(i: Instance, offset: Vec2) {
 	if i == 0 {
 		return

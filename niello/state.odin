@@ -338,9 +338,9 @@ Context :: struct {
 	// frame's list (cleared after dispatch); frame_end reads this
 	// frame's for the modal focus bookkeeping.
 	popups:          [dynamic]Popup_Rec,
-	dismiss_flags:   map[Instance]bool, // popups whose dismissal was
-	                         // requested at this frame's dispatch;
-	                         // valid for one declare (dismiss_requested)
+	dismiss_flags:   map[Instance]Dismiss_Reason, // popups whose dismissal
+	                         // was requested at this frame's dispatch, and
+	                         // why; valid for one declare (dismiss_reason)
 	modal_prev_id:   Instance, // last frame_end's topmost modal
 	                         // popup root; 0 = no modal session
 	modal_saved_focus: Instance, // focus held when the modal
@@ -390,6 +390,7 @@ Context :: struct {
 	                           // (or key on the holder) came from the
 	                           // keyboard or code, not a pointer press
 	reveal_id:     Instance,   // focus to scroll into view at frame_end
+	view_id:       Instance,   // scroll_into_view's instance, for frame_end
 	                           // (set by non-pointer focus moves)
 	ring_painted:  Ring_Paint, // the ring the last frame painted (damage)
 	ring_idx:      int,        // node that paints the ring this frame

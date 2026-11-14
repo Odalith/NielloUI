@@ -1,9 +1,29 @@
 package tests
 
 import "base:runtime"
+import "core:fmt"
 import "core:reflect"
+import "core:strings"
 import "core:testing"
+import "core:unicode"
 import niello ".."
+
+// pascal turns a member name into its Field name: font_color -> Font_Color.
+@(private = "file")
+pascal :: proc(snake: string) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	up := true
+	for c in snake {
+		if c == '_' {
+			strings.write_rune(&b, '_')
+			up = true
+			continue
+		}
+		strings.write_rune(&b, up ? unicode.to_upper(c) : c)
+		up = false
+	}
+	return strings.to_string(b)
+}
 
 // The style field table names every field's place in Style and in
 // Style_Decl. A row that points at the wrong member, or a member with
@@ -15,15 +35,19 @@ test_field_table_matches_the_structs :: proc(t: ^testing.T) {
 	style := reflect.struct_fields_zipped(niello.Style)
 	decl := reflect.struct_fields_zipped(niello.Style_Decl)
 
-	// Style holds style fields only: one row each.
+	// Style holds style fields only: one row each, and each field is
+	// named after its member (Style.font_color is Field.Font_Color), so
+	// the name in set(u, .X, v) is the name in a Style_Decl.
 	testing.expect_value(t, len(style), len(niello.Field))
 	for sf in style {
 		hits := 0
-		for row in rows {
+		for row, f in rows {
 			if row.style_off == sf.offset {
 				hits += 1
 				testing.expectf(t, row.id == sf.type.id, "Style.%s: the row's type differs", sf.name)
 				testing.expectf(t, row.size == sf.type.size, "Style.%s: the row's size differs", sf.name)
+				name := fmt.tprintf("%v", f)
+				testing.expectf(t, name == pascal(sf.name), "Style.%s is Field.%s: the field should be named %s", sf.name, name, pascal(sf.name))
 			}
 		}
 		testing.expectf(t, hits == 1, "Style.%s has %d rows", sf.name, hits)

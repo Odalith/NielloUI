@@ -794,3 +794,89 @@ test_overflow_above_the_window :: proc(t: ^testing.T) {
 	testing.expect_value(t, niello.test_overflow(sc_far_rows[0]), niello.Vec2{0, 0})
 	testing.expect_value(t, niello.scroll_range(sc_far_inner_i), niello.Vec2{0, 60})
 }
+
+// scroll_into_view: an item added this frame is in view once the next
+// frame shows the new offset; nested scrollers both move; an anchored
+// child moves nothing; an instance not declared is ignored.
+siv_list, siv_row, siv_inner, siv_cell, siv_badge: niello.Unit
+siv_list_i, siv_inner_i, siv_last_i, siv_deep_i, siv_badge_i: niello.Instance
+siv_rows: int
+siv_target: enum {None, Last, Deep, Badge, Ghost}
+
+siv_frame :: proc() {
+	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 400}}, 0.016)
+	if niello.begin(siv_list, out = &siv_list_i) {
+		siv_badge_i = niello.show(siv_badge, {anchored = true})
+		if niello.begin(siv_inner, out = &siv_inner_i) {
+			for k in 0 ..< 10 {
+				i := niello.show(siv_cell, key = niello.key_int(k))
+				if k == 9 {
+					siv_deep_i = i
+				}
+			}
+		}
+		for k in 0 ..< siv_rows {
+			siv_last_i = niello.show(siv_row, key = niello.key_int(k))
+		}
+	}
+	switch siv_target {
+	case .None:
+	case .Last:
+		niello.scroll_into_view(siv_last_i)
+	case .Deep:
+		niello.scroll_into_view(siv_deep_i)
+	case .Badge:
+		niello.scroll_into_view(siv_badge_i)
+	case .Ghost:
+		niello.scroll_into_view(niello.Instance(0xfeed))
+	}
+	niello.frame_end()
+}
+
+siv_inside :: proc(i, view: niello.Instance) -> bool {
+	r, ok := niello.rect(i)
+	v, vok := niello.rect(view)
+	return ok && vok && r.pos.y >= v.pos.y - 0.5 && r.pos.y + r.size.y <= v.pos.y + v.size.y + 0.5
+}
+
+@(test)
+test_scroll_into_view :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&siv_list, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(300), niello.fixed(200)), scroll = .Vertical})
+	niello.mint(&siv_row, niello.NO_UNIT, {size = niello.size(niello.grow(), niello.fixed(30))})
+	niello.mint(&siv_inner, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.grow(), niello.fixed(60)), scroll = .Vertical})
+	niello.mint(&siv_cell, niello.NO_UNIT, {size = niello.size(niello.grow(), niello.fixed(20))})
+	niello.mint(&siv_badge, niello.NO_UNIT, {size = niello.size(niello.fixed(20), niello.fixed(20))})
+	siv_rows = 20
+	siv_frame()
+	siv_frame()
+
+	// A row added this frame, revealed in the same declare.
+	siv_rows = 21
+	siv_target = .Last
+	siv_frame()
+	siv_target = .None
+	siv_frame()
+	testing.expect(t, siv_inside(siv_last_i, siv_list_i), "the row added and revealed is in view")
+	testing.expect_value(t, niello.scroll_offset(siv_list_i).y, niello.scroll_range(siv_list_i).y)
+
+	// A cell deep in a nested scroller near the top: both scrollers move.
+	siv_target = .Deep
+	siv_frame()
+	siv_target = .None
+	siv_frame()
+	testing.expect(t, siv_inside(siv_deep_i, siv_inner_i), "the cell is in its scroller's view")
+	testing.expect(t, siv_inside(siv_deep_i, siv_list_i), "and in the list's: the list scrolled back up to it")
+	testing.expect(t, niello.scroll_offset(siv_inner_i).y > 0, "the inner scroller moved")
+
+	// An anchored child does not scroll with its parent: nothing moves.
+	before := niello.scroll_offset(siv_list_i)
+	siv_target = .Badge
+	siv_frame()
+	siv_target = .Ghost // and an instance not declared is ignored
+	siv_frame()
+	siv_target = .None
+	siv_frame()
+	testing.expect_value(t, niello.scroll_offset(siv_list_i), before)
+}

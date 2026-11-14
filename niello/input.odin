@@ -297,11 +297,11 @@ topmost_modal :: proc() -> int {
 	return -1
 }
 
-// flag_dismiss records a dismissal request for one popup root; the
-// app reads it back with dismiss_requested during this declare.
+// flag_dismiss records a dismissal request for one popup root, and why;
+// the app reads it back with dismiss_reason during this declare.
 @(private)
-flag_dismiss :: proc(rec_idx: int) {
-	g.dismiss_flags[g.popups[rec_idx].id] = true
+flag_dismiss :: proc(rec_idx: int, reason: Dismiss_Reason) {
+	g.dismiss_flags[g.popups[rec_idx].id] = reason
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +531,7 @@ dispatch_keys :: proc(input: Input) {
 			consumed := false
 			for j := len(g.popups) - 1; j >= 0; j -= 1 {
 				if !g.popups[j].stay {
-					flag_dismiss(j)
+					flag_dismiss(j, .Escape)
 					consumed = true
 					break
 				}
@@ -686,13 +686,13 @@ dispatch_input :: proc(input: Input, dt: f32) {
 				if .Left in input.buttons_pressed {
 					for j := len(g.popups) - 1; j > cont; j -= 1 {
 						if !g.popups[j].stay {
-							flag_dismiss(j)
+							flag_dismiss(j, .Press_Outside)
 						}
 					}
 				}
 			} else if cont != mk {
 				if .Left in input.buttons_pressed && !g.popups[mk].stay {
-					flag_dismiss(mk)
+					flag_dismiss(mk, .Press_Outside)
 				}
 				pick = -1
 				clear(&chain_idx)
@@ -703,13 +703,13 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			if k := popup_containing(pick); k >= 0 {
 				for j := len(g.popups) - 1; j > k; j -= 1 {
 					if !g.popups[j].stay {
-						flag_dismiss(j)
+						flag_dismiss(j, .Press_Outside)
 					}
 				}
 			} else {
 				for j := len(g.popups) - 1; j >= 0; j -= 1 {
 					if !g.popups[j].stay {
-						flag_dismiss(j)
+						flag_dismiss(j, .Press_Outside)
 						press_consumed = true
 						break
 					}
@@ -1098,8 +1098,13 @@ resolve_styles_range :: proc(lo, hi: int) {
 		if dis { apply_overlay(&eff, rec.disabled) }
 		if has_tr { apply_transient(&eff, id) } // the pulse rides on top (§3.16)
 		// A per-instance size (With.size) wins over every overlay, as
-		// With.text wins over the unit's text.
-		if nd.size_idx >= 0 { eff.size = g.size_overrides[nd.size_idx] }
+		// With.text wins over the unit's text; an axis it leaves to
+		// keep() stays as the overlays made it.
+		if nd.size_idx >= 0 {
+			o := g.size_overrides[nd.size_idx]
+			if o[X_AXIS].kind != .Keep { eff.size[X_AXIS] = o[X_AXIS] }
+			if o[Y_AXIS].kind != .Keep { eff.size[Y_AXIS] = o[Y_AXIS] }
+		}
 		g.eff[i] = eff
 		nd.has_eff = true
 	}

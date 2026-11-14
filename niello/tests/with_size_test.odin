@@ -55,3 +55,34 @@ test_with_size_overrides_per_instance :: proc(t: ^testing.T) {
 	rc, _ = niello.rect(wsz_c)
 	testing.expect_value(t, rc.size, niello.Vec2{60, 10})
 }
+
+// keep(): an override that sets one axis leaves the other as the instance
+// has it without the override: the unit's, through its variant.
+wsz_keep_root, wsz_keep_box, wsz_keep_tall: niello.Unit
+wsz_keep_w, wsz_keep_h, wsz_keep_v: niello.Instance
+
+@(test)
+test_with_size_keep_leaves_an_axis :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&wsz_keep_root, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(400), niello.fixed(300))})
+	niello.mint(&wsz_keep_box, niello.NO_UNIT, {size = niello.size(niello.fixed(40), niello.fixed(20))})
+	niello.mint(&wsz_keep_tall, wsz_keep_box, {size = niello.size(niello.fixed(40), niello.fixed(50))})
+	frame :: proc() {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
+		if niello.begin(wsz_keep_root) {
+			wsz_keep_w = niello.show(wsz_keep_box, {size = niello.size(niello.fixed(120), niello.keep())})
+			wsz_keep_h = niello.show(wsz_keep_box, {size = niello.size(niello.keep(), niello.fixed(7))})
+			wsz_keep_v = niello.show(wsz_keep_box, {variant = wsz_keep_tall, size = niello.size(niello.fixed(90), niello.keep())})
+		}
+		niello.frame_end()
+	}
+	frame()
+	frame()
+	rw, _ := niello.rect(wsz_keep_w)
+	rh, _ := niello.rect(wsz_keep_h)
+	rv, _ := niello.rect(wsz_keep_v)
+	testing.expect_value(t, rw.size, niello.Vec2{120, 20})
+	testing.expect_value(t, rh.size, niello.Vec2{40, 7})
+	testing.expect_value(t, rv.size, niello.Vec2{90, 50}) // the variant's height
+}

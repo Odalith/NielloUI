@@ -24,7 +24,8 @@ macOS has release builds of the backend but is untested. Implemented:
   a one-queue inbox for results from worker threads (`niello/inbox`);
 - shipped controls (`niello/controls`): buttons, toggle button, switch,
   check box, radio group, combo box, tooltip, text box, slider, progress
-  bar and scrollbar, with theme, type and spacing roles;
+  bar, scrollbar and a captioned field, with theme, type and spacing
+  roles;
 - a debugger window in debug builds only (`-define:NIELLO_DEBUG=true`, F12
   in any window) at zero cost otherwise.
 - an agent harness in debug builds (`niello/agent`): a scenario runs the

@@ -1132,3 +1132,171 @@ test_combo_box_follows_the_theme :: proc(t: ^testing.T) {
 	testing.expect_value(t, niello.style_of(controls.parts.combo.item_hot).color, controls.LIGHT.hover)
 	testing.expect_value(t, niello.style_of(controls.parts.combo.box).color, controls.LIGHT.raised)
 }
+
+// A slider given a width only (keep() on the other axis) keeps its
+// track's height; given a whole Size, the height is the caller's.
+ct_keep_slider: controls.Slider
+ct_keep_i: niello.Instance
+
+ct_declare_keep_slider :: proc() {
+	if niello.begin(ct_root) {
+		controls.slider(&ct_keep_slider, "Volume", with = {size = niello.size(niello.fixed(200), niello.keep())})
+		ct_keep_i = ct_keep_slider.inst
+	}
+}
+
+@(test)
+test_slider_width_only :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ct_frame(ct_declare_keep_slider)
+	ct_frame(ct_declare_keep_slider)
+	r, ok := niello.rect(ct_keep_i)
+	testing.expect(t, ok, "the slider is declared")
+	testing.expect_value(t, r.size, niello.Vec2{200, controls.SLIDER_H})
+}
+
+// ---- check box and radio labels wrap ----
+
+CKW_LONG :: "Email me a summary of everything that happened in my projects this week"
+
+ckw_col, ckw_row: niello.Unit
+ckw_on, ckw_short_on: bool
+ckw_sel: int
+ckw_long_i, ckw_short_i, ckw_sized_i, ckw_button_i: niello.Instance
+ckw_shape: int
+
+ckw_declare :: proc() {
+	switch ckw_shape {
+	case 0: // a narrow column: a long label and a short one, a radio option
+		if niello.begin(ckw_col) {
+			ckw_long_i = ckw_checkbox(CKW_LONG, &ckw_on)
+			ckw_short_i = ckw_checkbox("Short", &ckw_short_on)
+			controls.radio_group({"Small", CKW_LONG}, &ckw_sel, label = "Size")
+		}
+	case 1: // a tight row: the checkbox beside a button
+		if niello.begin(ckw_row) {
+			ckw_long_i = ckw_checkbox(CKW_LONG, &ckw_on)
+			ckw_button_i = controls.button("Delete")
+		}
+	case 2: // with sizes the row
+		if niello.begin(ct_root) {
+			controls.checkbox("Sized", &ckw_on, with = {size = niello.size(niello.fixed(300), niello.keep())})
+			ckw_sized_i = ckw_last_checkbox()
+		}
+	}
+}
+
+// ckw_checkbox declares a checkbox and returns its row's instance (the
+// CheckBox node), found by name in the last frame's tree.
+ckw_checkbox :: proc(label: string, on: ^bool, loc := #caller_location) -> niello.Instance {
+	controls.checkbox(label, on, loc = loc)
+	n, _ := ck_node(.CheckBox, label)
+	return n.instance
+}
+
+ckw_last_checkbox :: proc() -> niello.Instance {
+	n, _ := ck_node(.CheckBox, "Sized")
+	return n.instance
+}
+
+ckw_any_truncated :: proc() -> bool {
+	for c in niello.draw_list() {
+		if c.tag == .Text && c.truncated {
+			return true
+		}
+	}
+	return false
+}
+
+@(test)
+test_checkbox_and_radio_labels_wrap :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	niello.mint(&ckw_col, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(220), niello.fit()), gap = 4})
+	niello.mint(&ckw_row, niello.NO_UNIT, {layout = .Left_To_Right, size = niello.size(niello.fixed(300), niello.fit()), gap = 8})
+
+	ckw_shape = 0
+	ct_frame(ckw_declare)
+	ct_frame(ckw_declare)
+	ct_frame(ckw_declare)
+	testing.expect(t, !ckw_any_truncated(), "no label is cut short")
+	rl, _ := niello.rect(ckw_long_i)
+	rs, _ := niello.rect(ckw_short_i)
+	testing.expectf(t, rl.size.x <= 220 + EPS, "the long checkbox keeps to the column (%v)", rl.size)
+	testing.expectf(t, rl.size.y > rs.size.y + 10, "its label wraps onto more lines (%v vs %v)", rl.size.y, rs.size.y)
+	opt, ok := ck_node(.RadioButton, CKW_LONG)
+	small, _ := ck_node(.RadioButton, "Small")
+	testing.expect(t, ok && opt.rect.size.y > small.rect.size.y + 10, "a radio option's text wraps too")
+
+	// Beside a button, the checkbox gives way: its label wraps and the
+	// button keeps its text.
+	ckw_shape = 1
+	ct_frame(ckw_declare)
+	ct_frame(ckw_declare)
+	ct_frame(ckw_declare)
+	testing.expect(t, !ckw_any_truncated(), "neither the label nor the button is cut short")
+	rb, _ := niello.rect(ckw_button_i)
+	rl, _ = niello.rect(ckw_long_i)
+	testing.expectf(t, rl.pos.x + rl.size.x <= rb.pos.x + EPS, "side by side (%v, %v)", rl, rb)
+
+	// with: a size for the row.
+	ckw_shape = 2
+	ct_frame(ckw_declare)
+	ct_frame(ckw_declare)
+	ct_frame(ckw_declare)
+	rz, _ := niello.rect(ckw_sized_i)
+	testing.expect_value(t, rz.size.x, f32(300))
+}
+
+// ---- field, and a text box's label ----
+
+fld_cb: controls.Combo_Box
+fld_tb, fld_tb2: controls.Text_Box
+FLD_LANGS := []string{"English", "Deutsch", "Français"}
+
+fld_declare :: proc() {
+	if niello.begin(ct_root) {
+		if controls.field("Language") {
+			controls.combo_box(&fld_cb, FLD_LANGS, label = "Language")
+		}
+		controls.text_box(&fld_tb, "e.g. Ada", label = "Name")
+		controls.text_box(&fld_tb2, "Search")
+	}
+}
+
+@(test)
+test_field_and_text_box_label :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	defer controls.text_box_destroy(&fld_tb)
+	defer controls.text_box_destroy(&fld_tb2)
+	ct_frame(fld_declare)
+	ct_frame(fld_declare)
+
+	// The caption is drawn above the control, which is named on its own.
+	combo, ok := ck_node(.ComboBox, "Language")
+	testing.expect(t, ok, "the combo box is named by its label")
+	caption: niello.Rect
+	found := false
+	for c in niello.draw_list() {
+		if c.tag == .Text && string(c.text_ptr[:c.text_len]) == "Language" {
+			caption, found = c.bounds, true
+		}
+	}
+	testing.expect(t, found, "the caption is drawn")
+	testing.expectf(t, caption.pos.y + caption.size.y <= combo.rect.pos.y + EPS, "above the control (%v, %v)", caption, combo.rect)
+	testing.expect(t, abs(caption.pos.x - combo.rect.pos.x) < EPS, "aligned with it")
+	testing.expect_value(t, niello.style_of(controls.parts.field.caption).font_color, controls.DARK.dim)
+	controls.apply_theme(controls.LIGHT)
+	testing.expect_value(t, niello.style_of(controls.parts.field.caption).font_color, controls.LIGHT.dim)
+
+	// A text box's label names it; without one, its placeholder does.
+	_, named := ck_node(.Edit, "Name")
+	testing.expect(t, named, "the text box is named by its label, not its placeholder")
+	_, by_placeholder := ck_node(.Edit, "Search")
+	testing.expect(t, by_placeholder, "without a label, the placeholder names it")
+}

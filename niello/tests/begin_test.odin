@@ -122,3 +122,47 @@ test_begin_popup_out_and_signal :: proc(t: ^testing.T) {
 	testing.expect(t, !missing_open && missing_i != 0, "an unanchored popup reports closed but still writes out")
 	testing.expect(t, niello.test_stack_depth() == 0, "every container popped")
 }
+
+// open_container: a component opens a container its caller's block fills,
+// and closes it through its own deferred_out.
+ocn_root, ocn_card, ocn_title, ocn_item: niello.Unit
+ocn_card_i, ocn_item_i: niello.Instance
+ocn_depth_inside: int
+
+@(deferred_out = ocn_card_end)
+ocn_card_block :: proc(title: string, loc := #caller_location) -> (open: bool) {
+	open = niello.open_container(ocn_card, out = &ocn_card_i, loc = loc)
+	niello.show(ocn_title, {text = title})
+	return
+}
+
+ocn_card_end :: proc(open: bool) {
+	niello.end(open)
+}
+
+@(test)
+test_open_container_holds_the_callers_block :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&ocn_root, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(400), niello.fixed(300))})
+	niello.mint(&ocn_card, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(200), niello.fit()), padding = niello.pad(10)})
+	niello.mint(&ocn_title, niello.NO_UNIT, {size = niello.size(niello.fixed(50), niello.fixed(20))})
+	niello.mint(&ocn_item, niello.NO_UNIT, {size = niello.size(niello.fixed(60), niello.fixed(30))})
+	for _ in 0 ..< 2 {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
+		if niello.begin(ocn_root) {
+			before := niello.test_stack_depth()
+			if ocn_card_block("Title") {
+				ocn_depth_inside = niello.test_stack_depth() - before
+				ocn_item_i = niello.show(ocn_item)
+			}
+			testing.expect_value(t, niello.test_stack_depth(), before)
+		}
+		niello.frame_end()
+	}
+	testing.expect_value(t, ocn_depth_inside, 1)
+	card, _ := niello.rect(ocn_card_i)
+	item, _ := niello.rect(ocn_item_i)
+	testing.expect_value(t, card.size, niello.Vec2{200, 10 + 20 + 30 + 10}) // padding, title, item
+	testing.expect_value(t, item.pos, card.pos + niello.Vec2{10, 30}) // below the title, inside the card
+}

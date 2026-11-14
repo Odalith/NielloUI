@@ -66,7 +66,7 @@ FIELD_META := [Field]Field_Meta {
 	.Font_Size            = {offset_of(Style, font_size), offset_of(Style_Decl, font_size), size_of(f32), typeid_of(type_of(Style{}.font_size)), typeid_of(type_of(Style_Decl{}.font_size)), .F32},
 	.Font_Weight          = {offset_of(Style, font_weight), offset_of(Style_Decl, font_weight), size_of(Font_Weight), typeid_of(type_of(Style{}.font_weight)), typeid_of(type_of(Style_Decl{}.font_weight)), .Snap},
 	.Font_Slant           = {offset_of(Style, font_slant), offset_of(Style_Decl, font_slant), size_of(Font_Slant), typeid_of(type_of(Style{}.font_slant)), typeid_of(type_of(Style_Decl{}.font_slant)), .Snap},
-	.Text_Wrap            = {offset_of(Style, wrap), offset_of(Style_Decl, wrap), size_of(Text_Wrap), typeid_of(type_of(Style{}.wrap)), typeid_of(type_of(Style_Decl{}.wrap)), .Snap},
+	.Wrap                 = {offset_of(Style, wrap), offset_of(Style_Decl, wrap), size_of(Text_Wrap), typeid_of(type_of(Style{}.wrap)), typeid_of(type_of(Style_Decl{}.wrap)), .Snap},
 	.Whitespace           = {offset_of(Style, whitespace), offset_of(Style_Decl, whitespace), size_of(Whitespace), typeid_of(type_of(Style{}.whitespace)), typeid_of(type_of(Style_Decl{}.whitespace)), .Snap},
 	.Ellipsis             = {offset_of(Style, ellipsis), offset_of(Style_Decl, ellipsis), size_of(bool), typeid_of(type_of(Style{}.ellipsis)), typeid_of(type_of(Style_Decl{}.ellipsis)), .Snap},
 	.Justify              = {offset_of(Style, justify), offset_of(Style_Decl, justify), size_of(bool), typeid_of(type_of(Style{}.justify)), typeid_of(type_of(Style_Decl{}.justify)), .Snap},
@@ -302,4 +302,13 @@ lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
 	case .Snap, .Text, .Spans:
 		copy_field(dst, b, f)
 	}
+}
+
+// assert_style_size checks a Size about to be stored in a style: keep()
+// only means something in a With.size (an axis that keeps the unit's own
+// sizing), and a style has no own sizing to keep.
+@(private)
+assert_style_size :: proc(sz: Size, loc := #caller_location) {
+	assert(sz[0].kind != .Keep && sz[1].kind != .Keep,
+		"niello: keep() is for With.size only (an axis that keeps the instance's own sizing); a style has none to keep", loc)
 }

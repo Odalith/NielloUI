@@ -113,7 +113,9 @@ declare_close :: proc(app: ^Form) {
 			}
 		}
 	}
-	if niello.dismiss_requested(dlg) {
+	// Esc keeps editing; a click on the backdrop does nothing, as a
+	// desktop dialog behaves (it would lose the question too easily).
+	if niello.dismiss_reason(dlg) == .Escape {
 		app.asking = false
 	}
 }

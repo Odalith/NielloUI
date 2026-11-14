@@ -88,6 +88,9 @@ mint_combo :: proc(t: Theme) {
 //
 // The box is as wide as its widest option, so it keeps its size as the
 // selection changes. Reports whether cb.selected changed this frame.
+// label names the box for screen readers (and for find in niello/agent);
+// it draws nothing, so show a caption beside it when the screen needs one
+// (controls.field).
 // a11y: the box is a ComboBox named label, its value the selected option,
 // Expanded while open; options are ComboBoxItems, the selected one Selected.
 combo_box :: proc(
