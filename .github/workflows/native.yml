@@ -837,11 +837,13 @@ jobs:
       # this step the workspace has no .git and `gh release create`
       # dies with "not a git repository" (2026-11-02 tag run).
       - uses: actions/checkout@v4
+      # One glob: download-artifact's `pattern` is a single pattern, not a
+      # list. The two-line form matched the whole string against every
+      # name and downloaded nothing (native-v0.2.0's first run). All four
+      # release artifacts, and only they, are named niello-*.
       - uses: actions/download-artifact@v4
         with:
-          pattern: |
-            niello-native-*
-            niello-sdl3-*
+          pattern: niello-*
           merge-multiple: true
       - name: create release
         env:
