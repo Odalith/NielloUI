@@ -71,8 +71,7 @@ click :: proc(app: ^App, i: niello.Instance) -> bool {
 @(private = "file")
 key :: proc(app: ^App, k: niello.Key_Code) {
 	inp: niello.Input
-	inp.keys[0] = niello.Key_Event{key = k, physical = k, down = true}
-	inp.key_count = 1
+	inp.keys = {niello.Key_Event{key = k, physical = k, down = true}}
 	frame(app, inp)
 }
 
@@ -284,9 +283,9 @@ showcase_smoke :: proc(t: ^testing.T) {
 	stepped := app.drag.volume.value
 	testing.expect(t, abs(stepped - (seeked + 0.1)) < 1e-4, "two Right presses step the slider")
 	key(&app, .Space)
-	frame(&app, {keys = {0 = niello.Key_Event{key = .Space, physical = .Space, down = false}}, key_count = 1})
+	frame(&app, {keys = {niello.Key_Event{key = .Space, physical = .Space, down = false}}})
 	key(&app, .Enter)
-	frame(&app, {keys = {0 = niello.Key_Event{key = .Enter, physical = .Enter, down = false}}, key_count = 1})
+	frame(&app, {keys = {niello.Key_Event{key = .Enter, physical = .Enter, down = false}}})
 	testing.expect_value(t, app.drag.volume.value, stepped)
 
 	// Async: a worker's progress arrives through the inbox.

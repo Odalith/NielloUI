@@ -63,10 +63,7 @@ fr_frame :: proc(declare: proc(), keys: []niello.Key_Event = nil, click: Maybe(n
 		inp.buttons_pressed = {.Left}
 		inp.buttons_down = {.Left}
 	}
-	for ev, i in keys {
-		inp.keys[i] = ev
-	}
-	inp.key_count = len(keys)
+	inp.keys = keys
 	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	return finish(declare)
 }

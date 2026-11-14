@@ -307,10 +307,9 @@ Context :: struct {
 	key_press_code:  Key_Code,
 	key_press_chain: [dynamic]Instance, // root-first chain snapshot,
 	                         // like the pointer press chains
-	frame_keys:      [16]Key_Event, // this frame's key events,
-	                         // snapshotted at dispatch
-	frame_key_count: int,
-	key_consumed:    [16]bool, // per slot: the core ate this event
+	frame_keys:      [dynamic]Key_Event, // this frame's key events,
+	                         // snapshotted at dispatch (owned)
+	key_consumed:    [dynamic]bool, // per event: the core ate it
 	                         // (traversal's Tab is never delivered)
 	input_target:    Instance, // key/text routing frozen at dispatch:
 	                           // the queries answer for it only
@@ -532,6 +531,8 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.drag_ended_chain)
 	delete(ctx.drag_started_chain)
 	delete(ctx.frame_text)
+	delete(ctx.frame_keys)
+	delete(ctx.key_consumed)
 	delete(ctx.keys_scratch)
 	delete(ctx.dead_ids)
 	delete(ctx.clicked_chain)

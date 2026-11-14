@@ -62,10 +62,7 @@ ct_frame :: proc(declare: proc(), mouse: Maybe(niello.Vec2) = nil, press := fals
 	if release {
 		inp.buttons_released = {.Left}
 	}
-	for ev, k in keys {
-		inp.keys[k] = ev
-	}
-	inp.key_count = len(keys)
+	inp.keys = keys
 	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	declare()
 	niello.frame_end()

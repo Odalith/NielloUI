@@ -664,8 +664,9 @@ Input :: struct {
 	             // (fractional on trackpads): positive y scrolls up
 	             // (toward the top), positive x scrolls left
 
-	keys:      [16]Key_Event, // events since the last frame, oldest first
-	key_count: int,
+	keys: []Key_Event, // the key events since the last frame, oldest first;
+	                   // read during frame_begin (the core copies them), so
+	                   // the host may reuse the storage afterwards
 
 	text: string, // the text typed since the last frame (UTF-8): characters,
 	              // dead-key results, IME commits. It goes to the focused
@@ -1988,9 +1989,9 @@ input_keys :: proc(i: Instance) -> []Key_Event {
 	if i == 0 || i != g.input_target {
 		return g.keys_scratch[:]
 	}
-	for k in 0 ..< g.frame_key_count {
+	for ev, k in g.frame_keys {
 		if !g.key_consumed[k] {
-			append(&g.keys_scratch, g.frame_keys[k])
+			append(&g.keys_scratch, ev)
 		}
 	}
 	return g.keys_scratch[:]

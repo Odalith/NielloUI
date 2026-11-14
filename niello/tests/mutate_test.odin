@@ -483,8 +483,7 @@ test_set_many_noop_and_focusable_and_clear_overlay :: proc(t: ^testing.T) {
 	}
 	inp := niello.Input{viewport = {400, 300}, window_focused = true}
 	declare_box(box, &inst, inp)
-	inp.keys[0] = niello.Key_Event{key = .Tab, down = true}
-	inp.key_count = 1
+	inp.keys = {niello.Key_Event{key = .Tab, down = true}}
 	declare_box(box, &inst, inp)
 	testing.expect(t, niello.focused(inst), "Tab still lands on the unit: focusable survived the unrelated set_many")
 

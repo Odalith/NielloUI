@@ -100,10 +100,7 @@ sec_frame :: proc(view := niello.Vec2{400, 300}, keys: []niello.Key_Event = nil,
 			inp.buttons_down = {.Left}
 		}
 	}
-	for ev, i in keys {
-		inp.keys[i] = ev
-	}
-	inp.key_count = len(keys)
+	inp.keys = keys
 	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	sec_declare()
 	return niello.frame_end()

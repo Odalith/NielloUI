@@ -93,8 +93,7 @@ Glue_Window :: struct {
 	buttons_released: niello.Buttons,
 	clicks:        u8, // click count of the last left press since the last frame
 	wheel:         niello.Vec2, // accumulated since the last frame
-	keys:          [16]niello.Key_Event,
-	key_count:     int,
+	keys:          [dynamic]niello.Key_Event, // key events since the last frame
 	text_buf:      [dynamic]u8, // committed text since the last frame (UTF-8)
 	// sizing + presentation
 	pixel_width:   i32,
@@ -301,6 +300,7 @@ destroy_window_now :: proc(win: ^Glue_Window) {
 	}
 	sdl.DestroyWindow(win.sdl_win)
 	delete(win.text_buf)
+	delete(win.keys)
 	for w, i in g_windows {
 		if w == win {
 			ordered_remove(&g_windows, i)
@@ -536,8 +536,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 		buttons_released = win.buttons_released,
 		clicks           = win.clicks,
 		wheel            = win.wheel,
-		keys             = win.keys,
-		key_count        = win.key_count,
+		keys             = win.keys[:],
 		text             = string(win.text_buf[:]),
 		window_focused   = win.focused,
 	}
@@ -563,12 +562,12 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	win.buttons_released = {}
 	win.clicks = 0
 	win.wheel = {}
-	win.key_count = 0
 	win.targeted = false
 
 	niello.frame_begin(win.ctx, input, dt)
-	// frame_begin copied the committed text into the core's own
-	// buffer; the accumulation starts over.
+	// frame_begin copied the keys and the committed text into the
+	// core's own buffers; the accumulation starts over.
+	clear(&win.keys)
 	clear(&win.text_buf)
 	call_declare(win.declare)
 	result := niello.frame_end()
@@ -626,7 +625,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	// deliberately excluded: hover is same-frame state, and a
 	// motion stream keeps the loop awake on its own.
 	if input.buttons_pressed != {} || input.buttons_released != {} ||
-	   input.wheel != {0, 0} || input.key_count > 0 || len(input.text) > 0 {
+	   input.wheel != {0, 0} || len(input.keys) > 0 || len(input.text) > 0 {
 		win.targeted = true
 	}
 }
@@ -772,14 +771,10 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 		win.mouse_valid = true
 	case .TEXT_INPUT:
 		// Committed text (typing, dead-key results, IME commits),
-		// accumulated for the next frame's Input.text. Capped: a
-		// frame's worth of typing is small; the cap only stops a
-		// pathological flood.
+		// accumulated for the next frame's Input.text. Nothing is
+		// dropped: a paste-sized IME commit arrives whole.
 		if event.text.text != nil {
-			ptr := cast([^]u8)event.text.text
-			for j := 0; ptr[j] != 0 && len(win.text_buf) < 1024; j += 1 {
-				append(&win.text_buf, ptr[j])
-			}
+			append(&win.text_buf, string(event.text.text))
 		}
 	case .KEY_DOWN, .KEY_UP:
 		// Debug summon (TODO #18): in a NIELLO_DEBUG build, F12
@@ -797,12 +792,10 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 				summoned = true
 			}
 		}
-		// Collected now, consumed by the focus pass later. Overflow past
-		// the ring is dropped: 16 key events in one frame is a flood, and
-		// the oldest are the ones that matter.
-		if !summoned && win.key_count < len(win.keys) {
-			win.keys[win.key_count] = key_event(event.key)
-			win.key_count += 1
+		// Collected now, consumed by the next frame's focus pass.
+		// Nothing is dropped, however many arrive between frames.
+		if !summoned {
+			append(&win.keys, key_event(event.key))
 		}
 	case .WINDOW_MOUSE_ENTER:
 		win.mouse_valid = true

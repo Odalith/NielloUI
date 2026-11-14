@@ -75,10 +75,7 @@ vl_teardown :: proc() {
 
 vl_frame :: proc(keys: []niello.Key_Event = nil, wheel := niello.Vec2{}) {
 	inp := niello.Input{viewport = {400, 400}, window_focused = true, mouse = {100, 100}, mouse_valid = true, wheel = wheel}
-	for ev, k in keys {
-		inp.keys[k] = ev
-	}
-	inp.key_count = len(keys)
+	inp.keys = keys
 	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	vl_declare()
 	niello.frame_end()

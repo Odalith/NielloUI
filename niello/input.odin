@@ -432,11 +432,12 @@ key_press_end :: proc(code: Key_Code) {
 // retro-route this frame's keys or text.
 @(private)
 dispatch_keys :: proc(input: Input) {
-	g.frame_key_count = min(input.key_count, 16)
-	for k in 0 ..< g.frame_key_count {
-		g.frame_keys[k] = input.keys[k]
+	clear(&g.frame_keys)
+	append(&g.frame_keys, ..input.keys)
+	resize(&g.key_consumed, len(input.keys))
+	for &c in g.key_consumed {
+		c = false
 	}
-	g.key_consumed = {}
 	clear(&g.frame_text)
 	if len(input.text) > 0 {
 		bytes := transmute([]u8)input.text
@@ -487,8 +488,7 @@ dispatch_keys :: proc(input: Input) {
 			}
 		}
 	}
-	for k in 0 ..< g.frame_key_count {
-		ev := g.frame_keys[k]
+	for ev, k in g.frame_keys {
 		if ev.key == .Escape && ev.down && !ev.repeat {
 			// Esc light-dismisses the topmost dismissible popup
 			// (§3.19) and is consumed, like Tab; with no popup to
@@ -1288,8 +1288,7 @@ note_key_modality :: proc() {
 	if g.focus_id == 0 {
 		return
 	}
-	for k in 0 ..< g.frame_key_count {
-		ev := g.frame_keys[k]
+	for ev in g.frame_keys {
 		if ev.down && !(ev.key >= .Left_Shift && ev.key <= .Right_Super) {
 			g.focus_visible = true
 			return
