@@ -86,7 +86,7 @@ page_controls :: proc(app: ^App) {
 	if niello.begin(ui.card) {
 		heading("Hover, tooltips and cursors")
 		s.hover_i = controls.button("Hover me")
-		tooltip(s.hover_i, "Tooltips are popups shown once hover_duration passes 0.5 s.")
+		controls.tooltip(s.hover_i, "Tooltips are popups shown once the pointer rests for 0.5 s, or at once when Tab brings focus here.")
 		d := niello.hover_duration(s.hover_i)
 		note(d > 0 ? fmt.tprintf("hovered for %.1f s", d) : "not hovered")
 		if niello.begin(ui.row) {

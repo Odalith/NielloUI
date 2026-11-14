@@ -1,6 +1,6 @@
 // Package controls is NielloUI's shipped control collection: buttons, a
-// switch, check boxes, radio groups, a text box, a slider, a progress bar
-// and a scrollbar, built on niello's public API only.
+// switch, check boxes, radio groups, tooltips, a text box, a slider, a
+// progress bar and a scrollbar, built on niello's public API only.
 //
 //	controls.init()                       // once, after niello is up: mints every part
 //	if niello.clicked(controls.button("Save", .Primary)) { save() }
@@ -151,6 +151,7 @@ Parts :: struct {
 	switch_:   Switch_Parts,
 	check:     Check_Parts,
 	radio:     Radio_Parts,
+	tooltip:   Tooltip_Parts,
 	text_box:  Text_Box_Parts,
 	slider:    Slider_Parts,
 	scrollbar: Scrollbar_Parts,
@@ -189,6 +190,7 @@ init :: proc(t := DARK, ty := DEFAULT_TYPE, sp := DEFAULT_SPACING) {
 	mint_buttons(t)
 	mint_switch(t)
 	mint_check(t)
+	mint_tooltip(t)
 	mint_text_box(t)
 	mint_slider(t)
 	mint_scrollbar(t)

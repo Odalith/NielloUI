@@ -1,7 +1,8 @@
 // components.odin — the showcase's reusable pieces: style helpers, the
-// shared units, and the small components niello/controls does not ship
-// yet (tooltip). Buttons, toggles, the switch, check boxes, radio groups,
-// text boxes, sliders, progress bars and scrollbars are niello/controls'.
+// shared units, and the small pieces only the showcase needs (heading,
+// note, the status line). Every control (buttons, toggles, the switch,
+// check boxes, radio groups, tooltips, text boxes, sliders, progress bars
+// and scrollbars) is niello/controls'.
 //
 // The component convention: a component's units are its PARTS — public
 // fields of a struct minted once (button_mint, slider_mint, …). A
@@ -56,7 +57,7 @@ Units :: struct {
 	// containers
 	column, row, flow, card, card_row, wrap_box: niello.Unit,
 	// popups
-	tooltip, tooltip_text, menu, menu_item, menu_item_hover, backdrop, dialog: niello.Unit,
+	menu, menu_item, menu_item_hover, backdrop, dialog: niello.Unit,
 }
 ui: Units
 
@@ -129,11 +130,6 @@ mint_units :: proc(t: Theme) {
 	niello.mint(&ui.card_row, ui.card, {layout = .Left_To_Right, align = START_CENTER, group_masks = card_roles})
 	niello.mint(&ui.wrap_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = size(fixed(300), fit())})
 
-	niello.mint(&ui.tooltip, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = size(fit(max = 260), fit()),
-		color = niello.rgb(0x0c0e12, 235), corner_radius = 6, padding = pad_xy(10, 6),
-	})
-	niello.mint(&ui.tooltip_text, niello.NO_UNIT, {font_size = 12, font_color = niello.rgb(0xf0f0f5), wrap = .Word})
 	niello.mint(&ui.menu, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(190), fit()),
 		color = t.panel, corner_radius = 8, border_width = 1, border_color = t.hover,
@@ -164,22 +160,6 @@ heading :: proc(text: string, loc := #caller_location) {
 
 note :: proc(text: string, loc := #caller_location) {
 	niello.show(ui.dim, {text = text}, loc = loc)
-}
-
-// ---- tooltip ---------------------------------------------------------------
-
-TOOLTIP_DELAY :: 0.5 // seconds
-
-// tooltip shows text below anchor once the cursor has rested on it.
-// hover_duration keeps frames coming while the hover lasts, so the
-// tooltip appears even when nothing else is animating.
-tooltip :: proc(anchor: niello.Instance, text: string) {
-	if anchor == 0 || niello.hover_duration(anchor) < TOOLTIP_DELAY {
-		return
-	}
-	if niello.begin_popup(ui.tooltip, anchor, .Below, key = niello.Key(u64(anchor)), opts = {gap = 6, stay = true}) {
-		niello.show(ui.tooltip_text, {text = text})
-	}
 }
 
 // ---- misc ------------------------------------------------------------------
