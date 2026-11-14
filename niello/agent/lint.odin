@@ -388,8 +388,8 @@ when niello.NIELLO_DEBUG {
 	}
 
 	// loc_string is file:line, the file relative to the repository (the
-	// nearest folder above the working directory holding .git), or as given
-	// when it lies outside it.
+	// nearest folder above the working directory holding .git; without
+	// one, the working directory), or as given when it lies outside it.
 	@(private)
 	loc_string :: proc(loc: runtime.Source_Code_Location) -> string {
 		if loc.line == 0 {
@@ -418,18 +418,21 @@ when niello.NIELLO_DEBUG {
 		if err != nil {
 			return ""
 		}
+		d := dir
 		for {
-			if os.exists(strings.concatenate({dir, "/.git"}, context.temp_allocator)) {
-				repo_root_cache = dir
-				return dir
+			if os.exists(strings.concatenate({d, "/.git"}, context.temp_allocator)) {
+				repo_root_cache = d
+				return d
 			}
-			cut := strings.last_index_any(dir, "/\\")
+			cut := strings.last_index_any(d, "/\\")
 			if cut <= 0 {
 				break
 			}
-			dir = dir[:cut]
+			d = d[:cut]
 		}
-		return ""
+		// No repository: paths are relative to the working directory.
+		repo_root_cache = dir
+		return dir
 	}
 
 	// quote is text in double quotes, as the report writes it: quotes,

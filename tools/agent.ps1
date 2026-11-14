@@ -12,8 +12,10 @@ param(
 	[string]$Scenario = ""
 )
 $ErrorActionPreference = "Stop"
-$out = if ($env:NIELLO_AGENT_OUT) { $env:NIELLO_AGENT_OUT } else { "agent-out" }
-$odinArgs = @("-define:ODIN_TEST_THREADS=1", "-define:NIELLO_DEBUG=true", "-define:NIELLO_AGENT_OUT=$out")
+$odinArgs = @("-define:ODIN_TEST_THREADS=1", "-define:NIELLO_DEBUG=true")
+if ($env:NIELLO_AGENT_OUT) {
+	$odinArgs += "-define:NIELLO_AGENT_OUT=$($env:NIELLO_AGENT_OUT)"
+}
 if ($Scenario -ne "") {
 	$line = Get-ChildItem -Path $Package -Filter *.odin | Select-String -Pattern '^package (\w+)' | Select-Object -First 1
 	$name = $line.Matches[0].Groups[1].Value
