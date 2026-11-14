@@ -147,6 +147,18 @@ int32_t nui_render(nui_window* win, const UiDrawCmd* cmds, int32_t n_cmds,
 // Paced copy/present only; returns 0 if unavailable or unsuccessful. No replay.
 int32_t nui_present_cached(nui_window* win);
 
+// Render cmds into a PNG file at path, on a CPU surface: no window, GPU or
+// nui_init needed (fonts and decoded images are the ones the other calls
+// use). The picture is width_px x height_px pixels showing the DIP region
+// that starts at (origin_x, origin_y), content_scale pixels per DIP;
+// (0, 0) and the window's size times scale is the whole window. It is
+// cleared to black first, as a window's frame is. Returns 1 on success,
+// 0 on a bad argument, an invalid command stream, or a failed write.
+int32_t nui_render_png(const UiDrawCmd* cmds, int32_t n_cmds,
+                       float origin_x, float origin_y,
+                       uint32_t width_px, uint32_t height_px,
+                       float content_scale, const char* path);
+
 // Fonts. Families are registered once, cold; the backend caches
 // (family, weight, slant, size) -> SkFont internally. Family 0 is the
 // platform default and needs no registration. Registration is idempotent.

@@ -651,6 +651,13 @@ jobs:
             echo "SAVE"; echo "END"; } > merge.mri
           ar -M < merge.mri
 
+      # Every nui_* function nui.h declares must be in the archive: an ABI
+      # change whose function didn't make it would pass the link of a
+      # partial program here and fail every app.
+      - name: check exports (linux)
+        shell: bash
+        run: tools/check-native-exports.sh stage/lib/libniello_native.a native/nui.h
+
       - name: stage zip
         shell: bash
         run: |
