@@ -42,7 +42,7 @@ mint :: proc() {
 		groups = []niello.Group{controls.groups.bg},
 	})
 	niello.mint(&title_u, niello.NO_UNIT, {font_size = 24, font_color = t.ink, groups = ink})
-	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13.5, font_color = t.dim, groups = dim})
+	niello.mint(&hint_u, niello.NO_UNIT, {font_size = 13.5, font_color = t.dim, wrap = .Word, groups = dim})
 	niello.mint(&caption_u, niello.NO_UNIT, {font_size = 13, font_color = t.dim, groups = dim})
 	niello.mint(&status_u, niello.NO_UNIT, {font_size = 13.5, font_color = t.dim, groups = dim})
 	niello.mint(&buttons_row_u, niello.NO_UNIT, {layout = niello.Layout.Left_To_Right, gap = 12})
