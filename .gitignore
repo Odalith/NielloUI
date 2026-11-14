@@ -13,6 +13,9 @@ third_party/native/**
 !third_party/native/**/
 !third_party/native/**/README.md
 !third_party/native/**/.gitkeep
+# The bundled SDL3 fetch-native.sh drops beside them (Linux; the Windows
+# DLL and import library too)
+/third_party/sdl3/
 
 # Editors / OS
 .idea/
