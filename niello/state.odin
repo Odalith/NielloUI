@@ -390,6 +390,7 @@ Context :: struct {
 	                           // (or key on the holder) came from the
 	                           // keyboard or code, not a pointer press
 	reveal_id:     Instance,   // focus to scroll into view at frame_end
+	view_id:       Instance,   // scroll_into_view's instance, for frame_end
 	                           // (set by non-pointer focus moves)
 	ring_painted:  Ring_Paint, // the ring the last frame painted (damage)
 	ring_idx:      int,        // node that paints the ring this frame

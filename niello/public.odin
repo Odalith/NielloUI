@@ -2030,10 +2030,29 @@ scroll_range :: proc(i: Instance) -> Vec2 {
 	return g.scroll_max[i] or_else Vec2{0, 0}
 }
 
+// scroll_into_view scrolls every scroller holding instance i just far
+// enough to show it whole (its start, when it is larger than the view),
+// innermost first, as keyboard focus reveals what it lands on. It acts at
+// frame_end, against that frame's layout: an instance declared this
+// frame, such as a row just added, is found, and the scroll range already
+// counts it. The offsets show from the next frame, which is scheduled; a
+// smooth_scroll scroller glides there. One instance per frame: a later
+// call replaces an earlier one. An instance not declared this frame is
+// ignored. To keep a list on its newest item, reveal the item:
+//
+//	row_i := niello.show(row_u, {text = item}, niello.key_int(id))
+//	if just_added == id {
+//		niello.scroll_into_view(row_i)
+//	}
+scroll_into_view :: proc(i: Instance) {
+	g.view_id = i
+}
+
 // scroll_to sets scroller i's offset in DIP: scroll_to(list_i, {0, 0}) is
 // back to the top. It jumps (a glide in flight stops), and an offset past
-// the range lands on its end. Called during declare it applies to this
-// frame.
+// the range lands on its end: the range as of the last frame, so content
+// added this frame is not in it yet (to show an item, use
+// scroll_into_view). Called during declare it applies to this frame.
 scroll_to :: proc(i: Instance, offset: Vec2) {
 	if i == 0 {
 		return

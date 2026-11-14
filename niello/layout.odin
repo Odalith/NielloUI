@@ -1527,9 +1527,10 @@ reorder_tree :: proc() {
 // ---------------------------------------------------------------------------
 // Focus reveal (§3.17): keyboard focus scrolls into view
 
-// focus_reveal scrolls the scrollers around a keyboard-focused instance
-// just far enough to show it — with the focus ring's margin — after the
-// move set g.reveal_id (set_focus_id). It runs at the end of frame_end,
+// focus_reveal serves this frame's scroll_into_view request (g.view_id),
+// then scrolls the scrollers around a keyboard-focused instance just far
+// enough to show it — with the focus ring's margin — after the move set
+// g.reveal_id (set_focus_id). It runs at the end of frame_end,
 // when this frame's rects are known, innermost scroller first; each
 // scroller's move shifts the rect the next one out tests. The offsets
 // land next frame (a wake is scheduled), the same lag as a declare-time
@@ -1537,6 +1538,12 @@ reorder_tree :: proc() {
 // Pointer focus never reveals: the instance is under the pointer.
 @(private)
 focus_reveal :: proc() {
+	// A scroll_into_view request first: keyboard focus, when it also
+	// moved this frame, has the last word.
+	if id := g.view_id; id != 0 {
+		g.view_id = 0
+		reveal_instance(id, 0)
+	}
 	id := g.reveal_id
 	if id == 0 {
 		return
@@ -1545,6 +1552,17 @@ focus_reveal :: proc() {
 	if id != g.focus_id {
 		return
 	}
+	cfg := store.focus_ring.? or_else DEFAULT_FOCUS_RING
+	reveal_instance(id, cfg.width > 0 ? max(0, f32(cfg.offset) + f32(cfg.width)) : 0)
+}
+
+// reveal_instance scrolls the scrollers around instance id just far
+// enough to show it whole, with margin m around it (focus_reveal: the
+// focus ring), innermost first; each scroller's move shifts the rect the
+// next one out tests. A smooth_scroll scroller glides there like the
+// wheel. Not declared this frame, or culled: nothing moves.
+@(private)
+reveal_instance :: proc(id: Instance, m: f32) {
 	idx := -1
 	for k in 0 ..< len(g.nodes) {
 		if g.nodes[k].identity == id {
@@ -1555,8 +1573,6 @@ focus_reveal :: proc() {
 	if idx < 0 || g.nodes[idx].culled {
 		return
 	}
-	cfg := store.focus_ring.? or_else DEFAULT_FOCUS_RING
-	m := cfg.width > 0 ? max(0, f32(cfg.offset) + f32(cfg.width)) : 0
 	target := Rect{g.lay[idx].pos - {m, m}, g.lay[idx].size + {2 * m, 2 * m}}
 	moved := false
 	child := idx
