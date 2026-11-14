@@ -3,24 +3,34 @@
 A cross-platform desktop UI framework in Odin — retained styling, immediate-mode
 declaration, and a Skia Graphite render backend behind SDL3.
 
-**Status:** working in real windows on Linux (X11 and Wayland). Implemented:
-the layout engine (row/column/stack, waterfill grow/shrink); rich text
-(fragment-aware word cache, styled spans, wrap + paint-time ellipsis,
-collapse/preserve whitespace); input (state overlays, press capture, click
-and hover queries); focus traversal and text input; groups; the mutation
-layer (`tween`, `edit`, `propagate`, `transient`); scrolling (wheel
-chaining, smooth glides, overscroll with spring-back); a popup layer
-(dropdowns, context menus, modal dialogs); and scrollbar chrome as a
-component; and multi-window: one engine context per window, units and
-groups global (mint once — a broadcast re-themes every window), windows
-opened and closed from inside declare procs. A debug window
-(Clay/Avalonia-style: live node tree, hover-to-highlight, the
-overflow report) ships as a package in debug builds only
-(-define:NIELLO_DEBUG=true, F12 in any window) at zero prod cost.
-A headless suite (170+ tests, more in debug builds) covers the core, and the SDL loop idles at ~0 CPU — it blocks on
-OS events and wakes on the nearest engine deadline across windows.
-Still ahead: a packaged component collection and the remaining
-parity work.
+**Status:** working in real windows on Linux (X11 and Wayland) and Windows;
+macOS has release builds of the backend but is untested. Implemented:
+
+- the layout engine: rows, columns and stacks, fit / grow / fixed / percent
+  sizing with waterfill distribution, padding, gap, alignment, overflow;
+- rich text: a fragment-aware word cache, styled spans, wrapping, paint-time
+  ellipsis, whitespace modes, platform and bundled fonts;
+- input polled during declare (`clicked`, `hovered`, `pressed`, drag queries)
+  with press capture and state overlays; keyboard focus, traversal and an
+  engine-drawn focus ring; text input and the clipboard;
+- groups for theming by role; the mutation layer (`tween`, `edit`,
+  `propagate`, `transient`);
+- scrolling with wheel chaining, smooth glides and overscroll; deferred
+  sections and virtual lists (`niello/virtual`);
+- a popup layer (dropdowns, context menus, modal dialogs); images;
+- accessibility: a mirror tree exported over AT-SPI on Linux;
+- multi-window (a context per window, units and groups shared), timers, and
+  a one-queue inbox for results from worker threads (`niello/inbox`);
+- shipped controls (`niello/controls`): buttons, toggle button, switch,
+  text box, slider, progress bar and scrollbar, with theme, type and spacing
+  roles;
+- a debugger window in debug builds only (`-define:NIELLO_DEBUG=true`, F12
+  in any window) at zero cost otherwise.
+
+A headless suite (270+ tests) covers the core, and the SDL loop idles at
+~0 CPU: it blocks on OS events and wakes on the nearest engine deadline
+across windows. Next: more controls (check box, radio group, combo box,
+tabs, tooltip, list box, multi-line text) and a fuller default theme.
 
 ## Documentation
 
@@ -33,6 +43,9 @@ tools/docs.sh            # needs odin and mdbook on PATH
 ```
 
 ## The model in one paragraph
+
+(The guide's [model chapter](https://odalith.github.io/NielloUI/model/index.html)
+has the full story.)
 
 You `mint` Units — retained objects that own their style values — then declare
 the tree every frame with `show`/`begin`. The engine diffs each declaration
@@ -55,13 +68,16 @@ odin test niello/tests -define:ODIN_TEST_THREADS=1 -o:speed
 ```
 
 Windowed examples need the native backend for your platform under
-`third_party/native/<platform>/` — see that directory's README
-(`tools/fetch-native.sh` fetches it once a release exists; until then, build
-`native/` yourself, below). Then, from the repo root on Linux:
+`third_party/native/<platform>/`. Fetch the prebuilt release once (or build
+`native/` yourself, below), then run any example from the repo root:
 
 ```sh
-odin run niello/examples/buttons
+tools/fetch-native.sh          # Linux; Windows: tools/fetch-native.ps1
+odin run niello/examples/showcase
 ```
+
+On Linux the examples link the system SDL3 (your distribution's package);
+`fetch-native.sh` also fetches a bundled SDL3 for apps that ship their own.
 
 On Windows, run `tools/fetch-native.ps1` instead — and note the one
 dynamic piece: everything links statically into your `.exe` except
@@ -71,44 +87,46 @@ together: `yourapp.exe` + `SDL3.dll` in one folder.
 
 ## Examples
 
-- `examples/showcase` — the whole framework in one app, for testing
-  everything in one run: a sidebar of pages (controls, layout, text,
-  keyboard & focus, scrolling, animation, popups, drag, images, async
-  and windows) under a live theme switch. `showcase_test.odin` drives
-  the same app headlessly through every page:
+Run any of them with `odin run niello/examples/<name>` from the repo root.
+
+- `showcase`: the whole framework in one app. A sidebar of pages (controls,
+  layout, text, keyboard and focus, scrolling, virtual lists, animation,
+  popups, drag, images, async and windows) with a live theme switch and
+  text-size and spacing sliders. `showcase_test.odin` drives the same app
+  headlessly through every page:
   `odin test niello/examples/showcase -define:ODIN_TEST_THREADS=1`.
-- `examples/hello` — the first window: a colored rect and a line of text,
-  the full declare → draw → Skia path.
-- `examples/buttons` — input: clickable buttons with hover/press overlays,
-  press capture, a sound toggle, and a disabled button that absorbs clicks.
-- `examples/layouts` — a layout gallery: fixed/fit/grow, percent splits,
-  nested rows and columns, stack alignment.
-- `examples/groups` — theming with groups: one broadcast recolors the app,
-  a pinned button keeps its color, and cards minted at runtime are born in
-  the base palette — locating is not applying.
-- `examples/scroll` — scrolling: wheel chaining between nested scrollers,
-  scroll ranges, programmatic `scroll_to`.
-- `examples/animate` — the mutation layer: tweens, edit handles, style
-  propagation, and transient pulses.
-- `examples/text` — rich text: styled spans (weight, slant, color) inside
-  a single string, measured and drawn as one flow.
-- `examples/form` — focus and text input: two editable fields with
-  traversal, a layout-positioned caret, Clear/Submit. Editing keys come
-  in as `Key_Code`s, and the app's state is a struct handed to declare
-  through `run`'s typed form.
-- `examples/popups` — the popup layer: dropdown menus, a canvas context
-  menu, and a modal dialog — dismiss is reported, never automatic.
-- `examples/scrollbars` — scrollbar chrome as a component: drag the
-  thumb, page from the track, plus a restyled bar with smooth scrolling
-  and overscroll on the same scroller.
-- `examples/multiwindow` — multi-window: a main window whose button
-  opens inspector windows that render its committed tree live through
-  the cross-context read API.
-- `examples/debugger` — the debug window's host: a scene with
-  deliberate layout defects; F12 opens the debugger on it.
-- `examples/images` — image support (§3.25): the four fit modes,
-  per-instance images, crops, decode-to-size, interpolation,
-  background images.
+- `hello`: the first window, a colored rect and a line of text.
+- `buttons`: input with no callbacks: hover and press overlays, press
+  capture, hover duration, a disabled button that absorbs clicks, cursors.
+- `form`: keyboard focus and text input on the shipped controls: two text
+  boxes and two buttons in one tab order.
+- `layouts`: a layout gallery: fixed, fit, grow, percent splits, nested rows
+  and columns, stack alignment.
+- `groups`: theming with groups: one broadcast recolors the app, a pinned
+  button keeps its color, and cards minted later are born in the base
+  palette.
+- `text`: rich text: styled spans (weight, slant, color) in one string.
+- `scroll`: wheel chaining between nested scrollers, scroll ranges,
+  `scroll_to`.
+- `scrollbars`: scrollbar chrome: drag the thumb, page from the track, a
+  restyled bar with smooth scrolling and overscroll.
+- `animate`: the mutation layer: tweens, edit handles, propagation,
+  transient pulses.
+- `popups`: dropdown menus, a context menu and a modal dialog; dismissal is
+  reported, never automatic.
+- `drag`: the drag query's three uses: a slider, a splitter, and a dialog
+  dragged by its header.
+- `images`: the four fit modes, per-instance images, crops, decode-to-size,
+  interpolation, background images.
+- `inbox`: work on other threads (a library scan, a playback ticker)
+  reporting back through `niello/inbox`.
+- `multiwindow`: a main window whose button opens inspector windows that
+  show its tree live.
+- `a11y`: accessibility semantics exported over AT-SPI; run it under Orca or
+  Accerciser.
+- `debugger`: a scene with deliberate layout defects; build with
+  `-define:NIELLO_DEBUG=true` and press F12.
+- `image_soak`: a memory soak for image loading and release.
 
 ## Fonts
 
@@ -126,33 +144,37 @@ Unregistered families, and files that fail to load, fall back to the default
 face. The backend caches (family, weight, slant, size) faces internally;
 measurement goes through Skia only on a word-cache miss.
 
-## Layout
+## Repository layout
 
 ```
 NielloUI/
-  niello/               package niello — the framework core (pure Odin)
-    public.odin         the entire public API: Unit/Instance/Group,
-                        mint/show/begin, set, input queries, wake, groups
-    state.odin          cold store: units, groups, generations, damage
-    declare.odin        declaration machinery, identity, text resolution
-    text.odin           measurement + word cache (backend hooks on miss)
-    layout.odin         the layout passes + waterfill distribution
-    render.odin         Draw_Cmd command buffer + emitter
-    input.odin          hit-testing + dispatch, overlay resolution
-    animate.odin        the mutation layer: tweens, edits, transients
-    tests/              headless test suite (odin test)
-    examples/           hello, layouts, buttons, groups, scroll, animate,
-                        text, form, popups, scrollbars, multiwindow
-    sdl/                package sdl — SDL3 app glue + FFI to the backend
-      app.odin          run(): the hand-driven loop — blocks on OS events
-                        when idle, wakes on the engine's next deadline
-      ffi.odin          nui_* bindings, font registration, ABI asserts
+  niello/               package niello: the framework core (pure Odin, no OS code)
+    public.odin         the API: units, declaring, With, styles, input
+                        queries, groups, the mutation layer, frames
+    images.odin         images (load, crop, release)
+    a11y.odin           accessibility types and the mirror tree
+    render.odin         Draw_Cmd and the draw list a host renders
+    debug.odin          the debug snapshot and overflow report (debug builds)
+    state.odin, declare.odin, layout.odin, input.odin, text.odin,
+    animate.odin        internals: the store, declaration, layout passes,
+                        hit testing, text measurement, animation
+    tests/              the headless test suite (odin test)
+    examples/           the examples above
+    sdl/                package sdl: SDL3 windows and event loop, FFI to the backend
+    controls/           package controls: the shipped controls
+    virtual/            package virtual: virtual lists
+    inbox/              package inbox: results from worker threads
+    debugui/            package debugui: the debugger window
   native/               the backend source (nui.h, nui.cpp): Skia Graphite
                         + Dawn behind a small C ABI, built as a static lib
-  third_party/native/   prebuilt native backends, one dir per platform
-                        (downloaded, not committed — see its README)
+  third_party/native/   prebuilt backends, one directory per platform
+                        (downloaded, not committed; see its README)
+  docs/                 the user guide (mdBook) and its compiled snippets
   tools/
-    fetch-native.sh     downloads the prebuilt backend for this platform
+    fetch-native.sh     downloads the prebuilt backend (fetch-native.ps1 on Windows)
+    build-native.sh     builds the backend (maintainers; see build-native.md)
+    docgen/             generates the API reference from the doc comments
+    docs.sh             builds or serves the user guide
 ```
 
 ## The native backend
@@ -161,9 +183,9 @@ Rendering goes through Skia Graphite (Dawn/WebGPU). Building Skia takes the
 better part of an afternoon and a correct toolchain per OS, so the backend is
 distributed **prebuilt, one static library per platform**:
 
+- `linux-x64` (one binary covers X11 and Wayland; SDL picks at runtime)
 - `windows-x64`
-- `macos-arm64`
-- `linux-x64` (one binary covers X11 and Wayland — SDL picks at runtime)
+- `macos-arm64` (built by CI, not yet tested)
 
 Each release artifact (`niello-native-<platform>.zip`) holds a single fat
 static archive (the backend with Skia + Dawn merged in) plus `nui.h`; see
