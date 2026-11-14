@@ -62,3 +62,4 @@ third_party/native/**
 
 # niello/agent reports (tools/agent.sh)
 /agent-out/
+/evals/
