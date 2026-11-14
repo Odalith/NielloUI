@@ -1061,6 +1061,36 @@ begin :: #force_inline proc(
 	return begin_at(unit, with, key, out, site_hash(loc))
 }
 
+// open_container opens a container as begin does, without closing it:
+// the caller closes it with end. It is for a component that opens a
+// container its caller's block fills, which begin can't do: begin's end
+// runs when the scope that called begin closes, inside the component.
+// Mark the component @(deferred_out = …) with a proc that calls end, and
+// its users write it as an if-initializer, like begin. out, identity and
+// loc work as for begin.
+//
+//	@(deferred_out = card_end)
+//	card :: proc(title: string, loc := #caller_location) -> (open: bool) {
+//		open = niello.open_container(card_u, loc = loc)
+//		niello.show(title_u, {text = title})
+//		return
+//	}
+//	card_end :: proc(open: bool) {
+//		niello.end(open)
+//	}
+open_container :: #force_inline proc(
+	unit: Unit,
+	with: With = {},
+	key: Key = 0,
+	out: ^Instance = nil,
+	loc := #caller_location,
+) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
+	return begin_at(unit, with, key, out, site_hash(loc))
+}
+
 @(private)
 begin_at :: proc(unit: Unit, with: With, key: Key, out: ^Instance, site: u64) -> (open: bool) {
 	i, idx := declare(unit, key, with, true, site)
