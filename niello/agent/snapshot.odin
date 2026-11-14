@@ -12,7 +12,10 @@ when niello.NIELLO_DEBUG {
 	// piece of text, indented under the control it belongs to, with its rect
 	// and the file:line that declared it. Containers with nothing to say are
 	// left out; their contents move up a level. Lines with a finding end in
-	// "!kind". Returns the dump (valid until the next frame).
+	// "!kind". Text the renderer did not draw (scrolled or clipped out of
+	// view) is tagged [out of view] and counted at the end: the text lints
+	// check only what is drawn. Returns the dump (valid until the next
+	// frame).
 	snapshot :: proc(s: ^Session, label: string) -> string {
 		lint(s, label)
 		s.snapshots += 1
@@ -43,6 +46,15 @@ when niello.NIELLO_DEBUG {
 		// is not shown again (a button's label, an entry box's text).
 		name_of := make([]string, len(tree), context.temp_allocator)
 		value_of := make([]string, len(tree), context.temp_allocator)
+		// Text the renderer did not draw (scrolled or clipped out of view)
+		// is not checked for truncation or overflow: say so.
+		ink := text_ink(tree)
+		unseen := 0
+		for n, k in tree {
+			if len(n.text) > 0 && .Culled not_in n.flags && !ink[k].drawn {
+				unseen += 1
+			}
+		}
 		flagged := make(map[niello.Instance]bool, context.temp_allocator)
 		for f in s.findings {
 			flagged[f.instance] = true
@@ -81,6 +93,9 @@ when niello.NIELLO_DEBUG {
 			if has_a && len(n.text) > 0 && n.text != a.name {
 				fmt.sbprintf(&line, " text %s", quote(n.text))
 			}
+			if len(n.text) > 0 && !ink[k].drawn {
+				strings.write_string(&line, " [out of view]")
+			}
 			for f in s.findings {
 				if f.instance == n.instance {
 					fmt.sbprintf(&line, " !%v", f.kind)
@@ -96,6 +111,9 @@ when niello.NIELLO_DEBUG {
 			}
 			strings.write_byte(&b, '\n')
 			depth[k] = up + 1
+		}
+		if unseen > 0 {
+			fmt.sbprintf(&b, "# %d text nodes out of view: not checked for truncation or text overflow (scroll them in, or open the session with a taller viewport)\n", unseen)
 		}
 		return strings.to_string(b)
 	}

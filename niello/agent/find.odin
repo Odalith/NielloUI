@@ -80,7 +80,7 @@ when niello.NIELLO_DEBUG {
 			if a, ok := a11y_node(s, n.instance); ok {
 				t = target_of(s, a)
 			} else {
-				t.desc = fmt_temp("Text %s", quote(n.text))
+				t.desc = fmt_alloc(s, "Text %s", quote(n.text))
 			}
 			append(&out, t)
 		}
@@ -96,7 +96,7 @@ when niello.NIELLO_DEBUG {
 	@(private)
 	target_of :: proc(s: ^Session, n: niello.A11y_Node) -> Target {
 		t := Target{ok = true, instance = n.instance, rect = n.rect, role = n.role, name = n.name, state = n.state}
-		t.desc = n.name != "" ? fmt_temp("%v %s", n.role, quote(n.name)) : fmt_temp("%v", n.role)
+		t.desc = n.name != "" ? fmt_alloc(s, "%v %s", n.role, quote(n.name)) : fmt_alloc(s, "%v", n.role)
 		if d, ok := debug_node(s, n.instance); ok {
 			t.loc = d.loc
 		}

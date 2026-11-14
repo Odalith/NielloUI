@@ -119,6 +119,14 @@ settles :: proc(t: ^testing.T, app: ^App, label: string) {
 
 @(test)
 showcase_smoke :: proc(t: ^testing.T) {
+	// Mock metrics and a fake decoder, put back afterwards: another test
+	// in this package (agent_test.odin) runs on the app's own.
+	saved_measure, saved_line := niello.measure_word_hook, niello.line_height_hook
+	saved_decode, saved_release := niello.decode_image_hook, niello.release_image_hook
+	defer {
+		niello.measure_word_hook, niello.line_height_hook = saved_measure, saved_line
+		niello.decode_image_hook, niello.release_image_hook = saved_decode, saved_release
+	}
 	niello.measure_word_hook = nil // mock metrics
 	niello.line_height_hook = nil
 	niello.decode_image_hook = fake_decode

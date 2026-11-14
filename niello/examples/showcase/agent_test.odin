@@ -19,20 +19,23 @@ when niello.NIELLO_DEBUG {
 		app: App
 		app_init(&app)
 		defer app_destroy(&app)
-		s := agent.session_open(declare, &app, ctx = app.ctx)
+		// Tall enough that every page is drawn whole: the text lints
+		// check only text that is drawn.
+		s := agent.session_open(declare, &app, ctx = app.ctx, viewport = {1180, 3000})
 		defer agent.session_close(s)
-		// The Layout page's spill demo overflows on purpose.
+		// Demos that overflow or trim on purpose: the Layout page's spill
+		// box and its squeezed rows, the Text page's ellipsis.
 		agent.allow(s, .Overflow, layout_units.spill_box)
+		agent.allow(s, .Truncated, layout_units.squeeze_label)
+		agent.allow(s, .Truncated, layout_units.squeeze_label_low)
+		agent.allow(s, .Truncated, text_units.ellipsis)
 		for p in Page {
 			agent.click(s, agent.find(s, role = .TabItem, name = PAGE_NAMES[p]))
 			agent.snapshot(s, PAGE_NAMES[p])
 		}
 		// Hover: the tooltip shows, and the readout below the button
-		// counts the hover live (it changes while the pointer rests). The
-		// window is taller here so the readout is on screen: polled under
-		// the fold, it would wake the app for text nobody sees.
+		// counts the hover live (it changes while the pointer rests).
 		agent.click(s, agent.find(s, role = .TabItem, name = "Controls"))
-		agent.resize(s, {1180, 1000})
 		agent.allow(s, .Unsettled, agent.find(s, text = "not hovered"))
 		agent.hover(s, agent.find(s, role = .Button, name = "Hover me"))
 		agent.snapshot(s, "tooltip")

@@ -32,7 +32,9 @@ macOS has release builds of the backend but is untested. Implemented:
   and types, and writes each screen as text with the line that declared
   every control, plus what is wrong (overflow, truncated text, a screen
   that never settles). Made so coding agents can see and check what they
-  build; `tools/agent.sh <app-package>` runs it.
+  build; `tools/agent.sh <app-package>` runs it, and
+  [`niello/agent/AGENTS.md`](niello/agent/AGENTS.md) is the guide to hand an
+  agent.
 
 A headless suite (270+ tests) covers the core, and the SDL loop idles at
 ~0 CPU: it blocks on OS events and wakes on the nearest engine deadline

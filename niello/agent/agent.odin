@@ -34,6 +34,10 @@
 // -define:NIELLO_AGENT_OUT=path): the snapshots, findings.txt and
 // summary.txt. tools/agent.sh runs an app's scenarios and prints them.
 //
+// AGENTS.md beside this package is the guide for coding agents: the loop,
+// a scenario template, what each control is called, how to read a
+// snapshot, and the usual fix for each finding.
+//
 // The harness exists in debug builds (-define:NIELLO_DEBUG=true) only: it
 // reads the debug snapshot, and a release build pays nothing for it. A
 // scenario file wraps its tests in when niello.NIELLO_DEBUG { … }, so the
@@ -142,7 +146,12 @@ when niello.NIELLO_DEBUG {
 		s := new(Session)
 		_ = virtual.arena_init_growing(&s.arena)
 		s.alloc = virtual.arena_allocator(&s.arena)
-		s.name = strings.clone(name, s.alloc)
+		// The name is a folder the session clears: keep it to one plain
+		// path segment.
+		s.name = strings.clone(file_safe(name), s.alloc)
+		if s.name == "" {
+			s.name = "scenario"
+		}
 		s.ctx = ctx
 		if ctx == nil {
 			s.ctx = niello.context_create()

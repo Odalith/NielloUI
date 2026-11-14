@@ -133,7 +133,10 @@ when niello.NIELLO_DEBUG {
 
 	// lint checks the current screen and records what is wrong with it:
 	// content overflowing its box (scrolling and clipping boxes excepted:
-	// there the excess is by design) and text truncated with an ellipsis. A
+	// there the excess is by design) and text truncated with an ellipsis.
+	// Children are checked across the whole tree; text only where it is
+	// drawn, so text scrolled out of view is checked once it is scrolled
+	// in (snapshot tags and counts it). A
 	// problem already found on the same node is not recorded again. snapshot
 	// calls it; call it yourself to check a screen without a snapshot. Returns
 	// every finding so far.

@@ -23,8 +23,12 @@ nothing outlives the frame.
 - [`pressed`](../reference/niello.md#pressed): a press that began on the
   instance is still held. The press captures the instance: `pressed` stays
   true wherever the pointer goes, until the button is released.
+- [`hovered_for`](../reference/niello.md#hovered_for): the pointer has
+  rested on it for at least so many seconds, for tooltips. It wakes the
+  app once, when the time is up.
 - [`hover_duration`](../reference/niello.md#hover_duration): how long the
-  pointer has been over it, for tooltips.
+  pointer has been over it, for a live readout. Reading it keeps frames
+  coming while the hover lasts.
 
 **Dragging.** A press that moves more than a few DIP becomes a drag:
 [`drag_started`](../reference/niello.md#drag_started),
