@@ -455,7 +455,7 @@ test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	child: niello.Unit
 	niello.mint(&child, proto) // snapshot-copies proto's style
 	s := niello.style_of(child)
-	testing.expect(t, s.size[niello.X_AXIS].value == 100, "prototype size.x copied")
+	testing.expect(t, s.size[0].value == 100, "prototype size.x copied")
 	testing.expect(t, s.gap == 8, "prototype gap copied")
 	testing.expect(t, niello.test_proto(child) == proto, "proto recorded")
 

@@ -91,6 +91,7 @@ when ODIN_OS == .Linux {
 }
 
 // Window is the opaque per-window backend handle (nui_window* in C).
+@(private)
 Window :: distinct rawptr
 
 // Native window handles for nui_create_window. Mirrors UiNativeHandles in
@@ -107,7 +108,8 @@ Native_Handles :: struct {
 	cocoa_layer:   rawptr,
 }
 
-@(default_calling_convention = "c", link_prefix = "nui_")
+// The raw nui_* bindings are the glue's own: private to this package.
+@(default_calling_convention = "c", link_prefix = "nui_", private)
 foreign native {
 	// Lifecycle (M2): init brings up the SHARED device/context once;
 	// create_window makes one window's surface + pixel cache on it. The
@@ -156,8 +158,10 @@ foreign native {
 	// purge of every purgeable resource (after draining submitted
 	// work). For leak hunting: purge between measurements to
 	// separate "still cached, evictable" from "actually leaked".
-	gpu_cache_bytes :: proc() -> u64 ---
-	purge_gpu_cache :: proc() ---
+	@(link_name = "nui_gpu_cache_bytes")
+	ffi_gpu_cache_bytes :: proc() -> u64 ---
+	@(link_name = "nui_purge_gpu_cache")
+	ffi_purge_gpu_cache :: proc() ---
 
 	// Accessibility export (TODO #23 M2, Linux only): the native
 	// AT-SPI exporter (native/atspi.cpp). Foreign declarations
@@ -182,6 +186,7 @@ foreign native {
 // pointer + length, never pointer alone.
 // Flags/state are built explicitly by the helpers below — a
 // bit_set's backing layout is not ABI, so it is never transmuted.
+@(private)
 A11y_FFI_Node :: struct {
 	id:          u64,
 	parent:      i32,
@@ -205,6 +210,7 @@ A11y_FFI_Node :: struct {
 // cstring for the ABI struct. It is NOT a C string: no terminator
 // is added or promised (audit BL-1). The matching *_len field
 // carries the byte count; the native side must use both.
+@(private)
 a11y_ffi_str_ptr :: proc(s: string) -> cstring {
 	if len(s) == 0 {
 		return nil
@@ -212,6 +218,7 @@ a11y_ffi_str_ptr :: proc(s: string) -> cstring {
 	return cstring(raw_data(s))
 }
 
+@(private)
 a11y_ffi_flags :: proc(flags: niello.A11y_Flags) -> u32 {
 	bits: u32
 	if .Checked in flags {
@@ -235,6 +242,7 @@ a11y_ffi_flags :: proc(flags: niello.A11y_Flags) -> u32 {
 	return bits
 }
 
+@(private)
 a11y_ffi_state :: proc(state: niello.A11y_State) -> u32 {
 	bits: u32
 	if .Disabled in state {
@@ -261,6 +269,7 @@ a11y_ffi_state :: proc(state: niello.A11y_State) -> u32 {
 // The backend hooks are wired at package init — assignment only,
 // no FFI calls — so app code can use hook-backed core services
 // (notably image_load, which decodes immediately) before run().
+@(private)
 @(init)
 wire_backend_hooks :: proc "contextless" () {
 	niello.measure_word_hook = hook_measure_word
@@ -274,10 +283,12 @@ wire_backend_hooks :: proc "contextless" () {
 //
 //   niello.measure_word_hook = sdl.hook_measure_word
 //   niello.line_height_hook  = sdl.hook_line_height
+@(private)
 hook_measure_word :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32, text: string) -> f32 {
 	return measure_word(u32(font), i32(weight), i32(slant), size, raw_data(text), i64(len(text)))
 }
 
+@(private)
 hook_line_height :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32) -> f32 {
 	return line_height(u32(font), i32(weight), i32(slant), size)
 }
@@ -285,6 +296,7 @@ hook_line_height :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, s
 // hook_decode_image / hook_release_image adapt the C image procs
 // to niello's image hooks (wired next to the measure hooks in
 // app.odin's startup).
+@(private)
 hook_decode_image :: proc(data: []byte, max_w, max_h: int) -> (backend: u32, w, h: f32, ok: bool) {
 	if len(data) == 0 {
 		return 0, 0, 0, false
@@ -297,6 +309,7 @@ hook_decode_image :: proc(data: []byte, max_w, max_h: int) -> (backend: u32, w, 
 	return id, ow, oh, true
 }
 
+@(private)
 hook_release_image :: proc(backend: u32) {
 	image_release(backend)
 }
@@ -325,4 +338,19 @@ register_font :: proc(family: niello.Font_Handle, path: string) {
 register_font_family :: proc(family: niello.Font_Handle, name: string) {
 	ffi_register_font_family(u32(family), strings.clone_to_cstring(name, context.temp_allocator))
 	niello.fonts_changed() // the core's word cache must re-measure under the new binding
+}
+
+// gpu_cache_bytes is how many bytes the renderer's GPU resource cache holds
+// (textures, buffers), shared by every window. A diagnostic: with
+// purge_gpu_cache it separates resources still cached (evictable) from
+// resources actually leaked.
+gpu_cache_bytes :: proc() -> u64 {
+	return ffi_gpu_cache_bytes()
+}
+
+// purge_gpu_cache frees every GPU resource the renderer can free (after the
+// submitted work has drained). A diagnostic, for leak hunting; the cache
+// manages itself in normal use.
+purge_gpu_cache :: proc() {
+	ffi_purge_gpu_cache()
 }

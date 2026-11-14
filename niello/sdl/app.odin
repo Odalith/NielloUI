@@ -645,6 +645,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 
 // RENDER_FAIL_LIMIT: consecutive render failures tolerated before
 // the run ends (audit sdl-H4, ruling F4(a) AS AMENDED 2026-11-04).
+@(private)
 RENDER_FAIL_LIMIT :: 5
 
 // note_render_failure advances one window's failure escalation:
@@ -1155,12 +1156,14 @@ run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> 
 // The system clipboard behind niello.clipboard_text / set_clipboard_text
 // (text only). Wired at package init like the backend hooks; the calls
 // happen during frames, after run has started SDL's video subsystem.
+@(private)
 @(init)
 wire_clipboard_hooks :: proc "contextless" () {
 	niello.clipboard_get_hook = hook_clipboard_get
 	niello.clipboard_set_hook = hook_clipboard_set
 }
 
+@(private)
 hook_clipboard_get :: proc(allocator: runtime.Allocator) -> string {
 	raw := sdl.GetClipboardText()
 	if raw == nil {
@@ -1170,6 +1173,7 @@ hook_clipboard_get :: proc(allocator: runtime.Allocator) -> string {
 	return strings.clone(string(cstring(raw)), allocator)
 }
 
+@(private)
 hook_clipboard_set :: proc(text: string) {
 	ctext := strings.clone_to_cstring(text, context.temp_allocator)
 	_ = sdl.SetClipboardText(ctext)

@@ -1,3 +1,5 @@
+package niello
+
 // a11y.odin — the accessibility mirror (TODO #23, M1).
 //
 // Design (§3.9, brief Accessibility_Plan.md, RULED 2026-10-27):
@@ -28,7 +30,6 @@
 // the node leaves the tree, or at context teardown. Readers borrow
 // the entry strings through A11y_Node; they are valid until the
 // next frame_end.
-package niello
 
 import "core:strings"
 
@@ -144,6 +145,7 @@ A11y_Node :: struct {
 // strings are OWNED (cloned at build, freed on rebuild/removal/
 // teardown), and digest is the semantics stamp the incremental
 // update compares against.
+@(private)
 A11y_Entry :: struct {
 	gen:         u64, // mirror build that last saw this instance
 	digest:      u64, // semantics stamp at the last payload build
@@ -237,7 +239,9 @@ a11y_sem_digest :: proc(w: ^With) -> u64 {
 // role on a huge subtree cannot turn the mirror build into an
 // unbounded join. A container that needs a longer name declares
 // a label; the cap is an implementation bound, not a contract.
+@(private)
 A11Y_NAME_MAX_PIECES :: 16
+@(private)
 A11Y_NAME_MAX_BYTES :: 512
 
 @(private)

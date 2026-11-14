@@ -1,3 +1,5 @@
+package niello
+
 // Render command stream (Phase 1: Odin-only).
 //
 // draw_list() walks the committed frame and emits a flat, FFI-clean command
@@ -9,7 +11,6 @@
 // (tag + bounds + payload, fields in declaration order). No Odin union
 // crosses the boundary. Text is borrowed (pointer + length); the buffer
 // returned by draw_list() is valid until the next frame_begin.
-package niello
 
 // ============ command vocabulary ============
 

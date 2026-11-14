@@ -1,3 +1,6 @@
+#+private
+package niello
+
 // text.odin — text measurement with a fragment-aware word cache.
 //
 // Words are split at span boundaries into fragments; each fragment is
@@ -10,7 +13,6 @@
 // boundaries — the same rule every major text engine uses. Measured widths
 // therefore always match what the backend draws (one blob per fragment),
 // by construction.
-package niello
 
 import "core:slice"
 

@@ -14,7 +14,7 @@ test_unmint_reuses_slot_under_new_handle :: proc(t: ^testing.T) {
 	testing.expect(t, !niello.unit_live(a), "an unmint-ed handle is dead")
 	niello.mint(&b, niello.NO_UNIT, {})
 	testing.expect(t, niello.unit_live(b), "the next mint is live")
-	testing.expect(t, niello.unit_index(b) == niello.unit_index(a), "and reuses the freed slot")
+	testing.expect(t, niello.test_unit_index(b) == niello.test_unit_index(a), "and reuses the freed slot")
 	testing.expect(t, b != a, "under a different handle")
 	testing.expect(t, niello.style_of(b).color == niello.Color{}, "with a fresh style, not the old unit's")
 }

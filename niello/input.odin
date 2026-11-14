@@ -1,3 +1,6 @@
+#+private
+package niello
+
 // input.odin — pointer dispatch, interaction state, and state-overlay
 // resolution.
 //
@@ -39,7 +42,6 @@
 //   - Overlay precedence, weakest first, merged field-wise from each
 //     overlay unit's explicit fields: base < variant < focus < hover <
 //     press < disabled.
-package niello
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -951,7 +953,7 @@ node_style :: #force_inline proc(i: int) -> ^Style #no_bounds_check {
 	if g.nodes[i].has_eff {
 		return &g.eff[i]
 	}
-	return style_of(g.nodes[i].unit)
+	return unit_style(g.nodes[i].unit)
 }
 
 @(private)

@@ -373,6 +373,7 @@ Style :: struct {
 	image_interp: Image_Interp, // default .High
 }
 
+@(private)
 default_style :: proc() -> Style {
 	return Style{
 		layout      = .Left_To_Right,
@@ -790,9 +791,9 @@ style_set_any :: proc(s: ^Style, f: Field, v: any) {
 	}
 }
 
-@(private)
 // clone_spans copies a spans slice into engine-owned storage (nil
 // stays nil).
+@(private)
 clone_spans :: proc(src: []Text_Span) -> []Text_Span {
 	if src == nil {
 		return nil
@@ -812,6 +813,7 @@ clone_spans :: proc(src: []Text_Span) -> []Text_Span {
 // vanished; -o:speed's layout luck masked it, and the test suite
 // runs -o:speed.) Every write of Text / Text_Spans into a unit's
 // persistent style goes through these.
+@(private)
 store_spans :: proc(dst: ^[]Text_Span, src: []Text_Span) {
 	if dst^ != nil {
 		delete(dst^)
@@ -819,6 +821,7 @@ store_spans :: proc(dst: ^[]Text_Span, src: []Text_Span) {
 	dst^ = clone_spans(src)
 }
 
+@(private)
 store_text :: proc(dst: ^string, src: string) {
 	if len(dst^) > 0 {
 		delete(dst^)
@@ -830,6 +833,7 @@ store_text :: proc(dst: ^string, src: string) {
 // reference-typed fields clone (see store_spans), everything else
 // copies as usual. Frame-lived destinations (the eff merge in
 // resolve_styles) keep plain copy_field — aliasing is safe there.
+@(private)
 copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 	#partial switch f {
 	case .Text:
@@ -1195,7 +1199,7 @@ begin_section :: proc(
 @(private)
 begin_section_at :: proc(unit: Unit, b: Builder, with: With, key: Key, out: ^Instance, site: u64) -> (open: bool) {
 	when NIELLO_DEBUG {
-		sz := style_of(unit).size
+		sz := unit_style(unit).size
 		if ws, ok := with.size.?; ok {
 			sz = ws
 		}
@@ -1832,6 +1836,7 @@ drag_pos :: proc(i: Instance) -> Vec2 {
 // HOVER_REFRESH_MS: while an app displays a live hover duration, the
 // engine refreshes it at ~20 Hz. Coarse on purpose — a duration readout
 // is glanceable text, not an animation.
+@(private)
 HOVER_REFRESH_MS :: 50
 
 hover_duration :: proc(i: Instance) -> f32 {
@@ -2035,7 +2040,7 @@ text_width :: proc(u: Unit, text: string) -> f32 {
 	if len(text) == 0 {
 		return 0
 	}
-	s := style_of(u)
+	s := unit_style(u)
 	w, _ := measure_frag(s.font, s.font_weight, s.font_slant, s.font_size, text)
 	return w
 }
@@ -2044,9 +2049,27 @@ text_width :: proc(u: Unit, text: string) -> f32 {
 // weight and slant, in DIP: what a caret or a selection highlight is
 // sized from, so it follows the text when its size changes.
 text_line_height :: proc(u: Unit) -> f32 {
-	s := style_of(u)
+	s := unit_style(u)
 	h, _ := frag_line_height(s.font, s.font_weight, s.font_slant, s.font_size)
 	return h
+}
+
+// style_of returns a copy of unit u's current style: its own values, with
+// any glide in flight at its current point. Read it; change a unit with
+// set, set_many, a group broadcast, a tween or an edit.
+style_of :: proc(u: Unit) -> Style {
+	return unit_style(u)^
+}
+
+// unit_live reports that u names a minted unit that has not been
+// unmint-ed: its slot exists, is live, and still has u's generation.
+unit_live :: proc "contextless" (u: Unit) -> bool {
+	i := unit_index(u)
+	if i < 1 || i >= len(store.units) {
+		return false
+	}
+	rec := &store.units[i]
+	return rec.live && rec.generation == u32(u64(u) >> 32)
 }
 
 // ============ clipboard ============

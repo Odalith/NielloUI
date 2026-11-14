@@ -47,11 +47,13 @@ Text_Box :: struct {
 }
 
 // Text_Box_Edit is one undo step: the state before an edit.
+@(private)
 Text_Box_Edit :: struct {
 	text:          string, // owned
 	caret, anchor: int,
 }
 
+@(private)
 Edit_Op :: enum u8 {
 	None,
 	Type,

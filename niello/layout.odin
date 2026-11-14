@@ -1,3 +1,6 @@
+#+private
+package niello
+
 // layout.odin — the layout engine: seven linear passes over the flat node array.
 // Faithful to UI_API_Design.md §9. Deviations from the doc are marked DEVIATION
 // and collected in the test report.
@@ -13,7 +16,6 @@
 //
 // Every pass runs over an index range [lo, hi): the whole tree for the
 // main layout, a section's appended nodes for a section pass.
-package niello
 
 
 Lay :: struct {
