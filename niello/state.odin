@@ -231,6 +231,10 @@ Context :: struct {
 	a11y_order:   [dynamic]A11y_Node,
 	a11y_gen:     u64,
 	a11y_idx:     [dynamic]int,
+	a11y_prev:    [dynamic]A11y_Node, // the previous build, to detect change
+	a11y_dead:    [dynamic]Instance,  // sweep scratch
+	a11y_version: u64,  // bumps when a build differs from the last (a11y_generation)
+	a11y_off:     bool, // set_a11y(ctx, false): the mirror is not built
 
 	// What the debug channel painted into this context's last
 	// presented frame (debug.odin): frame_end compares the live

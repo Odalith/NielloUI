@@ -2015,6 +2015,14 @@ void exporter_sync(int32_t ctx_id, const UiA11yNode *nodes, int32_t count,
                    const char *window_title, int32_t win_x, int32_t win_y, int32_t win_w,
                    int32_t win_h, int32_t win_focused) {
 	maybe_reconnect();
+	{
+		// Inert or dead: build nothing (the copy below allocates a
+		// string per node).
+		std::lock_guard<std::mutex> lock(g_exp.mu);
+		if (!g_exp.running) {
+			return;
+		}
+	}
 	Shadow_Window nw;
 	nw.title = borrowed_or_empty(window_title);
 	nw.focused = win_focused != 0;

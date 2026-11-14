@@ -167,6 +167,13 @@ Glue_Window :: struct {
 	confirm_close:  bool,
 	close_pending:  bool, // a request arrived; reported by the next frame
 	close_reported: bool, // close_requested answers true this frame
+	// what this window last sent the AT-SPI exporter
+	a11y_sent:      bool,
+	a11y_sent_gen:  u64,
+	a11y_sent_geom: [4]i32, // x, y, w, h
+	a11y_sent_foc:  bool,
+	a11y_sent_ttl:  string, // owned
+	a11y_sent_ns:   u64,
 }
 
 // Package state, owned by the loop below.
@@ -224,6 +231,8 @@ g_cursors: [niello.Cursor_Kind]^sdl.Cursor // lazily created system cursors (pro
 g_input_trace: bool // NUI_INPUT_TRACE: log button edges + focus flips
 @(private)
 g_wake_event_type: u32 = max(u32) // SDL user event type for context_wake
+@(private)
+g_atspi_live: bool // the AT-SPI exporter is connected (Linux); else nothing reads the mirror
 
 // content_scale computes device pixels per DIP point for a window.
 @(private)
@@ -353,6 +362,9 @@ create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Confi
 		confirm_close  = config.confirm_close,
 	}
 	win.content_scale = content_scale(win)
+	// The accessibility mirror costs upkeep every frame: build it only
+	// where an exporter reads it.
+	niello.set_a11y(ctx, g_atspi_live)
 
 	// Seed the refresh rate for the backend's present pacing.
 	display := sdl.GetDisplayForWindow(sdl_win)
@@ -382,6 +394,7 @@ destroy_window_now :: proc(win: ^Glue_Window) {
 	delete(win.text_buf)
 	delete(win.keys)
 	delete(win.title)
+	delete(win.a11y_sent_ttl)
 	for w, i in g_windows {
 		if w == win {
 			ordered_remove(&g_windows, i)
@@ -559,6 +572,34 @@ window_due :: proc(win: ^Glue_Window, now_ns: u64) -> bool {
 @(private)
 atspi_sync_window :: proc(win: ^Glue_Window) {
 	when ODIN_OS == .Linux {
+		if !g_atspi_live {
+			return
+		}
+		// Send only what changed: the tree (its generation), the
+		// window's title, geometry or focus. The exporter re-publishes
+		// from scratch after it reconnects to a restarted bus, and it
+		// attempts that reconnect inside a sync at most every 5 s, so an
+		// unchanged window still syncs that often while it frames.
+		wx0, wy0, w0, h0: i32
+		sdl.GetWindowPosition(win.sdl_win, &wx0, &wy0)
+		sdl.GetWindowSize(win.sdl_win, &w0, &h0)
+		geom := [4]i32{wx0, wy0, w0, h0}
+		gen := niello.a11y_generation(win.ctx)
+		now := sdl.GetTicksNS()
+		if win.a11y_sent && win.a11y_sent_gen == gen && win.a11y_sent_geom == geom &&
+		   win.a11y_sent_foc == win.focused && win.a11y_sent_ttl == win.title &&
+		   now - win.a11y_sent_ns < 5_000_000_000 {
+			return
+		}
+		win.a11y_sent = true
+		win.a11y_sent_gen = gen
+		win.a11y_sent_geom = geom
+		win.a11y_sent_foc = win.focused
+		win.a11y_sent_ns = now
+		if win.a11y_sent_ttl != win.title {
+			delete(win.a11y_sent_ttl)
+			win.a11y_sent_ttl = strings.clone(win.title)
+		}
 		nodes := niello.a11y_tree(win.ctx)
 		rows := make([]A11y_FFI_Node, len(nodes), context.temp_allocator)
 		for node, i in nodes {
@@ -1194,6 +1235,12 @@ run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> 
 		sdl.Quit()
 		return .Init_Failed
 	}
+	when ODIN_OS == .Linux {
+		// Start the AT-SPI exporter (inert when no accessibility bus
+		// answers) before the main window: windows build their
+		// accessibility mirror only while it is live.
+		g_atspi_live = atspi_start(strings.clone_to_cstring(app_name(config.title), context.temp_allocator)) == 1
+	}
 	main_id := g_next_id
 	g_next_id += 1
 	g_main_id = main_id
@@ -1206,11 +1253,6 @@ run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> 
 		// Framing during border drags happens in this watch: the
 		// main loop is blocked inside the drag's modal loop then.
 		_ = sdl.AddEventWatch(live_resize_watch, nil)
-	}
-	when ODIN_OS == .Linux {
-		// Start the AT-SPI exporter (no-op when no accessibility
-		// bus answers), under the app's name.
-		atspi_start(strings.clone_to_cstring(app_name(config.title), context.temp_allocator))
 	}
 
 	res := sdl.AppResult.CONTINUE
