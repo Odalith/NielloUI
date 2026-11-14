@@ -682,6 +682,11 @@ Input :: struct {
 Frame_Result :: struct {
 	changed:      bool,   // something changed: the host should draw
 	damage:       []Rect, // the regions that changed, valid until the next frame_begin
+	repaint:      []Rect, // the regions a host repaints: damage clipped to the
+	                      // window, merged and capped (at most a few rects);
+	                      // empty when nothing changed. A backend that keeps
+	                      // its pixels repaints just these: pass the same slice
+	                      // to draw_list and to the renderer.
 	next_wake_ms: u32,    // ms until the engine needs a frame (an animation, a
 	                      // timer); max(u32) = none: sleep until input or context_wake
 	cursor:       Cursor_Kind, // the hovered instance's resolved cursor
@@ -1602,6 +1607,7 @@ frame_end :: proc() -> Frame_Result {
 	res := Frame_Result{
 		changed      = g.frame_index == 0 || len(g.damage) > 0,
 		damage       = g.damage[:],
+		repaint      = repaint_rects(),
 		next_wake_ms = compute_next_wake(),
 		cursor       = current_cursor(),
 	}

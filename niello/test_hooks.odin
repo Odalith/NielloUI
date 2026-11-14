@@ -106,6 +106,7 @@ when ODIN_TEST {
 	// as leaks (still live at test end) and bad frees (freed by a tracker
 	// that never allocated them).
 	test_reset :: proc() {
+		test_repaint_forget()
 		if test_ctx != nil {
 			context_destroy(test_ctx)
 			test_ctx = nil
@@ -119,6 +120,7 @@ when ODIN_TEST {
 	}
 
 	test_teardown :: proc() {
+		test_repaint_forget()
 		shutdown() // destroys test_ctx with every other live context
 		test_ctx = nil
 	}
@@ -138,6 +140,136 @@ when ODIN_TEST {
 		style_off, decl_off: uintptr,
 		size:                int,
 		id, decl_id:         typeid,
+	}
+
+	// ---- partial repaint check ----
+	//
+	// test_repaint_check renders this frame twice on a coarse software
+	// canvas (one cell per DIP), the way a host does: once in full, and
+	// once as a cache that only repaints res.repaint, clearing each rect
+	// and replaying draw_list(res.repaint) clipped to it, on top of what
+	// it held. It returns how many cells differ: anything but 0 means a
+	// partial repaint would leave stale or missing pixels. Each rect,
+	// text run and image fills its bounds with one color; clips apply;
+	// opacity is ignored. Call it after frame_end. Frames that report no
+	// change are skipped: no host renders them.
+	test_repaint_check :: proc(res: Frame_Result) -> (mismatches: int) {
+		w, h := int(g.viewport.x), int(g.viewport.y)
+		if !res.changed || w <= 0 || h <= 0 {
+			return 0
+		}
+		st, ok := test_repaint_caches[g]
+		if !ok {
+			st = new(Test_Repaint_Cache)
+			test_repaint_caches[g] = st
+		}
+		full := make([]u32, w * h, context.temp_allocator)
+		whole := Rect{{0, 0}, {f32(w), f32(h)}}
+		test_raster(full, w, h, draw_list(), whole)
+		// A first frame, or a new size, repaints in full (as the host's
+		// force_render does).
+		if g.frame_index <= 1 || st.w != w || st.h != h || len(res.repaint) == 0 {
+			resize(&st.cells, w * h)
+			copy(st.cells[:], full)
+			st.w, st.h = w, h
+			return 0
+		}
+		part := draw_list(res.repaint)
+		for r in res.repaint {
+			x0, x1, y0, y1 := test_cell_span(r, w, h)
+			for y in y0 ..< y1 {
+				for x in x0 ..< x1 {
+					st.cells[y * w + x] = 0
+				}
+			}
+			test_raster(st.cells[:], w, h, part, r)
+		}
+		for c, k in full {
+			if st.cells[k] != c {
+				mismatches += 1
+			}
+		}
+		return
+	}
+
+	Test_Repaint_Cache :: struct {
+		w, h:  int,
+		cells: [dynamic]u32,
+	}
+
+	test_repaint_caches: map[^Context]^Test_Repaint_Cache
+
+	// test_repaint_forget drops the check's caches (test_reset and
+	// test_teardown call it; a test with its own contexts calls it when
+	// done).
+	test_repaint_forget :: proc() {
+		for _, st in test_repaint_caches {
+			delete(st.cells)
+			free(st)
+		}
+		delete(test_repaint_caches)
+		test_repaint_caches = nil
+	}
+
+	// test_cell_span is the cells whose centers lie in r, clamped.
+	test_cell_span :: proc(r: Rect, w, h: int) -> (x0, x1, y0, y1: int) {
+		first :: proc(v: f32) -> int {
+			t := v - 0.5
+			i := int(t)
+			if f32(i) < t {
+				i += 1
+			}
+			return i
+		}
+		x0 = clamp(first(r.pos.x), 0, w)
+		x1 = clamp(first(r.pos.x + r.size.x), 0, w)
+		y0 = clamp(first(r.pos.y), 0, h)
+		y1 = clamp(first(r.pos.y + r.size.y), 0, h)
+		return
+	}
+
+	test_raster :: proc(cells: []u32, w, h: int, cmds: []Draw_Cmd, region: Rect) {
+		clips := make([dynamic]Rect, context.temp_allocator)
+		cur := region
+		pack :: proc(c: Color) -> u32 {
+			return u32(c[0]) | u32(c[1]) << 8 | u32(c[2]) << 16 | u32(c[3]) << 24
+		}
+		for c in cmds {
+			col: u32
+			switch c.tag {
+			case .Push_Clip:
+				append(&clips, cur)
+				cur = rect_intersect(cur, c.bounds)
+				continue
+			case .Pop_Clip:
+				cur = pop(&clips)
+				continue
+			case .Push_Opacity, .Pop_Opacity:
+				continue
+			case .Rect, .Overlay:
+				if c.color.a > 0 {
+					col = pack(c.color)
+				} else if c.border_width > 0 {
+					col = pack(c.border_color)
+				} else {
+					continue
+				}
+			case .Text:
+				col = pack(c.color) | 1
+			case .Image:
+				col = c.image * 2654435761 | 1
+			}
+			r := rect_intersect(c.bounds, cur)
+			if r.size.x <= 0 || r.size.y <= 0 {
+				continue
+			}
+			x0, x1, y0, y1 := test_cell_span(r, w, h)
+			for y in y0 ..< y1 {
+				for x in x0 ..< x1 {
+					cells[y * w + x] = col
+				}
+			}
+		}
 	}
 
 	test_field_rows :: proc() -> (rows: [Field]Test_Field_Row) {

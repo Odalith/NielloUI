@@ -110,6 +110,20 @@ Native_Handles :: struct {
 	cocoa_layer:   rawptr,
 }
 
+// What nui_render reports. A backend that answers RENDER_PRESENTED
+// repaints everything whatever damage it is given (native releases before
+// partial repaint); RENDER_PRESENTED_DAMAGE means damage is honoured, and
+// RENDER_NEED_FULL that a partial repaint was refused because the cache is
+// not valid: nothing was drawn, and the frame must be sent in full.
+@(private)
+RENDER_FAILED :: 0
+@(private)
+RENDER_PRESENTED :: 1
+@(private)
+RENDER_NEED_FULL :: 2
+@(private)
+RENDER_PRESENTED_DAMAGE :: 3
+
 // The raw nui_* bindings are the glue's own: private to this package.
 @(default_calling_convention = "c", link_prefix = "nui_", private)
 foreign native {
@@ -126,8 +140,10 @@ foreign native {
 
 	present_cached   :: proc(win: Window) -> c.int ---
 
-	// Fully rebuild the window's owned pixel cache. Borrowed commands
-	// are never retained.
+	// Repaint the window's owned pixel cache and present it. Borrowed
+	// commands are never retained. With damage (n_damage > 0) the
+	// commands are those touching the rects, and only those regions are
+	// repainted over the cache. Returns a RENDER_* code.
 	render :: proc(
 		win: Window,
 		cmds: [^]niello.Draw_Cmd, n_cmds: i32,
