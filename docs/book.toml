@@ -18,7 +18,7 @@ preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/Odalith/NielloUI"
 edit-url-template = "https://github.com/Odalith/NielloUI/edit/main/docs/{path}"
 site-url = "/NielloUI/"
-additional-js = ["theme/odin-highlight.js"]
+additional-js = ["theme/odin-highlight.js", "theme/reference-edit.js"]
 additional-css = ["theme/docgen.css"]
 
 [output.html.search]
