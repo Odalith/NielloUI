@@ -1475,6 +1475,7 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	clear(&g.draw_cmds)
 	g.viewport = input.viewport
 	g.dt = dt
+	g.declaring = true
 	// Cold units, the instance map, and the text cache persist across frames.
 }
 
@@ -1493,6 +1494,15 @@ frame_end :: proc() -> Frame_Result {
 	sweep_transients()
 	resolve_styles()
 	layout_pass(g.viewport)
+	// Focus steps asked for during declare move now, along the whole
+	// tree: a box that hands on (Enter) reaches the one declared after it.
+	g.declaring = false
+	for ; g.focus_steps > 0; g.focus_steps -= 1 {
+		traverse_focus(1)
+	}
+	for ; g.focus_steps < 0; g.focus_steps += 1 {
+		traverse_focus(-1)
+	}
 	// Focus survival (§3.17): focus cannot outlive its instance. If
 	// the focused instance left the tree this frame or became
 	// disabled, focus clears (set_focus_id also cancels a pending
@@ -1904,15 +1914,26 @@ focus_visible :: proc(i: Instance) -> bool {
 }
 
 // focus_next moves keyboard focus to the next focusable instance in
-// declaration order (wrapping), as Tab does. Called during declare it
-// moves focus at once; this frame's keys and text still go where they
-// were routed.
+// declaration order (wrapping), as Tab does. Called during declare, it
+// moves focus when the frame ends, along the whole tree, so a control can
+// hand focus to one declared after it (a text box on Enter); until then
+// this frame's queries, keys and text see the focus as it was. Between
+// frames it moves at once.
 focus_next :: proc() {
+	if g.declaring {
+		g.focus_steps += 1
+		return
+	}
 	traverse_focus(1)
 }
 
-// focus_prev moves keyboard focus back one step, as Shift+Tab does.
+// focus_prev moves keyboard focus back one step, as Shift+Tab does. Called
+// during declare, it moves when the frame ends, like focus_next.
 focus_prev :: proc() {
+	if g.declaring {
+		g.focus_steps -= 1
+		return
+	}
 	traverse_focus(-1)
 }
 

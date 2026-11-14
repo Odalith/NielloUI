@@ -314,6 +314,11 @@ Context :: struct {
 	focus_id:      Instance, // keyboard focus (§3.17): traversal, click,
 	                         // or programmatic; input_keys/input_text
 	                         // route to it
+	declaring:     bool, // between frame_begin and frame_end
+	focus_steps:   int,  // focus_next/focus_prev calls made during
+	                     // declare, net: applied at frame_end against
+	                     // the whole tree (mid-declare, the nodes after
+	                     // the caller do not exist yet)
 	key_press_id:    Instance, // Space/Enter capture on the focused
 	                         // instance between key-down and key-up
 	key_press_code:  Key_Code,
