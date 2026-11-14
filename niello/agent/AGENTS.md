@@ -24,6 +24,10 @@ until the report says PASS.
 ## A scenario
 
 Put scenarios in the app's own package, in a file like `agent_test.odin`.
+Import the packages the same way the app does. The template below uses the
+`niello` collection (`-collection:niello=path/to/niello`); an app that
+imports by relative path (`niello "../../niello"`, `"../../niello/agent"`)
+does the same here.
 Wrap them in `when niello.NIELLO_DEBUG`: the harness exists only in debug
 builds, and the wrapper keeps the app's normal release test run building.
 
@@ -171,6 +175,7 @@ The actions report problems instead of acting:
 | `Not_Found` | `find` matched nothing | Use the name from the candidates it lists; give your component a role or label |
 | `Ambiguous` | `find` matched several | Give them different labels, or find by role and name together |
 | `Truncated` | A line of text is cut short with "…" | Give it room: `wrap = .Word` for prose, a `grow()` width, a wider box, or a lower `priority` on a sibling that can give way |
+| `Collapsed` | A control has no width or height, so it can't be seen or clicked | Something sized it `fit()` with nothing inside: give it a size. A `With.size` passed to a control replaces both axes of its size, so set both |
 | `Overflow` | Children, or drawn text, run past their box | Make the box `fit()` or `grow()`; let text wrap; give the box `scroll = .Vertical` if it is meant to scroll |
 | `Unsettled` | The screen still changes after 10 simulated seconds | Something is shown that changes every frame: a frame counter, a timestamp, or a `hover_duration` readout. Show it only while needed |
 | `Idle_Wakes` (warning) | Nothing changes, but the app keeps asking for frames | Usually `hover_duration` compared against a threshold: use `hovered_for(i, seconds)` instead |
@@ -205,6 +210,12 @@ fix the code instead.
   expected string.
 - **The session's record:** `s.findings` holds every finding so far, and
   `s.steps` every step.
+- **Read the snapshot, not just PASS:** the lints catch what can be
+  measured exactly. A control in the wrong place, or one that is the right
+  size but looks wrong, only shows when you read the snapshot.
+- **Labels of `combo_box` and `slider`:** these name the control for
+  screen readers and for `find`, and draw nothing. Show a visible label
+  yourself when the screen needs one. `checkbox` draws its label.
 - **Where focus goes:** focus moves only when a click, Tab or the app
   moves it. `type_text` with nothing focused types into nothing, so check
   the snapshot's `focus:` header.

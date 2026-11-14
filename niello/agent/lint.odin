@@ -21,6 +21,7 @@ when niello.NIELLO_DEBUG {
 		Covered_Target,  // an action on a control the pointer can't reach
 		Overflow,        // children, or a node's own text, run past its box
 		Truncated,       // a line of text is cut short with an ellipsis
+		Collapsed,       // an interactive control with no width or height
 		Unsettled,       // the screen keeps changing
 		Idle_Wakes,      // nothing changes, yet the app keeps asking for frames
 	}
@@ -133,8 +134,8 @@ when niello.NIELLO_DEBUG {
 
 	// lint checks the current screen and records what is wrong with it:
 	// content overflowing its box (scrolling and clipping boxes excepted:
-	// there the excess is by design) and text truncated with an ellipsis.
-	// Children are checked across the whole tree; text only where it is
+	// there the excess is by design), text truncated with an ellipsis, and
+	// interactive controls laid out with no area. Children are checked across the whole tree; text only where it is
 	// drawn, so text scrolled out of view is checked once it is scrolled
 	// in (snapshot tags and counts it). A
 	// problem already found on the same node is not recorded again. snapshot
@@ -184,7 +185,30 @@ when niello.NIELLO_DEBUG {
 				}
 			}
 		}
+		// A control a user should reach, laid out with no area: it can't
+		// be seen or clicked (fit() with nothing inside measures 0).
+		for a in niello.a11y_tree(s.ctx) {
+			if !interactive(a) || (a.rect.size.x >= 1 && a.rect.size.y >= 1) {
+				continue
+			}
+			add_finding(s, .Collapsed, .Error, a.instance, {}, "%s has no area (%.0fx%.0f at %.0f,%.0f): it can't be seen or clicked; a fit() size with nothing inside measures 0",
+				describe(s, a.instance), a.rect.size.x, a.rect.size.y, a.rect.pos.x, a.rect.pos.y, label = label)
+		}
 		return s.findings[:]
+	}
+
+	// interactive: is this a control a user acts on (a Tab stop, or a role
+	// that takes input)?
+	@(private)
+	interactive :: proc(a: niello.A11y_Node) -> bool {
+		if .Focusable in a.state {
+			return true
+		}
+		#partial switch a.role {
+		case .Button, .CheckBox, .ComboBox, .Edit, .Slider, .Spinner, .RadioButton, .TabItem, .MenuItem, .Hyperlink, .SplitButton:
+			return true
+		}
+		return false
 	}
 
 	@(private)

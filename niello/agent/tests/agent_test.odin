@@ -27,6 +27,8 @@ when niello.NIELLO_DEBUG {
 		cover:      bool, // a popup over the Add button: covered
 		spin:       bool, // text that changes every frame: unsettled
 		poll_hover: bool, // reads hover_duration without showing it: idle wakes
+		flat:       bool, // a slider given a fit() height: collapsed
+		volume:     controls.Slider,
 		frame_n:    int,
 		add_i:      niello.Instance,
 	}
@@ -87,6 +89,9 @@ when niello.NIELLO_DEBUG {
 			}
 			if a.spin {
 				niello.show(fx_item, {text = fmt.tprintf("frame %d", a.frame_n)})
+			}
+			if a.flat {
+				controls.slider(&a.volume, "Volume", with = {size = niello.size(niello.fixed(200), niello.fit())})
 			}
 			if a.poll_hover {
 				_ = niello.hover_duration(a.add_i)
@@ -199,6 +204,25 @@ when niello.NIELLO_DEBUG {
 		agent.allow(s2, .Truncated, fx_narrow)
 		agent.lint(s2)
 		testing.expect_value(t, has(s2, .Truncated), 0)
+	}
+
+	// A control laid out with no area: here a slider whose With.size gives
+	// its track a fit() height, which measures 0.
+	@(test)
+	test_collapsed_control :: proc(t: ^testing.T) {
+		niello.test_reset()
+		defer niello.test_teardown()
+		a: Fx
+		a.flat = true
+		fx_setup(&a)
+		defer fx_teardown(&a)
+		s := agent.session_open(fx_declare, &a, ctx = a.ctx, name = "agent-test-collapsed")
+		defer agent.session_close(s)
+		agent.lint(s)
+		testing.expect_value(t, has(s, .Collapsed), 1)
+		if len(s.findings) > 0 {
+			testing.expectf(t, strings.contains(s.findings[0].message, `Slider "Volume"`), "names the control: %s", s.findings[0].message)
+		}
 	}
 
 	@(test)
