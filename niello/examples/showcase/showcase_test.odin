@@ -194,6 +194,23 @@ showcase_smoke :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.controls.clicks, before + 1)
 
 	// Keyboard: focus by click, type, edit, Tab onward.
+	// The combo box: open it, pick an option (a popup over the page,
+	// through the repaint check).
+	click(&app, app.nav_i[.Controls])
+	idle(&app, 2)
+	click(&app, app.controls.fruit.box_i)
+	testing.expect(t, app.controls.fruit.open, "the combo box opens")
+	idle(&app, 2)
+	pick, picked := niello.Instance(0), false
+	for n in niello.a11y_tree(app.ctx) {
+		if n.role == .ComboBoxItem && n.name == "Mango" {
+			pick, picked = n.instance, true
+		}
+	}
+	testing.expect(t, picked, "its options are in the a11y tree")
+	click(&app, pick)
+	testing.expect(t, !app.controls.fruit.open && FRUITS[app.controls.fruit.selected] == "Mango", "an option picks and closes")
+
 	// Layout's Wrap demo: the chips wrap onto several lines, and the
 	// align buttons cycle (each click relayouts; the repaint check in
 	// frame covers it).

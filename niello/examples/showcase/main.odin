@@ -318,6 +318,7 @@ app_init :: proc(app: ^App) {
 	mint_shell(DARK_THEME)
 	mint_pages(app)
 	app.ctx = niello.context_create()
+	app.controls.city.selected = -1 // nothing chosen yet: the placeholder shows
 	app.async.box = inbox.create(Msg, app.ctx)
 }
 

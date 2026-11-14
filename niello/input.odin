@@ -214,19 +214,52 @@ point_in_node :: proc(i: int, p: Vec2) -> bool {
 }
 
 // pick_at returns the topmost node index at p in the tree currently in
-// g.nodes (at dispatch time: last frame's committed tree), or -1. Reverse
-// array order is reverse paint order, so the first hit is the visible one.
-// The accumulated pick clip keeps children that are scrolled or clipped
-// away from false-hitting outside their visible region.
+// g.nodes (at dispatch time: last frame's committed tree), or -1, in paint
+// order reversed (draw_list): the popups first, the last declared on top,
+// then the main tree. A popup root stays where it was declared in the
+// array, so a plain reverse scan would let content declared after a popup
+// take the pointer over it. The accumulated pick clip keeps children that
+// are scrolled or clipped away from false-hitting outside their visible
+// region.
 @(private)
 pick_at :: proc(p: Vec2) -> int {
-	for i := len(g.nodes) - 1; i >= 0; i -= 1 {
-		if g.nodes[i].culled {
+	for k := len(g.popups) - 1; k >= 0; k -= 1 {
+		r := g.popups[k].root_idx
+		if r < 0 || r >= len(g.nodes) || g.nodes[r].culled {
 			continue
+		}
+		if hit := pick_range(p, r, g.subtree_end[r], r); hit >= 0 {
+			return hit
+		}
+	}
+	if len(g.nodes) == 0 {
+		return -1
+	}
+	return pick_range(p, 0, len(g.nodes) - 1, -1)
+}
+
+// pick_range scans the nodes [lo, hi] in reverse for the first hit at p,
+// skipping the subtrees of popups other than own_root that start inside
+// the range (pick_at scans each popup on its own).
+@(private)
+pick_range :: proc(p: Vec2, lo, hi, own_root: int) -> int {
+	i := hi
+	scan: for i >= lo {
+		if g.nodes[i].culled {
+			i -= 1
+			continue
+		}
+		for rec in g.popups {
+			r := rec.root_idx
+			if r != own_root && r >= lo && i >= r && i <= g.subtree_end[r] {
+				i = r - 1
+				continue scan
+			}
 		}
 		if point_in_node(i, p) && point_in_rect(p, g.pick_clip[i]) {
 			return i
 		}
+		i -= 1
 	}
 	return -1
 }

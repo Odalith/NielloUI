@@ -582,4 +582,14 @@ test_popups_paint_over_later_content :: proc(t: ^testing.T) {
 	testing.expect_value(t, depth, 0)
 	r, _ := niello.rect(po_tip_i)
 	testing.expect_value(t, cmds[tip].bounds, r) // whole, though it lies outside the clipper
+
+	// and the pointer agrees with the paint: over the popup (and over the
+	// content declared after it, which lies underneath) it hovers the popup
+	over := niello.Vec2{r.pos.x + 140, r.pos.y + 50} // in tip, outside tip2, over po_after
+	for _ in 0 ..< 2 {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}, mouse = over, mouse_valid = true}, 0.016)
+		po_declare()
+		niello.frame_end()
+	}
+	testing.expect(t, niello.hovered(po_tip_i), "the popup takes the pointer over content declared after it")
 }
