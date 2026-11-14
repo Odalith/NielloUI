@@ -1128,7 +1128,11 @@ close_overflow :: #force_inline proc(i: int, publish: bool) {
 		g.lay[i].size.x - padding_sum(s, X_AXIS),
 		g.lay[i].size.y - padding_sum(s, Y_AXIS),
 	}
-	max_end := Vec2{0, 0} // pre-scroll content extent
+	// The pre-scroll content extent, from the content origin: starting
+	// at 0 made every container whose children all sit above or left of
+	// the window's origin (rows scrolled up out of view) report overflow
+	// reaching to 0, and inflated a scroller's range there.
+	max_end := origin
 	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
 		if g.nodes[c].anchored {
 			continue // overlays take no flow slot (§3.20)
