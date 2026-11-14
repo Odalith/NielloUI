@@ -142,7 +142,7 @@ showcase_smoke :: proc(t: ^testing.T) {
 	for dark in ([]bool{true, false}) {
 		if !dark {
 			app.dark = false
-			controls.apply_theme(LIGHT_THEME, 0)
+			apply_showcase_theme(false, 0)
 		}
 		for p in Page {
 			testing.expectf(t, click(&app, app.nav_i[p]), "nav item %v has a rect", p)

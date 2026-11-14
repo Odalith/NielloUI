@@ -107,7 +107,7 @@ page_controls :: proc(app: ^App) {
 		controls.tooltip(s.hover_i, "Tooltips are popups shown once the pointer rests for 0.5 s, or at once when Tab brings focus here.")
 		d := niello.hover_duration(s.hover_i)
 		note(d > 0 ? fmt.tprintf("hovered for %.1f s", d) : "not hovered")
-		if niello.begin(ui.row) {
+		if niello.begin(ui.flow) { // wraps: one row was a few DIP short at 1180
 			for k in niello.Cursor_Kind {
 				s.cursor_i[k] = niello.show(cursor_units[k], {text = fmt.tprintf("%v", k)})
 			}
@@ -460,15 +460,18 @@ mint_pages_basic :: proc(t: Theme) {
 	niello.mint(&L.fit_b, niello.NO_UNIT, box)
 	box.size = size(percent(0.2), grow())
 	niello.mint(&L.percent_b, niello.NO_UNIT, box)
-	box.groups = []niello.Group{controls.groups.ink}
+	// The growers: saturated hues with white labels, the same in both
+	// themes (not the ink role: dark ink on these was unreadable).
+	box.groups = nil
+	box.font_color = rgb(0xffffff)
 	box.size = size(grow(), grow())
-	box.color = rgb(0x3d5a8c)
+	box.color = rgb(0x4f6ef0)
 	niello.mint(&L.grow_b, niello.NO_UNIT, box)
 	box.size = size(grow(2), grow())
-	box.color = rgb(0x3d7a8c)
+	box.color = rgb(0x1f9aa6)
 	niello.mint(&L.grow2_b, niello.NO_UNIT, box)
 	box.size = size(grow(max = 160), grow())
-	box.color = rgb(0x5a3d8c)
+	box.color = rgb(0x8a5ce0)
 	niello.mint(&L.grow_max_b, niello.NO_UNIT, box)
 
 	niello.mint(&L.align_dot, niello.NO_UNIT, {size = size(fixed(16), fixed(16)), corner_radius = 8, color = t.accent})
@@ -513,10 +516,12 @@ mint_pages_basic :: proc(t: Theme) {
 	niello.mint(&L.spill_box, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(200), fixed(50)), padding = pad(8),
 		corner_radius = 6, border_width = 1, border_color = t.dim,
+		group_masks = []niello.Group_Mask{controls.as(controls.groups.outline, .Border_Color)},
 	})
 	niello.mint(&L.clip_box, niello.NO_UNIT, {
 		layout = .Top_To_Bottom, size = size(fixed(200), fixed(50)), padding = pad(8),
-		corner_radius = 6, border_width = 1, border_color = t.dim, overflow = .Clip,
+		corner_radius = 6, border_width = 1, border_color = t.dim,
+		group_masks = []niello.Group_Mask{controls.as(controls.groups.outline, .Border_Color)}, overflow = .Clip,
 	})
 	niello.mint(&L.wide, niello.NO_UNIT, {
 		size = size(fixed(320), fixed(30)), padding = pad_xy(8, 7), corner_radius = 4,
