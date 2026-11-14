@@ -46,6 +46,7 @@ Kind :: enum {
 	Procedure,
 	Constant,
 	Variable,
+	Hook, // a variable of procedure type, set by a host or another package
 }
 
 KIND_TITLE := [Kind]string {
@@ -53,6 +54,16 @@ KIND_TITLE := [Kind]string {
 	.Procedure = "Procedures",
 	.Constant  = "Constants",
 	.Variable  = "Variables",
+	.Hook      = "Hooks",
+}
+
+// KIND_INTRO opens a kind's section, where it needs saying.
+KIND_INTRO := [Kind]string {
+	.Type      = "",
+	.Procedure = "",
+	.Constant  = "",
+	.Variable  = "",
+	.Hook      = "Procedure variables through which the package reaches services it does not implement itself. A host (or another package) sets them; an app rarely touches them.",
 }
 
 Entry :: struct {
@@ -183,6 +194,20 @@ load :: proc(odin_exe, root, tmp: string, spec: Package, debug: bool) -> Page {
 	}
 	files := doc.from_array(h, h.files)
 	ents := doc.from_array(h, h.entities)
+	types := doc.from_array(h, h.types)
+
+	// is_proc reports that a type is a procedure type, through named types.
+	is_proc :: proc(h: ^doc.Header, types: []doc.Type, ti: doc.Type_Index) -> bool {
+		t := types[ti]
+		for depth := 0; t.kind == .Named && depth < 16; depth += 1 {
+			base := doc.from_array(h, t.types)
+			if len(base) == 0 {
+				return false
+			}
+			t = types[base[0]]
+		}
+		return t.kind == .Proc
+	}
 
 	page := Page{pkg = spec}
 	for p in doc.from_array(h, h.pkgs) {
@@ -204,7 +229,7 @@ load :: proc(odin_exe, root, tmp: string, spec: Package, debug: bool) -> Page {
 			case .Constant:
 				kind = .Constant
 			case .Variable:
-				kind = .Variable
+				kind = .Hook if is_proc(h, types, e.type) else .Variable
 			case:
 				continue
 			}
@@ -1102,6 +1127,9 @@ write_page :: proc(b: ^strings.Builder, page: ^Page, source: string) {
 			}
 			if first {
 				fmt.sbprintf(b, "## %s\n\n", KIND_TITLE[kind])
+				if KIND_INTRO[kind] != "" {
+					fmt.sbprintf(b, "%s\n\n", KIND_INTRO[kind])
+				}
 				first = false
 			}
 			fmt.sbprintf(b, "### %s {{#%s}}\n\n", e.name, e.name)
