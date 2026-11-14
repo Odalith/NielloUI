@@ -20,9 +20,22 @@
 // run(ctx, config, declare_app, &app), with
 // `declare_app :: proc(app: ^App)`.
 // Every window has its own niello context; open_window and close_window add
-// and remove windows from anywhere, declare procs included. Importing this
-// package also connects the core's text measurement, image decoding and
-// clipboard to the backend and the system.
+// and remove windows from anywhere, declare procs included. Closing the main
+// window ends the app (App_Settings.independent_windows changes that).
+// Importing this package also connects the core's text measurement, image
+// decoding and clipboard to the backend and the system.
+//
+// The app and its windows:
+//
+//	niello_sdl.set_app_settings({name = "Notes", id = "com.example.notes"})
+//	niello_sdl.run(ctx, {title = "Notes", icon = #load("icon.png"), confirm_close = true}, declare)
+//
+// The id is how the desktop recognises the app (on Wayland it must match
+// the app's .desktop file). A window's title, icon, size and state change
+// through set_window_title, set_window_icon, maximize_window and the rest;
+// window_state reads it back. With confirm_close, closing a window is a
+// request the app answers (close_requested, then close_window), so it can
+// ask about unsaved work first.
 //
 // Linking needs the prebuilt native backend for your platform (see
 // third_party/native/README.md).
@@ -37,11 +50,47 @@ import niello "../"
 
 // App_Config describes a window. Fields not set get sensible defaults.
 App_Config :: struct {
-	title:  string, // window title
-	width:  i32,    // initial width in pixels (DIP at scale 1)
-	height: i32,    // initial height in pixels (DIP at scale 1)
-	flags:  sdl.WindowFlags,
+	title:         string, // the window's title (default "Niello App")
+	width, height: i32,    // initial size in DIP (default 800 × 600)
+	min_width:     i32,    // the smallest the user can make it, in DIP;
+	min_height:    i32,    // 0: no minimum
+	fixed_size:    bool,   // the user cannot resize it
+	maximized:     bool,   // it opens maximized
+	fullscreen:    bool,   // it opens fullscreen
+	icon:          []byte, // its icon, as PNG bytes (#load("icon.png")); see
+	                       // set_window_icon
+	confirm_close: bool,   // a close request (the close button, Alt+F4, the
+	                       // app quitting) does not close it: close_requested
+	                       // reports the request and the app calls
+	                       // close_window when it is ready
 }
+
+// App_Settings describes the app as a whole, to the desktop and to
+// assistive technology. Set it with set_app_settings before run.
+App_Settings :: struct {
+	name:    string, // the app's name; unset, the main window's title
+	id:      string, // a reverse-DNS id, like "com.example.notes". On Wayland
+	                 // it is the app id the desktop matches to the app's
+	                 // .desktop file (its taskbar icon and grouping), so it must
+	                 // equal that file's name; X11 uses it as the window class.
+	                 // Unset, the executable's name.
+	version: string,
+	// independent_windows: closing the main window leaves the others open,
+	// and run returns when the last window closes. By default (false),
+	// closing the main window closes every window and run returns.
+	independent_windows: bool,
+}
+
+// Window_State is a fact about a window the desktop controls.
+Window_State :: enum u8 {
+	Maximized,
+	Minimized,
+	Fullscreen,
+	Focused, // it has keyboard focus
+}
+
+// Window_States is a set of Window_State.
+Window_States :: bit_set[Window_State]
 
 // Declare_Proc is a window's UI: it runs between frame_begin and
 // frame_end, with that window's context bound. Apps that keep their
@@ -81,7 +130,7 @@ Glue_Window :: struct {
 	sdl_win:  ^sdl.Window,
 	sdl_id:   sdl.WindowID,
 	ctx:      ^niello.Context,
-	title:    string, // the config title (window_list's label)
+	title:    string, // owned; window_list's label and the AT-SPI window name
 	nui:      Window, // backend handle (ffi.odin)
 	declare:  Declare,
 	// input accumulators, consumed by this window's next frame
@@ -114,6 +163,10 @@ Glue_Window :: struct {
 	dead:           bool, // close requested; teardown at the next safe point
 	cursor_applied: niello.Cursor_Kind,
 	trace_focused:  bool,
+	// close requests (confirm_close)
+	confirm_close:  bool,
+	close_pending:  bool, // a request arrived; reported by the next frame
+	close_reported: bool, // close_requested answers true this frame
 }
 
 // Package state, owned by the loop below.
@@ -141,6 +194,8 @@ window_list :: proc() -> []Window_Info {
 	}
 	return g_window_infos[:]
 }
+// Pending_Open is a window queued by open_window, created at the next
+// loop pass. Its config's title and icon are owned copies.
 @(private)
 Pending_Open :: struct {
 	id:      Window_Id,
@@ -148,6 +203,15 @@ Pending_Open :: struct {
 	config:  App_Config,
 	declare: Declare,
 }
+
+@(private)
+g_app: App_Settings // set_app_settings; strings owned
+@(private)
+g_main_id: Window_Id // run's window
+@(private)
+g_current_id: Window_Id // the window whose declare is running
+@(private)
+g_quit: bool // quit() was called
 @(private)
 g_pending_open: [dynamic]Pending_Open
 @(private)
@@ -230,11 +294,26 @@ create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Confi
 	ctitle := strings.clone_to_cstring(title, context.temp_allocator)
 	w := config.width if config.width > 0 else 800
 	h := config.height if config.height > 0 else 600
-	flags := config.flags + {.RESIZABLE}
+	flags: sdl.WindowFlags
+	if !config.fixed_size {
+		flags += {.RESIZABLE}
+	}
+	if config.maximized {
+		flags += {.MAXIMIZED}
+	}
+	if config.fullscreen {
+		flags += {.FULLSCREEN}
+	}
 	sdl_win := sdl.CreateWindow(ctitle, w, h, flags)
 	if sdl_win == nil {
 		fmt.printf("sdl.CreateWindow failed: %s\n", sdl.GetError())
 		return false
+	}
+	if config.min_width > 0 || config.min_height > 0 {
+		_ = sdl.SetWindowMinimumSize(sdl_win, config.min_width, config.min_height)
+	}
+	if len(config.icon) > 0 && !apply_icon(sdl_win, config.icon) {
+		fmt.println("niello_sdl: the window icon is not a PNG it can decode")
 	}
 
 	// Text input on, always (desktop): without it, SDL never sends
@@ -255,7 +334,7 @@ create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Confi
 	win := new(Glue_Window)
 	win^ = Glue_Window{
 		id             = id,
-		title          = title,
+		title          = strings.clone(title),
 		sdl_win        = sdl_win,
 		sdl_id         = sdl.GetWindowID(sdl_win),
 		ctx            = ctx,
@@ -271,6 +350,7 @@ create_window_now :: proc(id: Window_Id, ctx: ^niello.Context, config: App_Confi
 		last_frame_ns  = sdl.GetTicksNS(),
 		cursor_applied = .Arrow,
 		trace_focused  = true,
+		confirm_close  = config.confirm_close,
 	}
 	win.content_scale = content_scale(win)
 
@@ -301,6 +381,7 @@ destroy_window_now :: proc(win: ^Glue_Window) {
 	sdl.DestroyWindow(win.sdl_win)
 	delete(win.text_buf)
 	delete(win.keys)
+	delete(win.title)
 	for w, i in g_windows {
 		if w == win {
 			ordered_remove(&g_windows, i)
@@ -319,6 +400,7 @@ destroy_window_now :: proc(win: ^Glue_Window) {
 apply_pending :: proc() {
 	for p in g_pending_open {
 		create_window_now(p.id, p.ctx, p.config, p.declare)
+		free_pending(p)
 	}
 	clear(&g_pending_open)
 	for id in g_pending_close {
@@ -359,20 +441,51 @@ open_window_with :: proc(ctx: ^niello.Context, config: App_Config, declare: proc
 queue_open :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> Window_Id {
 	id := g_next_id
 	g_next_id += 1
-	append(&g_pending_open, Pending_Open{id = id, ctx = ctx, config = config, declare = declare})
+	owned := config
+	owned.title = strings.clone(config.title)
+	owned.icon = clone_bytes(config.icon)
+	append(&g_pending_open, Pending_Open{id = id, ctx = ctx, config = owned, declare = declare})
 	return id
 }
 
-// close_window queues a window's teardown. Default close policy: an
-// OS close request closes that window; when the last window goes,
-// run() returns.
+@(private)
+free_pending :: proc(p: Pending_Open) {
+	delete(p.config.title)
+	delete(p.config.icon)
+}
+
+@(private)
+clone_bytes :: proc(b: []byte) -> []byte {
+	if len(b) == 0 {
+		return nil
+	}
+	out := make([]byte, len(b))
+	copy(out, b)
+	return out
+}
+
+// close_window closes a window at the next loop pass. Closing the main
+// window closes every window and ends run, unless the app set
+// independent_windows (App_Settings); then run ends when the last window
+// closes.
 close_window :: proc(id: Window_Id) {
 	append(&g_pending_close, id)
 }
 
 @(private)
-sdl_init :: proc() -> sdl.AppResult {
-	if !sdl.SetAppMetadata("Niello App", "1.0", "com.niello.app") {
+sdl_init :: proc(main_title: string) -> sdl.AppResult {
+	// Unset id: SDL derives one from the executable's name.
+	name := app_name(main_title)
+	cname := strings.clone_to_cstring(name, context.temp_allocator)
+	cversion: cstring = nil
+	if g_app.version != "" {
+		cversion = strings.clone_to_cstring(g_app.version, context.temp_allocator)
+	}
+	cid: cstring = nil
+	if g_app.id != "" {
+		cid = strings.clone_to_cstring(g_app.id, context.temp_allocator)
+	}
+	if !sdl.SetAppMetadata(cname, cversion, cid) {
 		fmt.printf("sdl.SetAppMetadata failed: %s\n", sdl.GetError())
 	}
 
@@ -569,7 +682,12 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	// core's own buffers; the accumulation starts over.
 	clear(&win.keys)
 	clear(&win.text_buf)
+	win.close_reported = win.close_pending
+	win.close_pending = false
+	g_current_id = win.id
 	call_declare(win.declare)
+	g_current_id = 0
+	win.close_reported = false
 	result := niello.frame_end()
 	atspi_sync_window(win)
 
@@ -671,6 +789,15 @@ note_render_failure :: proc(win: ^Glue_Window, now_ns: u64) {
 @(private)
 app_iterate :: proc() -> sdl.AppResult {
 	apply_pending()
+	// quit(), or the main window closed (unless windows are independent):
+	// every window goes and run returns.
+	if g_quit || (!g_app.independent_windows && find_id(g_main_id) == nil) {
+		for win in g_windows {
+			win.dead = true
+		}
+		apply_pending()
+		return .FAILURE
+	}
 	if len(g_windows) == 0 {
 		return .FAILURE // the last window closed: run() returns
 	}
@@ -731,7 +858,16 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 	}
 
 	if event.type == .QUIT {
-		return .FAILURE
+		// The app is asked to quit (the dock or taskbar, session end,
+		// Ctrl+C): a close request on the main window, or on every
+		// window when they are independent. confirm_close holds as for
+		// any other request.
+		for win in g_windows {
+			if g_app.independent_windows || win.id == g_main_id {
+				request_close(win)
+			}
+		}
+		return .CONTINUE
 	}
 
 	win := route(event)
@@ -806,10 +942,8 @@ event_callback :: proc(event: ^sdl.Event) -> sdl.AppResult {
 	case .WINDOW_FOCUS_LOST:
 		win.focused = false
 	case .WINDOW_CLOSE_REQUESTED:
-		// Default close policy: close this window; run() returns when
-		// the table empties. Teardown happens in apply_pending, never
-		// mid-event.
-		win.dead = true
+		// Teardown happens in apply_pending, never mid-event.
+		request_close(win)
 	case .WINDOW_PIXEL_SIZE_CHANGED:
 		win.pixel_width, win.pixel_height = event.window.data1, event.window.data2
 		win.pending_size = true
@@ -1055,12 +1189,14 @@ run_with :: proc(ctx: ^niello.Context, config: App_Config, declare: proc(state: 
 @(private)
 run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> Run_Error {
 	g_run_error = .None
-	if sdl_init() != .CONTINUE {
+	g_quit = false
+	if sdl_init(config.title) != .CONTINUE {
 		sdl.Quit()
 		return .Init_Failed
 	}
 	main_id := g_next_id
 	g_next_id += 1
+	g_main_id = main_id
 	if !create_window_now(main_id, ctx, config, declare) {
 		app_quit()
 		sdl.Quit()
@@ -1073,10 +1209,8 @@ run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> 
 	}
 	when ODIN_OS == .Linux {
 		// Start the AT-SPI exporter (no-op when no accessibility
-		// bus answers). The app name is the main window's title:
-		// App_Config carries no separate app name in v1.
-		title := config.title if config.title != "" else "Niello App"
-		atspi_start(strings.clone_to_cstring(title, context.temp_allocator))
+		// bus answers), under the app's name.
+		atspi_start(strings.clone_to_cstring(app_name(config.title), context.temp_allocator))
 	}
 
 	res := sdl.AppResult.CONTINUE
