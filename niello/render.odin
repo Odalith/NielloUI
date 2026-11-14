@@ -492,7 +492,9 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 				}
 			}
 
-			trims := s.wrap == .None && line_w > max_w
+			// Trim only a real overrun: a line wider than its box by float
+			// rounding alone (a sum in a different order) draws whole.
+			trims := s.wrap == .None && line_w > max_w + SUBPIXEL
 			align_w := line_w
 			if preserve && br[1] == len(seg.words) {
 				// The segment's trailing run counts toward alignment
