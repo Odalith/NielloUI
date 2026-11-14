@@ -220,6 +220,12 @@ Context :: struct {
 	// inert header in prod builds — the snapshot work and the API
 	// that reads it are what the NIELLO_DEBUG gate removes.
 	debug_nodes: [dynamic]Debug_Node,
+	// debug_locs is each kept With's declaration call site, parallel to
+	// withs (every node keeps one in debug builds); debug_site carries the
+	// call site from show/begin into declare_as. Debug builds only: the
+	// public wrappers set debug_site under NIELLO_DEBUG.
+	debug_locs: [dynamic]runtime.Source_Code_Location,
+	debug_site: runtime.Source_Code_Location,
 
 	// Accessibility mirror (§3.9, TODO #23, a11y.odin): this
 	// context's last completed frame as a flat A11y_Node array,
@@ -507,6 +513,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.repaint)
 	when NIELLO_DEBUG {
 		delete(ctx.debug_nodes)
+		delete(ctx.debug_locs)
 	}
 	a11y_free_mirror(ctx)
 	delete(ctx.instances)

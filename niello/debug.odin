@@ -22,6 +22,8 @@ package niello
 // context is bound, because on the one UI thread a peer sits at
 // a frame boundary.
 
+import "base:runtime"
+
 // DEBUG_OVERFLOW_COLOR tints instances in the overflow report (debug builds):
 // a translucent red fill with a solid red border.
 DEBUG_OVERFLOW_COLOR :: Color{255, 60, 60, 56}
@@ -57,6 +59,12 @@ Debug_Node :: struct {
 	flags:    Debug_Flags,
 	with:     Debug_With, // the With overrides this instance was
 	                      // declared with
+	// text is what it shows: With.text, or its unit's text. Borrowed:
+	// valid until the context's next frame_begin.
+	text:     string,
+	// loc is where it was declared: the show or begin call, which for a
+	// component is its caller's line (components forward loc).
+	loc:      runtime.Source_Code_Location,
 }
 
 // Overflow_Axis is the axis of an overflow report entry.
@@ -190,6 +198,8 @@ debug_snapshot_build :: proc() {
 					spill = spill,
 					flags = flags,
 					with = dw,
+					text = nd.text,
+					loc = nd.with_idx >= 0 ? g.debug_locs[nd.with_idx] : {},
 				},
 			)
 		}

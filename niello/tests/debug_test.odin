@@ -296,4 +296,52 @@ when niello.NIELLO_DEBUG {
 		niello.debug_show_overflows(ctx1, false)
 		testing.expect_value(t, dbg_overlay_count(niello.DEBUG_OVERFLOW_COLOR), 0)
 	}
+
+	@(private)
+	dbg_loc_root_i, dbg_loc_leaf_i, dbg_loc_comp_i, dbg_loc_pop_i: niello.Instance
+	@(private)
+	dbg_loc_lines: [4]i32
+
+	// dbg_component forwards its caller's location, as controls do.
+	@(private)
+	dbg_component :: proc(loc := #caller_location) -> niello.Instance {
+		return niello.show(dbg_leaf, {text = "c"}, loc = loc)
+	}
+
+	// The debug snapshot records where each node was declared: the
+	// show/begin call, or a component's caller when it forwards loc.
+	@(test)
+	test_debug_records_declaration_sites :: proc(t: ^testing.T) {
+		niello.test_reset()
+		defer niello.test_teardown()
+		dbg_mint()
+		ctx := niello.test_context()
+		for _ in 0 ..< 2 {
+			niello.frame_begin(ctx, niello.Input{viewport = {400, 300}}, 0.016)
+			dbg_loc_lines[0] = #location().line + 1
+			if niello.begin(dbg_root, out = &dbg_loc_root_i) {
+				dbg_loc_lines[1] = #location().line + 1
+				dbg_loc_leaf_i = niello.show(dbg_leaf)
+				dbg_loc_lines[2] = #location().line + 1
+				dbg_loc_comp_i = dbg_component()
+			}
+			dbg_loc_lines[3] = #location().line + 1
+			if niello.begin_popup(dbg_wide, dbg_loc_leaf_i, .Below, out = &dbg_loc_pop_i) {
+			}
+			niello.frame_end()
+		}
+		want := [4]niello.Instance{dbg_loc_root_i, dbg_loc_leaf_i, dbg_loc_comp_i, dbg_loc_pop_i}
+		for inst, k in want {
+			found := false
+			for n in niello.debug_tree(ctx) {
+				if n.instance != inst {
+					continue
+				}
+				found = true
+				testing.expectf(t, n.loc.line == dbg_loc_lines[k], "node %d: declared at line %d, recorded %d", k, dbg_loc_lines[k], n.loc.line)
+				testing.expectf(t, n.loc.file_path == #file, "node %d: recorded file %q", k, n.loc.file_path)
+			}
+			testing.expectf(t, found, "node %d is in the snapshot", k)
+		}
+	}
 }

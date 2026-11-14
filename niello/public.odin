@@ -994,6 +994,9 @@ clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 //		return
 //	}
 show :: #force_inline proc(unit: Unit, with: With = {}, key: Key = 0, loc := #caller_location) -> Instance {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return show_at(unit, with, key, site_hash(loc))
 }
 
@@ -1038,6 +1041,9 @@ begin :: #force_inline proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return begin_at(unit, with, key, out, site_hash(loc))
 }
 
@@ -1154,6 +1160,9 @@ begin_section :: proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return begin_section_at(unit, b, with, key, out, site_hash(loc))
 }
 
@@ -1279,6 +1288,9 @@ begin_popup :: #force_inline proc(
 	out: ^Instance = nil,
 	loc := #caller_location,
 ) -> (open: bool) {
+	when NIELLO_DEBUG {
+		g.debug_site = loc
+	}
 	return begin_popup_at(unit, anchor, placement, with, key, opts, out, site_hash(loc))
 }
 
@@ -1441,6 +1453,9 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	clear(&g.nodes)
 	g.ring_idx = -1 // re-resolved by frame_end over the new tree
 	clear(&g.withs)
+	when NIELLO_DEBUG {
+		clear(&g.debug_locs)
+	}
 	clear(&g.size_overrides)
 	g.text_chunk = 0 // rewind the frame text arena; chunks are kept
 	g.text_off = 0
