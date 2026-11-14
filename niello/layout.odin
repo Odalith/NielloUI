@@ -25,12 +25,23 @@ Lay :: struct {
 	pos:     Vec2, // resolved top-left
 	overfl:  Vec2, // content extent beyond bounds, per axis
 	scroll:  Vec2, // pass F scratch: the effective scroll offset positioning used
+	// A Wrap container's lines: g.wrap_lines[line_first:][:line_count]
+	// (set in distribute X).
+	line_first, line_count: i32,
+}
+
+// Wrap_Line is one line of a Wrap container.
+Wrap_Line :: struct {
+	first: int, // the line's first flow child (node index)
+	count: int, // its flow children (anchored children are skipped)
+	main:  f32, // the width they use: children and gaps
+	cross: f32, // its height: the tallest child (set in accumulate Y)
 }
 
 X_AXIS, Y_AXIS :: 0, 1
 
 main_axis :: proc(l: Layout) -> int {
-	return X_AXIS if l == .Left_To_Right else Y_AXIS
+	return X_AXIS if l == .Left_To_Right || l == .Wrap else Y_AXIS
 }
 
 padding_sum :: proc(s: ^Style, axis: int) -> f32 {
@@ -336,6 +347,8 @@ accumulate :: proc(axis: int, lo, hi: int) {
 			}
 			g.lay[i].content[axis] = m + pad
 			g.lay[i].min_c[axis] = mmin + pad
+		} else if s.layout == .Wrap {
+			accumulate_wrap(i, axis, pad)
 		} else if axis == main_axis(s.layout) {
 			total, mtotal := f32(0), f32(0)
 			nchild := 0
@@ -376,6 +389,58 @@ accumulate :: proc(axis: int, lo, hi: int) {
 			g.lay[i].min_c[axis] = pad
 		}
 	}
+}
+
+// accumulate_wrap is a Wrap container's accumulation. On X it is a row
+// (its content is every child on one line) except for the floor: it can
+// shrink to its widest child, the rest wraps. On Y the lines are known
+// (distribute X broke them): each line is as tall as its tallest child,
+// and the lines stack with line_gap between them.
+accumulate_wrap :: proc(i: int, axis: int, pad: f32) {
+	s := node_style(i)
+	if axis == X_AXIS {
+		total, widest := f32(0), f32(0)
+		gap := f32(s.gap)
+		nchild := 0
+		for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				continue
+			}
+			total += accum_size(c, X_AXIS) + gap
+			widest = max(widest, accum_min(c, X_AXIS))
+			nchild += 1
+		}
+		if nchild > 0 {
+			total -= gap
+		}
+		g.lay[i].content.x = total + pad
+		g.lay[i].min_c.x = widest + pad
+		return
+	}
+	total, mtotal := f32(0), f32(0)
+	lf, lc := int(g.lay[i].line_first), int(g.lay[i].line_count)
+	for k in lf ..< lf + lc {
+		ln := &g.wrap_lines[k]
+		h, hmin := f32(0), f32(0)
+		taken := 0
+		for c := ln.first; c != -1 && taken < ln.count; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				continue
+			}
+			h = max(h, accum_size(c, Y_AXIS))
+			hmin = max(hmin, accum_min(c, Y_AXIS))
+			taken += 1
+		}
+		ln.cross = h
+		total += h
+		mtotal += hmin
+	}
+	if lc > 0 {
+		total += f32(lc - 1) * f32(s.line_gap)
+		mtotal += f32(lc - 1) * f32(s.line_gap)
+	}
+	g.lay[i].content.y = total + pad
+	g.lay[i].min_c.y = mtotal + pad
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +676,123 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 	// at position time handles it.
 }
 
+// distribute_wrap_x sizes a Wrap container's children on X and breaks
+// them into lines. Each child takes its own width (a Fit child wider than
+// a line shrinks to the line, as on a row's cross axis); children then fill
+// lines greedily, a new line starting when the next one doesn't fit (the
+// first child of a line always joins it); finally each line's Grow
+// children share that line's leftover width. A container that scrolls
+// horizontally breaks against no limit: one line.
+distribute_wrap_x :: proc(i: int, inner: f32) {
+	s := node_style(i)
+	parent_fit := s.size[X_AXIS].kind == .Fit && g.nodes[i].parent >= 0
+	gap := f32(s.gap)
+	limit := scrollable_axis(s, X_AXIS) ? max(f32) : inner
+	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+		if g.nodes[c].anchored {
+			continue
+		}
+		sz := node_style(c).size[X_AXIS]
+		v: f32
+		switch sz.kind {
+		case .Fixed:
+			v = sz.value
+		case .Percent:
+			v = sz.value * inner
+		case .Fit, .Grow:
+			v = max(min(g.lay[c].content.x, limit), floor_of(c, X_AXIS))
+		}
+		set_size(c, X_AXIS, clamp(v, sz.min, sz.max))
+	}
+
+	g.lay[i].line_first = i32(len(g.wrap_lines))
+	line: Wrap_Line
+	open := false
+	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+		if g.nodes[c].anchored {
+			continue
+		}
+		w := g.lay[c].size.x
+		if open && line.main + gap + w <= limit + 1e-3 {
+			line.main += gap + w
+			line.count += 1
+		} else {
+			if open {
+				append(&g.wrap_lines, line)
+			}
+			line = Wrap_Line{first = c, count = 1, main = w}
+			open = true
+		}
+	}
+	if open {
+		append(&g.wrap_lines, line)
+	}
+	g.lay[i].line_count = i32(len(g.wrap_lines)) - g.lay[i].line_first
+
+	// Growing is per line; under a Fit parent it is circular (the parent
+	// sizes to its children), so Grow stays at its content, as on a row.
+	if parent_fit {
+		return
+	}
+	growers := &g.scratch_a
+	lf, lc := int(g.lay[i].line_first), int(g.lay[i].line_count)
+	for k in lf ..< lf + lc {
+		ln := &g.wrap_lines[k]
+		leftover := inner - ln.main
+		if leftover <= 0 {
+			continue
+		}
+		clear(growers)
+		taken := 0
+		for c := ln.first; c != -1 && taken < ln.count; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				continue
+			}
+			if node_style(c).size[X_AXIS].kind == .Grow {
+				append(growers, c)
+			}
+			taken += 1
+		}
+		if len(growers) == 0 {
+			continue
+		}
+		waterfill_give(growers[:], X_AXIS, leftover)
+		ln.main = 0
+		taken = 0
+		for c := ln.first; c != -1 && taken < ln.count; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				continue
+			}
+			ln.main += g.lay[c].size.x + (taken > 0 ? gap : 0)
+			taken += 1
+		}
+	}
+}
+
+// distribute_wrap_y sizes a Wrap container's children on Y, each within
+// its line: Grow stretches to the line's height, Fit keeps its content,
+// Percent is of the container's inner height.
+distribute_wrap_y :: proc(i: int, inner: f32) {
+	s := node_style(i)
+	scrolls := scrollable_axis(s, Y_AXIS)
+	lf, lc := int(g.lay[i].line_first), int(g.lay[i].line_count)
+	for k in lf ..< lf + lc {
+		ln := g.wrap_lines[k]
+		taken := 0
+		for c := ln.first; c != -1 && taken < ln.count; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				continue
+			}
+			if node_style(c).size[Y_AXIS].kind == .Percent {
+				resolve_cross(c, Y_AXIS, inner, scrolls)
+			} else {
+				resolve_cross(c, Y_AXIS, ln.cross, false)
+			}
+			taken += 1
+		}
+	}
+}
+
 // distribute_node hands container i's children their sizes on axis.
 distribute_node :: #force_inline proc(i: int, axis: int) {
 	nd := &g.nodes[i]
@@ -640,6 +822,14 @@ distribute_node :: #force_inline proc(i: int, axis: int) {
 			if !g.nodes[c].anchored {
 				resolve_cross(c, axis, inner, scrolls)
 			}
+		}
+		return
+	}
+	if s.layout == .Wrap {
+		if axis == X_AXIS {
+			distribute_wrap_x(i, inner)
+		} else {
+			distribute_wrap_y(i, inner)
 		}
 		return
 	}
@@ -828,6 +1018,10 @@ place_children :: #force_inline proc(i: int) {
 	pad := Vec2{f32(s.padding[0]), f32(s.padding[1])}
 	axis := main_axis(s.layout) if s.layout != .Stack else X_AXIS
 	g.lay[i].scroll = scroll
+	if s.layout == .Wrap {
+		place_wrap(i, s, base, pad, scroll)
+		return
+	}
 	cursor := base + pad - scroll
 	if s.layout != .Stack {
 		// Main-axis alignment: shift the whole row/column in leftover space.
@@ -867,6 +1061,45 @@ place_children :: #force_inline proc(i: int) {
 		g.lay[c].pos = p
 		if s.layout != .Stack && !anchored {
 			cursor[axis] += g.lay[c].size[axis] + f32(s.gap)
+		}
+	}
+}
+
+// place_wrap positions a Wrap container's children line by line: the block
+// of lines placed by align[1], each line's children by align[0], and each
+// child within its line's height by align[1]. Anchored children sit
+// against the container's full rect, as everywhere.
+@(private)
+place_wrap :: proc(i: int, s: ^Style, base, pad, scroll: Vec2) {
+	inner := g.lay[i].size - Vec2{padding_sum(s, X_AXIS), padding_sum(s, Y_AXIS)}
+	gap, line_gap := f32(s.gap), f32(s.line_gap)
+	lf, lc := int(g.lay[i].line_first), int(g.lay[i].line_count)
+	total := f32(0)
+	for k in lf ..< lf + lc {
+		total += g.wrap_lines[k].cross
+	}
+	if lc > 0 {
+		total += f32(lc - 1) * line_gap
+	}
+	y := base.y + pad.y - scroll.y + align_offset(s.align[Y_AXIS], inner.y - total)
+	for k in lf ..< lf + lc {
+		ln := g.wrap_lines[k]
+		x := base.x + pad.x - scroll.x + align_offset(s.align[X_AXIS], inner.x - ln.main)
+		taken := 0
+		for c := ln.first; c != -1 && taken < ln.count; c = g.next_sibling[c] {
+			if g.nodes[c].anchored {
+				continue
+			}
+			sz := g.lay[c].size
+			g.lay[c].pos = Vec2{x, y + align_offset(s.align[Y_AXIS], ln.cross - sz.y)}
+			x += sz.x + gap
+			taken += 1
+		}
+		y += ln.cross + line_gap
+	}
+	for c := g.first_child[i]; c != -1; c = g.next_sibling[c] {
+		if g.nodes[c].anchored {
+			g.lay[c].pos = base + stack_align_offset(s, g.lay[c].size, g.lay[i].size)
 		}
 	}
 }
@@ -1079,6 +1312,7 @@ pick_clips_and_commit :: proc() {
 
 layout_pass :: proc(viewport: Vec2) {
 	n := len(g.nodes)
+	clear(&g.wrap_lines)
 	build_child_lists()
 	measure_text_range(0, n) // 0
 	accumulate(X_AXIS, 0, n) // A

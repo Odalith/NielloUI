@@ -6,8 +6,9 @@ declaration, and a Skia Graphite render backend behind SDL3.
 **Status:** working in real windows on Linux (X11 and Wayland) and Windows;
 macOS has release builds of the backend but is untested. Implemented:
 
-- the layout engine: rows, columns and stacks, fit / grow / fixed / percent
-  sizing with waterfill distribution, padding, gap, alignment, overflow;
+- the layout engine: rows, columns, stacks and wrapping rows, fit / grow /
+  fixed / percent sizing with waterfill distribution, padding, gap,
+  alignment, overflow;
 - rich text: a fragment-aware word cache, styled spans, wrapping, paint-time
   ellipsis, whitespace modes, platform and bundled fonts;
 - input polled during declare (`clicked`, `hovered`, `pressed`, drag queries)
