@@ -61,8 +61,18 @@ mint_scrollbar :: proc(t: Theme) {
 	niello.mint(&P.thumb, niello.NO_UNIT, {color = thumb, corner_radius = 3, hover = P.hot, press = P.hot})
 }
 
-// scrollbar declares sb's bar for scroller (see above). Nothing is
-// declared while the scroller has nothing to scroll on sb's axis.
+// scrollbar declares sb's bar for scroller: chrome for any scroller (a
+// virtual list's section host included). Declare it inside the scroller,
+// after its content; it is an anchored child, so it takes no flow slot and
+// does not scroll, and the scroller's align places it (align
+// [.End, .Start] puts a vertical bar at the right edge). Drag the thumb, or
+// press the track to page. Nothing is declared while the scroller has
+// nothing to scroll on sb's axis.
+//
+//	if niello.begin(list_u, out = &app.list_i) {
+//		… content …
+//		controls.scrollbar(&app.list_bar, app.list_i)
+//	}
 scrollbar :: proc(sb: ^Scrollbar, scroller: niello.Instance, loc := #caller_location) {
 	vert := sb.axis == .Vertical
 	ax := vert ? 1 : 0

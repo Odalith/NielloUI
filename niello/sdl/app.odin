@@ -6,18 +6,19 @@
 //	import niello "niello:."
 //	import niello_sdl "niello:sdl"
 //
-//	declare:: proc {
+//	declare :: proc() {
 //		// niello.begin / niello.show …
 //	}
 //
-//	main:: proc {
-//		ctx:= niello.context_create
-//		defer niello.shutdown
+//	main :: proc() {
+//		ctx := niello.context_create()
+//		defer niello.shutdown()
 //		niello_sdl.run(ctx, {title = "My app", width = 800, height = 600}, declare)
 //	}
 //
-// run's typed form hands your app's state to declare every frame
-// (run(ctx, config, declare_app, &app) with declare_app :: proc(app: ^App)).
+// run's typed form hands your app's state to declare every frame:
+// run(ctx, config, declare_app, &app), with
+// `declare_app :: proc(app: ^App)`.
 // Every window has its own niello context; open_window and close_window add
 // and remove windows from anywhere, declare procs included. Importing this
 // package also connects the core's text measurement, image decoding and

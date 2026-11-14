@@ -75,13 +75,19 @@ Text_Box_Result :: struct {
 	submitted: bool, // Enter was pressed
 }
 
-// The shortcut modifier (clipboard, undo, select all) and the word
-// modifier (word moves and deletes): Ctrl, or Cmd / Option on macOS.
 when ODIN_OS == .Darwin {
+	// CMD_MOD is the text box's shortcut modifier (clipboard, undo, select
+	// all): Cmd on macOS, Ctrl elsewhere.
 	CMD_MOD  :: niello.Modifier.Super
+	// WORD_MOD is the text box's word modifier (word moves and deletes):
+	// Option on macOS, Ctrl elsewhere.
 	WORD_MOD :: niello.Modifier.Alt
 } else {
+	// CMD_MOD is the text box's shortcut modifier (clipboard, undo, select
+	// all): Cmd on macOS, Ctrl elsewhere.
 	CMD_MOD  :: niello.Modifier.Ctrl
+	// WORD_MOD is the text box's word modifier (word moves and deletes):
+	// Option on macOS, Ctrl elsewhere.
 	WORD_MOD :: niello.Modifier.Ctrl
 }
 
