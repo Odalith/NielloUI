@@ -175,7 +175,7 @@ The actions report problems instead of acting:
 | `Not_Found` | `find` matched nothing | Use the name from the candidates it lists; give your component a role or label |
 | `Ambiguous` | `find` matched several | Give them different labels, or find by role and name together |
 | `Truncated` | A line of text is cut short with "…" | Give it room: `wrap = .Word` for prose, a `grow()` width, a wider box, or a lower `priority` on a sibling that can give way |
-| `Collapsed` | A control has no width or height, so it can't be seen or clicked | Something sized it `fit()` with nothing inside: give it a size. A `With.size` passed to a control replaces both axes of its size, so set both |
+| `Collapsed` | A control has no width or height, so it can't be seen or clicked | Something sized it `fit()` with nothing inside: give it a size. A `With.size` sets both axes; to set one, `keep()` the other: `size(fixed(240), keep())` |
 | `Overflow` | Children, or drawn text, run past their box | Make the box `fit()` or `grow()`; let text wrap; give the box `scroll = .Vertical` if it is meant to scroll |
 | `Unsettled` | The screen still changes after 10 simulated seconds | Something is shown that changes every frame: a frame counter, a timestamp, or a `hover_duration` readout. Show it only while needed |
 | `Idle_Wakes` (warning) | Nothing changes, but the app keeps asking for frames | Usually `hover_duration` compared against a threshold: use `hovered_for(i, seconds)` instead |

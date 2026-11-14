@@ -1132,3 +1132,27 @@ test_combo_box_follows_the_theme :: proc(t: ^testing.T) {
 	testing.expect_value(t, niello.style_of(controls.parts.combo.item_hot).color, controls.LIGHT.hover)
 	testing.expect_value(t, niello.style_of(controls.parts.combo.box).color, controls.LIGHT.raised)
 }
+
+// A slider given a width only (keep() on the other axis) keeps its
+// track's height; given a whole Size, the height is the caller's.
+ct_keep_slider: controls.Slider
+ct_keep_i: niello.Instance
+
+ct_declare_keep_slider :: proc() {
+	if niello.begin(ct_root) {
+		controls.slider(&ct_keep_slider, "Volume", with = {size = niello.size(niello.fixed(200), niello.keep())})
+		ct_keep_i = ct_keep_slider.inst
+	}
+}
+
+@(test)
+test_slider_width_only :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ct_frame(ct_declare_keep_slider)
+	ct_frame(ct_declare_keep_slider)
+	r, ok := niello.rect(ct_keep_i)
+	testing.expect(t, ok, "the slider is declared")
+	testing.expect_value(t, r.size, niello.Vec2{200, controls.SLIDER_H})
+}

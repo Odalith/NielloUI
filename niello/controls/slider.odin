@@ -58,7 +58,7 @@ slider :: proc(
 	s: ^Slider,
 	label: string,
 	disabled := false,
-	with: niello.With = {}, // per-instance values (a width: With.size)
+	with: niello.With = {}, // per-instance values; a width only: {size = niello.size(niello.fixed(w), niello.keep())}
 	key: niello.Key = 0,
 	loc := #caller_location,
 ) -> (changed: bool) {

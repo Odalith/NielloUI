@@ -120,6 +120,9 @@ start_glide :: proc(u: Unit, fields: Fields, to: ^Style, ms: u32) {
 	if fields == {} {
 		return
 	}
+	if .Size in fields {
+		assert_style_size(to.size)
+	}
 	// A snap (ms == 0, or a non-animatable field below) is an
 	// explicit write: it must steal these fields from any in-flight
 	// glide first, or the old tween steps next frame_end and
@@ -238,6 +241,9 @@ apply_edits :: proc() {
 		for f in Field {
 			if field_equal(&es.base, &es.shadow, f) {
 				continue
+			}
+			if f == .Size {
+				assert_style_size(es.shadow.size)
 			}
 			cancel_glide_fields(u, Fields{f})
 			copy_field_owned(&rec.style, &es.shadow, f)

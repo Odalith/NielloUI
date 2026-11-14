@@ -94,7 +94,7 @@ resolve_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 		v = sz.value
 	case .Percent:
 		v = sz.value * viewport_extent
-	case .Fit, .Grow:
+	case .Fit, .Grow, .Keep: // .Keep never reaches layout: the style merge resolves it
 	// fill the viewport
 	}
 	return clamp(v, sz.min, sz.max)
@@ -111,7 +111,7 @@ resolve_popup_root :: proc(r: int, axis: int, viewport_extent: f32) -> f32 {
 		v = sz.value
 	case .Percent:
 		v = sz.value * viewport_extent
-	case .Fit, .Grow:
+	case .Fit, .Grow, .Keep: // .Keep never reaches layout: the style merge resolves it
 	}
 	return clamp(v, sz.min, sz.max)
 }
@@ -459,7 +459,7 @@ resolve_cross :: proc(c: int, axis: int, inner: f32, parent_scrolls: bool) {
 		set_size(c, axis, clamp(sz.value, sz.min, sz.max))
 	case .Percent:
 		set_size(c, axis, clamp(sz.value * inner, sz.min, sz.max))
-	case .Fit:
+	case .Fit, .Keep: // .Keep never reaches layout: the style merge resolves it
 		// FIT grants content, bounded by the space the parent offers — the
 		// cross-axis mirror of the main axis's waterfill bound. Without the
 		// offer bound a FIT child keeps its full intrinsic size however
@@ -631,7 +631,7 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 			v := clamp(sz.value * inner, sz.min, sz.max)
 			set_size(c, axis, v)
 			committed += v
-		case .Fit:
+		case .Fit, .Keep: // .Keep never reaches layout: the style merge resolves it
 			v := clamp(g.lay[c].content[axis], sz.min, sz.max)
 			set_size(c, axis, v)
 			committed += v
@@ -706,7 +706,7 @@ distribute_wrap_x :: proc(i: int, inner: f32) {
 			v = sz.value
 		case .Percent:
 			v = sz.value * inner
-		case .Fit, .Grow:
+		case .Fit, .Grow, .Keep: // .Keep never reaches layout: the style merge resolves it
 			v = max(min(g.lay[c].content.x, limit), floor_of(c, X_AXIS))
 		}
 		set_size(c, X_AXIS, clamp(v, sz.min, sz.max))

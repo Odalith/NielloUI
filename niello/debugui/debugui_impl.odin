@@ -246,7 +246,9 @@ when niello.NIELLO_DEBUG {
 		case .Fit:
 			return fmt.bprintf(b, "fit")
 		case .Grow:
-			return fmt.bprintf(b, "grow %.0f", s.value)
+			return fmt.bprintf(b, "grow %g", s.weight)
+		case .Keep:
+			return fmt.bprintf(b, "keep")
 		}
 		return ""
 	}

@@ -1098,8 +1098,13 @@ resolve_styles_range :: proc(lo, hi: int) {
 		if dis { apply_overlay(&eff, rec.disabled) }
 		if has_tr { apply_transient(&eff, id) } // the pulse rides on top (§3.16)
 		// A per-instance size (With.size) wins over every overlay, as
-		// With.text wins over the unit's text.
-		if nd.size_idx >= 0 { eff.size = g.size_overrides[nd.size_idx] }
+		// With.text wins over the unit's text; an axis it leaves to
+		// keep() stays as the overlays made it.
+		if nd.size_idx >= 0 {
+			o := g.size_overrides[nd.size_idx]
+			if o[X_AXIS].kind != .Keep { eff.size[X_AXIS] = o[X_AXIS] }
+			if o[Y_AXIS].kind != .Keep { eff.size[Y_AXIS] = o[Y_AXIS] }
+		}
 		g.eff[i] = eff
 		nd.has_eff = true
 	}

@@ -303,3 +303,12 @@ lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
 		copy_field(dst, b, f)
 	}
 }
+
+// assert_style_size checks a Size about to be stored in a style: keep()
+// only means something in a With.size (an axis that keeps the unit's own
+// sizing), and a style has no own sizing to keep.
+@(private)
+assert_style_size :: proc(sz: Size, loc := #caller_location) {
+	assert(sz[0].kind != .Keep && sz[1].kind != .Keep,
+		"niello: keep() is for With.size only (an axis that keeps the instance's own sizing); a style has none to keep", loc)
+}

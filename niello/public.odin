@@ -132,12 +132,14 @@ Layout :: enum u8 {
 	Wrap,
 }
 
-// Sizing_Kind is how a Sizing resolves (see fit, grow, fixed, percent).
+// Sizing_Kind is how a Sizing resolves (see fit, grow, fixed, percent,
+// keep).
 Sizing_Kind :: enum u8 {
 	Fit,     // the content's size
 	Grow,    // a share of the parent's leftover space
 	Fixed,   // a value in DIP
 	Percent, // a fraction of the parent's content box
+	Keep,    // With.size only: this axis keeps the unit's own sizing
 }
 
 // Sizing is one axis of a Size. Build it with fit, grow, fixed or percent.
@@ -189,6 +191,15 @@ grow :: proc(weight: f32 = 1, min: f32 = 0, max: f32 = INF, priority: i8 = 0) ->
 	assert(weight >= 0, "niello.grow: weight must not be negative")
 	assert(min <= max, "niello.grow: min must not exceed max")
 	return Sizing{kind = .Grow, min = min, max = max, weight = weight, priority = priority}
+}
+
+// keep is an axis a With.size leaves alone: it keeps the sizing the
+// instance has without the override (its unit's, through its variant and
+// state overlays). size(fixed(240), keep()) sets a width only, so a
+// control keeps its own height. A style has no own sizing to keep, so
+// setting keep() in one (mint, set, edit, a glide) asserts.
+keep :: proc "contextless" () -> Sizing {
+	return Sizing{kind = .Keep}
 }
 
 // ============ style shorthands ============
@@ -870,6 +881,9 @@ write_style_field :: proc(u: Unit, f: Field, v: any) -> bool {
 		}
 	}
 	cancel_glide_fields(u, Fields{f}) // an explicit write supersedes a glide
+	if f == .Size {
+		assert_style_size(must(v, Size))
+	}
 	#partial switch f {
 	case .Text:
 		store_text(&rec.style.text, must(v, string))
@@ -1171,7 +1185,11 @@ begin_section_at :: proc(unit: Unit, b: Builder, with: With, key: Key, out: ^Ins
 	when NIELLO_DEBUG {
 		sz := unit_style(unit).size
 		if ws, ok := with.size.?; ok {
-			sz = ws
+			for a in 0 ..< 2 {
+				if ws[a].kind != .Keep {
+					sz[a] = ws[a]
+				}
+			}
 		}
 		assert(sz[X_AXIS].kind != .Fit && sz[Y_AXIS].kind != .Fit,
 			"niello: a begin_section host cannot be Fit-sized: its children are declared after it is laid out")
