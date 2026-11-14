@@ -16,6 +16,9 @@ TOOLTIP_DELAY :: 0.5
 // TOOLTIP_MAX_W is a tooltip's widest, in DIP: longer text wraps.
 TOOLTIP_MAX_W :: 280
 
+// TOOLTIP_GAP is the default space between a tooltip and its anchor, in DIP.
+TOOLTIP_GAP :: 6
+
 @(private)
 mint_tooltip :: proc(t: Theme) {
 	P := &parts.tooltip
@@ -31,12 +34,12 @@ mint_tooltip :: proc(t: Theme) {
 	})
 }
 
-// tooltip shows text in a small popup below anchor (or at placement)
-// once the pointer has rested on anchor for delay seconds, and at once
-// while anchor holds keyboard focus that shows (Tab onto it). Declare it
-// after anchor, every frame; it shows itself only when due. While the
-// pointer rests on anchor the engine keeps frames coming, so the delay
-// runs out even when nothing else animates.
+// tooltip shows text in a small popup below anchor (or at placement), gap
+// DIP away from it, once the pointer has rested on anchor for delay
+// seconds, and at once while anchor holds keyboard focus that shows (Tab
+// onto it). Declare it after anchor, every frame; it shows itself only
+// when due. While the pointer rests on anchor the engine keeps frames
+// coming, so the delay runs out even when nothing else animates.
 //
 //	save_i := controls.button("Save")
 //	controls.tooltip(save_i, "Save the document (Ctrl+S)")
@@ -49,6 +52,7 @@ tooltip :: proc(
 	text: string,
 	delay: f32 = TOOLTIP_DELAY,
 	placement := niello.Placement.Below,
+	gap: f32 = TOOLTIP_GAP,
 	loc := #caller_location,
 ) {
 	if anchor == 0 || len(text) == 0 {
@@ -59,7 +63,7 @@ tooltip :: proc(
 	}
 	P := &parts.tooltip
 	w := niello.With{role = .ToolTip, label = text}
-	if niello.begin_popup(P.box, anchor, placement, w, key = niello.Key(u64(anchor)), opts = {gap = 6, stay = true}, loc = loc) {
+	if niello.begin_popup(P.box, anchor, placement, w, key = niello.Key(u64(anchor)), opts = {gap = gap, stay = true}, loc = loc) {
 		niello.show(P.text, {text = text})
 	}
 }

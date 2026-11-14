@@ -909,3 +909,31 @@ test_tooltip_follows_the_theme :: proc(t: ^testing.T) {
 	testing.expect_value(t, niello.style_of(controls.parts.tooltip.box).color, controls.LIGHT.raised)
 	testing.expect_value(t, niello.style_of(controls.parts.tooltip.text).font_color, controls.LIGHT.ink)
 }
+
+tt_gap: f32 = controls.TOOLTIP_GAP
+
+tt_gap_declare :: proc() {
+	if niello.begin(ct_root) {
+		tt_btn = controls.button("Save")
+		controls.tooltip(tt_btn, "Save the document", gap = tt_gap)
+	}
+}
+
+@(test)
+test_tooltip_gap :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	for gap in ([]f32{controls.TOOLTIP_GAP, 20}) {
+		tt_gap = gap
+		ct_frame(tt_gap_declare)
+		at := ct_center(tt_btn)
+		for _ in 0 ..< 40 {
+			ct_frame(tt_gap_declare, mouse = at)
+		}
+		n, ok := tt_node()
+		b, _ := niello.rect(tt_btn)
+		testing.expect(t, ok, "shown")
+		testing.expect_value(t, n.rect.pos.y, b.pos.y + b.size.y + gap)
+	}
+}
