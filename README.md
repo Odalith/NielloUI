@@ -23,14 +23,14 @@ macOS has release builds of the backend but is untested. Implemented:
 - multi-window (a context per window, units and groups shared), timers, and
   a one-queue inbox for results from worker threads (`niello/inbox`);
 - shipped controls (`niello/controls`): buttons, toggle button, switch,
-  check box, radio group, text box, slider, progress bar and scrollbar,
+  check box, radio group, tooltip, text box, slider, progress bar and scrollbar,
   with theme, type and spacing roles;
 - a debugger window in debug builds only (`-define:NIELLO_DEBUG=true`, F12
   in any window) at zero cost otherwise.
 
 A headless suite (270+ tests) covers the core, and the SDL loop idles at
 ~0 CPU: it blocks on OS events and wakes on the nearest engine deadline
-across windows. Next: more controls (combo box, tabs, tooltip, list box,
+across windows. Next: more controls (combo box, tabs, expander, list box,
 multi-line text) and a fuller default theme.
 
 ## Documentation

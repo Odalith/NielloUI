@@ -839,3 +839,101 @@ test_check_outline_follows_the_theme :: proc(t: ^testing.T) {
 	testing.expect_value(t, niello.style_of(controls.parts.radio.ring).border_color, controls.LIGHT.dim)
 	testing.expect_value(t, niello.style_of(controls.parts.check.box_on).color, controls.LIGHT.accent)
 }
+
+// ---- tooltip ----
+
+tt_btn: niello.Instance
+
+tt_declare :: proc() {
+	if niello.begin(ct_root) {
+		controls.button("First")
+		tt_btn = controls.button("Save")
+		controls.tooltip(tt_btn, "Save the document")
+		controls.button("After") // declared after: the tooltip paints over it
+	}
+}
+
+tt_node :: proc() -> (niello.A11y_Node, bool) {
+	return ck_node(.ToolTip, "Save the document")
+}
+
+@(test)
+test_tooltip_shows_after_the_delay :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ct_frame(tt_declare)
+	ct_frame(tt_declare)
+	at := ct_center(tt_btn)
+	for _ in 0 ..< 10 { // about 0.17 s
+		ct_frame(tt_declare, mouse = at)
+	}
+	_, shown := tt_node()
+	testing.expect(t, !shown, "no tooltip before the delay")
+	for _ in 0 ..< 30 { // past 0.5 s
+		ct_frame(tt_declare, mouse = at)
+	}
+	n, ok := tt_node()
+	testing.expect(t, ok, "the tooltip shows once the pointer has rested")
+	if ok {
+		b, _ := niello.rect(tt_btn)
+		testing.expect(t, n.rect.pos.y >= b.pos.y + b.size.y, "below its anchor")
+	}
+	// the pointer leaves: it goes
+	ct_frame(tt_declare, mouse = niello.Vec2{490, 390})
+	ct_frame(tt_declare, mouse = niello.Vec2{490, 390})
+	_, shown = tt_node()
+	testing.expect(t, !shown, "the tooltip goes when the pointer leaves")
+}
+
+@(test)
+test_tooltip_shows_on_keyboard_focus :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	ct_frame(tt_declare)
+	tab := []niello.Key_Event{{key = .Tab, physical = .Tab, down = true}}
+	ct_frame(tt_declare, keys = tab) // First
+	ct_frame(tt_declare, keys = tab) // Save
+	ct_frame(tt_declare)
+	_, ok := tt_node()
+	testing.expect(t, ok, "Tab onto the control shows its tooltip at once")
+}
+
+@(test)
+test_tooltip_follows_the_theme :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	controls.apply_theme(controls.LIGHT)
+	testing.expect_value(t, niello.style_of(controls.parts.tooltip.box).color, controls.LIGHT.raised)
+	testing.expect_value(t, niello.style_of(controls.parts.tooltip.text).font_color, controls.LIGHT.ink)
+}
+
+tt_gap: f32 = controls.TOOLTIP_GAP
+
+tt_gap_declare :: proc() {
+	if niello.begin(ct_root) {
+		tt_btn = controls.button("Save")
+		controls.tooltip(tt_btn, "Save the document", gap = tt_gap)
+	}
+}
+
+@(test)
+test_tooltip_gap :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	for gap in ([]f32{controls.TOOLTIP_GAP, 20}) {
+		tt_gap = gap
+		ct_frame(tt_gap_declare)
+		at := ct_center(tt_btn)
+		for _ in 0 ..< 40 {
+			ct_frame(tt_gap_declare, mouse = at)
+		}
+		n, ok := tt_node()
+		b, _ := niello.rect(tt_btn)
+		testing.expect(t, ok, "shown")
+		testing.expect_value(t, n.rect.pos.y, b.pos.y + b.size.y + gap)
+	}
+}
