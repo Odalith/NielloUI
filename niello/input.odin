@@ -297,11 +297,11 @@ topmost_modal :: proc() -> int {
 	return -1
 }
 
-// flag_dismiss records a dismissal request for one popup root; the
-// app reads it back with dismiss_requested during this declare.
+// flag_dismiss records a dismissal request for one popup root, and why;
+// the app reads it back with dismiss_reason during this declare.
 @(private)
-flag_dismiss :: proc(rec_idx: int) {
-	g.dismiss_flags[g.popups[rec_idx].id] = true
+flag_dismiss :: proc(rec_idx: int, reason: Dismiss_Reason) {
+	g.dismiss_flags[g.popups[rec_idx].id] = reason
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +531,7 @@ dispatch_keys :: proc(input: Input) {
 			consumed := false
 			for j := len(g.popups) - 1; j >= 0; j -= 1 {
 				if !g.popups[j].stay {
-					flag_dismiss(j)
+					flag_dismiss(j, .Escape)
 					consumed = true
 					break
 				}
@@ -686,13 +686,13 @@ dispatch_input :: proc(input: Input, dt: f32) {
 				if .Left in input.buttons_pressed {
 					for j := len(g.popups) - 1; j > cont; j -= 1 {
 						if !g.popups[j].stay {
-							flag_dismiss(j)
+							flag_dismiss(j, .Press_Outside)
 						}
 					}
 				}
 			} else if cont != mk {
 				if .Left in input.buttons_pressed && !g.popups[mk].stay {
-					flag_dismiss(mk)
+					flag_dismiss(mk, .Press_Outside)
 				}
 				pick = -1
 				clear(&chain_idx)
@@ -703,13 +703,13 @@ dispatch_input :: proc(input: Input, dt: f32) {
 			if k := popup_containing(pick); k >= 0 {
 				for j := len(g.popups) - 1; j > k; j -= 1 {
 					if !g.popups[j].stay {
-						flag_dismiss(j)
+						flag_dismiss(j, .Press_Outside)
 					}
 				}
 			} else {
 				for j := len(g.popups) - 1; j >= 0; j -= 1 {
 					if !g.popups[j].stay {
-						flag_dismiss(j)
+						flag_dismiss(j, .Press_Outside)
 						press_consumed = true
 						break
 					}

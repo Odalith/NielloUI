@@ -20,6 +20,7 @@ pp_ok_i, pp_cancel_i: niello.Instance
 pp_open, pp_modal: bool
 pp_modal_stay: bool
 pp_dismiss_seen: bool
+pp_dismiss_why: niello.Dismiss_Reason
 
 pp_mint :: proc() {
 	niello.mint(&pp_root_u, niello.NO_UNIT, {
@@ -60,6 +61,7 @@ pp_declare :: proc() {
 	// The dismiss query is the app's close mechanism (§3.19).
 	if pp_popup_i != 0 && niello.dismiss_requested(pp_popup_i) {
 		pp_dismiss_seen = true
+		pp_dismiss_why = niello.dismiss_reason(pp_popup_i)
 		pp_open = false
 		pp_modal = false
 	}
@@ -592,4 +594,49 @@ test_popups_paint_over_later_content :: proc(t: ^testing.T) {
 		niello.frame_end()
 	}
 	testing.expect(t, niello.hovered(po_tip_i), "the popup takes the pointer over content declared after it")
+}
+
+pp_esc_keys := [1]niello.Key_Event{{key = .Escape, physical = .Escape, down = true}}
+
+// dismiss_reason tells Esc from a press outside, for a menu and for a
+// modal; a stay popup reports neither.
+@(test)
+test_popup_dismiss_reason :: proc(t: ^testing.T) {
+	pp_setup()
+	defer niello.test_teardown()
+	esc :: proc() -> niello.Input {
+		v := pp_idle()
+		v.keys = pp_esc_keys[:] // package storage: a literal here would die with this frame
+		return v
+	}
+	outside := niello.Vec2{300, 250}
+	cases := []struct {
+		modal: bool,
+		press: bool,
+		want:  niello.Dismiss_Reason,
+	}{
+		{false, false, .Escape},
+		{false, true, .Press_Outside},
+		{true, false, .Escape},
+		{true, true, .Press_Outside},
+	}
+	for c in cases {
+		pp_open, pp_modal = !c.modal, c.modal
+		pp_dismiss_seen, pp_dismiss_why = false, .None
+		pp_frame(pp_idle())
+		pp_frame(pp_idle())
+		pp_frame(c.press ? pp_at(outside, true, false) : esc())
+		pp_frame(pp_idle())
+		testing.expectf(t, pp_dismiss_seen, "modal %v, press %v: a dismissal", c.modal, c.press)
+		testing.expectf(t, pp_dismiss_why == c.want, "modal %v, press %v: reason %v, want %v", c.modal, c.press, pp_dismiss_why, c.want)
+		testing.expect_value(t, niello.dismiss_reason(pp_popup_i), niello.Dismiss_Reason.None) // one frame only
+	}
+	// stay: neither Esc nor a press asks.
+	pp_modal, pp_modal_stay = true, true
+	pp_dismiss_seen = false
+	pp_frame(pp_idle())
+	pp_frame(pp_idle())
+	pp_frame(esc())
+	pp_frame(pp_at(outside, true, false))
+	testing.expect(t, !pp_dismiss_seen, "a stay popup is never asked to close")
 }

@@ -338,9 +338,9 @@ Context :: struct {
 	// frame's list (cleared after dispatch); frame_end reads this
 	// frame's for the modal focus bookkeeping.
 	popups:          [dynamic]Popup_Rec,
-	dismiss_flags:   map[Instance]bool, // popups whose dismissal was
-	                         // requested at this frame's dispatch;
-	                         // valid for one declare (dismiss_requested)
+	dismiss_flags:   map[Instance]Dismiss_Reason, // popups whose dismissal
+	                         // was requested at this frame's dispatch, and
+	                         // why; valid for one declare (dismiss_reason)
 	modal_prev_id:   Instance, // last frame_end's topmost modal
 	                         // popup root; 0 = no modal session
 	modal_saved_focus: Instance, // focus held when the modal

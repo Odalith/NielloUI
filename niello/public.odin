@@ -1351,10 +1351,29 @@ begin_popup_at :: proc(
 // dismiss_requested reports that the user asked to close popup i this
 // frame: a press outside it (and outside every popup above it), or Esc.
 // The engine keeps no open state: stop declaring the popup and it is
-// closed. Like clicked, it answers for one frame.
+// closed. Like clicked, it answers for one frame. dismiss_reason says
+// which of the two it was, for a popup that closes on one only (a
+// dialog that Esc cancels but a click on its backdrop doesn't).
 dismiss_requested :: proc(i: Instance) -> bool {
-	_, ok := g.dismiss_flags[i]
-	return ok
+	return dismiss_reason(i) != .None
+}
+
+// Dismiss_Reason is why the user asked to close a popup (dismiss_reason).
+Dismiss_Reason :: enum u8 {
+	None,          // no request this frame
+	Escape,        // Esc
+	Press_Outside, // a press outside it and every popup above it
+}
+
+// dismiss_reason is why the user asked to close popup i this frame, or
+// .None when they didn't. Like dismiss_requested, it answers for one
+// frame.
+//
+//	if r := niello.dismiss_reason(dialog_i); r == .Escape {
+//		app.dialog_open = false // Esc cancels; a backdrop click doesn't
+//	}
+dismiss_reason :: proc(i: Instance) -> Dismiss_Reason {
+	return g.dismiss_flags[i] or_else .None
 }
 
 // ============ contexts ============
@@ -1378,7 +1397,7 @@ context_create :: proc() -> ^Context {
 	ctx.scroll_max = make(map[Instance]Vec2)
 	ctx.scroll_glides = make(map[Instance]Scroll_Glide)
 	ctx.hover_since = make(map[Instance]f32)
-	ctx.dismiss_flags = make(map[Instance]bool)
+	ctx.dismiss_flags = make(map[Instance]Dismiss_Reason)
 	ctx.transients = make(map[Instance]Transient_Rec)
 	ctx.edits = make(map[Unit]^Edit_State)
 	// The store's two caches are shared by all contexts: the
