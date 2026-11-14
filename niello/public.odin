@@ -78,7 +78,7 @@ Key :: distinct u64
 // neither.
 Field :: enum u8 {
 	Color, Font_Color, Border_Color,
-	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Whitespace, Ellipsis, Justify,
+	Text, Font, Font_Size, Font_Weight, Font_Slant, Wrap, Whitespace, Ellipsis, Justify,
 	Padding, Gap, Line_Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
@@ -94,7 +94,7 @@ Fields :: bit_set[Field]
 // ALL_FIELDS is every Field: the mask a unit joins a group with by default.
 ALL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
-	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Wrap, .Whitespace, .Ellipsis, .Justify,
 	.Padding, .Gap, .Line_Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
@@ -109,7 +109,7 @@ ALL_FIELDS :: Fields{
 // repaints.
 VISUAL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
-	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
+	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Wrap, .Whitespace, .Ellipsis, .Justify,
 	.Padding, .Gap, .Line_Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
