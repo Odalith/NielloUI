@@ -62,10 +62,7 @@ kev :: proc(key: niello.Key_Code, down: bool, mods: niello.Modifiers = {}, repea
 
 fo_frame :: proc(keys: []niello.Key_Event = nil, text: string = "") {
 	inp := idle_input(AWAY_PT)
-	for ev, i in keys {
-		inp.keys[i] = ev
-	}
-	inp.key_count = len(keys)
+	inp.keys = keys
 	inp.text = text
 	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	finish(fo_declare)
@@ -287,8 +284,7 @@ test_with_focusable_override :: proc(t: ^testing.T) {
 	// Tab: candidates in declaration order are r2 (With on) and b1
 	// (unit on, not overridden off). Everything else is skipped.
 	inp := idle_input(AWAY_PT)
-	inp.keys[0] = kev(TAB_EV, true)
-	inp.key_count = 1
+	inp.keys = {kev(TAB_EV, true)}
 	niello.frame_begin(niello.test_context(), inp, 1.0 / 60.0)
 	finish(fw_declare)
 	testing.expect(t, niello.focused(fw_r2), "only the With-enabled row instance is a tab stop")
@@ -424,4 +420,32 @@ test_text_input_takes_space_and_enter_as_keys :: proc(t: ^testing.T) {
 	testing.expect(t, !niello.pressed(fo_a), "no activation capture began")
 	fo_frame([]niello.Key_Event{kev(.Enter, false), kev(.Space, false)})
 	testing.expect(t, !fo_cap_clicked_a, "and no click")
+}
+
+// No caps: every key event and every byte of text a host delivers in
+// one frame reaches the focused instance (a burst of key repeats, a
+// large IME commit or paste-like input).
+@(test)
+test_input_floods_arrive_whole :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	fo_mint()
+	fo_hide_c, fo_disable_b = false, false
+	fo_frame() // settle
+	fo_frame({kev(TAB_EV, true)})
+	testing.expect(t, niello.focused(fo_a), "a holds focus")
+	fo_frame({kev(TAB_EV, false)})
+
+	keys: [40]niello.Key_Event
+	for &k, i in keys {
+		k = kev(.A, i % 2 == 0, repeat = i % 2 == 0 && i > 0)
+	}
+	text: [4096]u8
+	for &c, i in text {
+		c = u8('a' + i % 26)
+	}
+	fo_frame(keys[:], string(text[:]))
+	testing.expect_value(t, fo_cap_keys_a, 40)
+	testing.expect_value(t, len(fo_cap_text_a), 4096)
+	testing.expect(t, fo_cap_text_a == string(text[:]), "the text arrives intact")
 }
