@@ -520,3 +520,66 @@ test_modal_without_candidates_contains_keyboard :: proc(t: ^testing.T) {
 	frame_mk(root, field, dialog, label, &field_i, &anchor_i, true, inp2)
 	testing.expect(t, !niello.clicked(field_i), "no activation completes behind the modal")
 }
+
+// ---- paint order: popups over everything ----
+
+po_root, po_clipper, po_anchor, po_after, po_tip, po_tip2: niello.Unit
+po_anchor_i, po_tip_i, po_tip2_i: niello.Instance
+
+po_declare :: proc() {
+	if niello.begin(po_root) {
+		if niello.begin(po_clipper) { // a clipping container holding the popup
+			po_anchor_i = niello.show(po_anchor)
+			if niello.begin_popup(po_tip, po_anchor_i, .Below, opts = {stay = true}, out = &po_tip_i) {
+				if niello.begin_popup(po_tip2, po_anchor_i, .Below, opts = {stay = true, gap = 4}, out = &po_tip2_i) {
+				}
+			}
+		}
+		niello.show(po_after) // declared after the popup, under where it opens
+	}
+}
+
+po_color :: proc(c: niello.Color) -> int {
+	for cmd, k in niello.draw_list() {
+		if cmd.tag == .Rect && cmd.color == c {
+			return k
+		}
+	}
+	return -1
+}
+
+@(test)
+test_popups_paint_over_later_content :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&po_root, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.fixed(400), niello.fixed(300)}})
+	niello.mint(&po_clipper, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.Size{niello.fixed(200), niello.fixed(40)}, overflow = .Clip})
+	niello.mint(&po_anchor, niello.NO_UNIT, {size = niello.Size{niello.fixed(100), niello.fixed(30)}, color = niello.Color{10, 10, 10, 255}})
+	niello.mint(&po_after, niello.NO_UNIT, {size = niello.Size{niello.fixed(300), niello.fixed(100)}, color = niello.Color{20, 20, 20, 255}})
+	niello.mint(&po_tip, niello.NO_UNIT, {size = niello.Size{niello.fixed(150), niello.fixed(60)}, color = niello.Color{30, 30, 30, 255}})
+	niello.mint(&po_tip2, niello.NO_UNIT, {size = niello.Size{niello.fixed(120), niello.fixed(40)}, color = niello.Color{40, 40, 40, 255}})
+	for _ in 0 ..< 3 {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0.016)
+		po_declare()
+		niello.frame_end()
+	}
+	after, tip, tip2 := po_color({20, 20, 20, 255}), po_color({30, 30, 30, 255}), po_color({40, 40, 40, 255})
+	testing.expect(t, after >= 0 && tip >= 0 && tip2 >= 0, "all three paint")
+	testing.expect(t, tip > after, "a popup paints over content declared after it")
+	testing.expect(t, tip2 > tip, "a popup declared later paints over an earlier one")
+
+	// the clipping container's scope is closed before the popup paints
+	depth := 0
+	cmds := niello.draw_list()
+	for k in 0 ..< tip {
+		#partial switch cmds[k].tag {
+		case .Push_Clip:
+			depth += 1
+		case .Pop_Clip:
+			depth -= 1
+		}
+	}
+	testing.expect_value(t, depth, 0)
+	r, _ := niello.rect(po_tip_i)
+	testing.expect_value(t, cmds[tip].bounds, r) // whole, though it lies outside the clipper
+}

@@ -79,9 +79,30 @@ Draw_Cmd :: struct {
 // Nil or empty rects give the whole frame.
 draw_list :: proc(rects: []Rect = nil) -> []Draw_Cmd {
 	clear(&g.draw_cmds)
-	// Iterative pre-order walk over the flat node array, which is already in
-	// depth-first declaration order: node i's subtree is the contiguous range
-	// [i, subtree_end[i]].
+	// The main tree first, then every popup over it, in the order the
+	// popups were declared (later ones on top, as hit testing has them).
+	// A popup root stays where it was declared in the node array — in the
+	// middle of its container's children, say — so the main walk skips
+	// popup subtrees: otherwise everything declared after a popup would
+	// paint over it, and it would sit inside its container's clip.
+	if len(g.nodes) > 0 {
+		emit_walk(0, len(g.nodes) - 1, -1, rects)
+	}
+	for rec in g.popups {
+		if rec.root_idx >= 0 && rec.root_idx < len(g.nodes) {
+			emit_walk(rec.root_idx, g.subtree_end[rec.root_idx], rec.root_idx, rects)
+		}
+	}
+	return g.draw_cmds[:]
+}
+
+// emit_walk emits the nodes [lo, hi] in a fresh scope stack: an iterative
+// pre-order walk over the flat node array, which is in depth-first
+// declaration order (node i's subtree is the contiguous range
+// [i, subtree_end[i]]). Popup roots other than own_root are skipped with
+// their subtrees: draw_list emits each popup in a walk of its own.
+@(private)
+emit_walk :: proc(lo, hi, own_root: int, rects: []Rect) {
 	scopes := &g.emit_scopes
 	clips := &g.emit_clips
 	clear(scopes)
@@ -93,14 +114,18 @@ draw_list :: proc(rects: []Rect = nil) -> []Draw_Cmd {
 	if g.viewport == {0, 0} {
 		root_clip = Rect{{-1e18, -1e18}, {2e18, 2e18}}
 	}
-	i := 0
-	for i < len(g.nodes) {
+	i := lo
+	for i <= hi {
 		for len(scopes) > 0 && g.subtree_end[scopes[len(scopes) - 1]] < i {
 			emit_node_close(pop(scopes))
 			pop(clips)
 		}
 		if g.nodes[i].culled {
 			i += 1
+			continue
+		}
+		if g.nodes[i].is_popup && i != own_root {
+			i = g.subtree_end[i] + 1 // its own walk paints it, on top
 			continue
 		}
 		nd := &g.nodes[i]
@@ -147,7 +172,6 @@ draw_list :: proc(rects: []Rect = nil) -> []Draw_Cmd {
 		emit_node_close(pop(scopes))
 		pop(clips)
 	}
-	return g.draw_cmds[:]
 }
 
 // touches_any reports whether paint overlaps one of the repaint rects,
