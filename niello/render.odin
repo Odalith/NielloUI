@@ -1,5 +1,7 @@
 package niello
 
+import "core:slice"
+
 // Render command stream (Phase 1: Odin-only).
 //
 // draw_list() walks the committed frame and emits a flat, FFI-clean command
@@ -198,9 +200,8 @@ MAX_REPAINT_RECTS :: 8
 // repaint_rects turns this frame's damage into the regions a host
 // repaints (Frame_Result.repaint): each rect clipped to the window and
 // rounded out to whole DIP, then merged — rects that overlap or touch, or
-// whose union wastes little area, become one — and capped: past
-// MAX_REPAINT_RECTS (or with so many rects that merging would cost more
-// than it saves), the bounding rect of them all.
+// whose union wastes little area, become one — and capped at
+// MAX_REPAINT_RECTS by joining the cheapest pairs.
 @(private)
 repaint_rects :: proc() -> []Rect {
 	out := &g.repaint
@@ -215,12 +216,26 @@ repaint_rects :: proc() -> []Rect {
 		x1, y1 := ceil_f32(r.pos.x + r.size.x), ceil_f32(r.pos.y + r.size.y)
 		append(out, Rect{{x0, y0}, {x1 - x0, y1 - y0}})
 	}
-	if len(out) > 64 {
-		collapse_to_bounds(out)
-		return out[:]
-	}
 	area :: proc(r: Rect) -> f32 {
 		return r.size.x * r.size.y
+	}
+	// Many rects (a page swap, a list scrolling): coarsen to 64 first,
+	// by joining runs of neighbours in reading order.
+	if len(out) > 64 {
+		slice.sort_by(out[:], proc(a, b: Rect) -> bool {
+			return a.pos.y < b.pos.y || (a.pos.y == b.pos.y && a.pos.x < b.pos.x)
+		})
+		per := (len(out) + 63) / 64
+		n := 0
+		for start := 0; start < len(out); start += per {
+			u := out[start]
+			for r in out[start + 1:min(start + per, len(out))] {
+				u = rect_union(u, r)
+			}
+			out[n] = u
+			n += 1
+		}
+		resize(out, n)
 	}
 	for merged := true; merged; {
 		merged = false
@@ -238,19 +253,25 @@ repaint_rects :: proc() -> []Rect {
 			}
 		}
 	}
-	if len(out) > MAX_REPAINT_RECTS {
-		collapse_to_bounds(out)
+	// Still too many: join the pair that adds the least area, again and
+	// again. Neighbours join long before a far-off rect does, so a small
+	// change elsewhere (the nav item a page switch highlights) keeps its
+	// own small rect instead of stretching one box across the window.
+	for len(out) > MAX_REPAINT_RECTS {
+		best_a, best_b := 0, 1
+		best := max(f32)
+		for a := 0; a < len(out); a += 1 {
+			for b := a + 1; b < len(out); b += 1 {
+				cost := area(rect_union(out[a], out[b])) - area(out[a]) - area(out[b])
+				if cost < best {
+					best, best_a, best_b = cost, a, b
+				}
+			}
+		}
+		out[best_a] = rect_union(out[best_a], out[best_b])
+		unordered_remove(out, best_b)
 	}
 	return out[:]
-
-	collapse_to_bounds :: proc(out: ^[dynamic]Rect) {
-		u := out[0]
-		for r in out[1:] {
-			u = rect_union(u, r)
-		}
-		clear(out)
-		append(out, u)
-	}
 	floor_f32 :: proc(v: f32) -> f32 {
 		t := f32(int(v))
 		return t > v ? t - 1 : t

@@ -268,3 +268,75 @@ test_repaint_glide :: proc(t: ^testing.T) {
 		rp_frame(t)
 	}
 }
+
+// Scrolling repaints the scroller's visible area, never past it: rows
+// scrolled (partly) out of view damage only what the scroller shows.
+@(test)
+test_repaint_scroll_stays_inside_the_scroller :: proc(t: ^testing.T) {
+	rp_setup()
+	defer niello.test_teardown()
+	rp_frame(t)
+	rp_frame(t)
+	box, _ := niello.rect(rp_scroll_i)
+	at := rp_center(rp_scroll_i)
+	for f in 0 ..< 12 {
+		inp := rp_at(at)
+		if f < 3 {
+			inp.wheel = {0, -1}
+		}
+		res := rp_frame(t, inp)
+		for r in res.repaint {
+			testing.expectf(t, r.pos.x >= box.pos.x - 1 && r.pos.y >= box.pos.y - 1 &&
+				r.pos.x + r.size.x <= box.pos.x + box.size.x + 1 &&
+				r.pos.y + r.size.y <= box.pos.y + box.size.y + 1,
+				"repaint %v stays inside the scroller %v", r, box)
+		}
+	}
+}
+
+rp_far, rp_cell, rp_cell_on, rp_area, rp_gap: niello.Unit
+rp_cells_on: bool
+
+rp_far_declare :: proc() {
+	if niello.begin(rp_root) {
+		if niello.begin(rp_area) {
+			for k in 0 ..< 30 {
+				niello.show(rp_cell, {variant = rp_cell_on if rp_cells_on && k % 3 == 0 else niello.NO_UNIT}, niello.key_int(k))
+			}
+		}
+		niello.show(rp_gap)
+		niello.show(rp_far, {variant = rp_cell_on if rp_cells_on else niello.NO_UNIT})
+	}
+}
+
+// Many scattered changes in one area and one far below it (a page swap and
+// the nav item it highlights): the far change keeps a small rect of its
+// own instead of one box stretching over both.
+@(test)
+test_repaint_far_change_keeps_its_own_rect :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	niello.mint(&rp_root, niello.NO_UNIT, {layout = niello.Layout.Top_To_Bottom, size = niello.Size{niello.fixed(400), niello.fixed(1400)}, padding = niello.pad(10)})
+	niello.mint(&rp_cell_on, niello.NO_UNIT, {color = niello.Color{40, 90, 200, 255}})
+	niello.mint(&rp_area, niello.NO_UNIT, {layout = niello.Layout.Top_To_Bottom, gap = 10})
+	niello.mint(&rp_cell, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(20)}, color = niello.Color{220, 220, 220, 255}})
+	niello.mint(&rp_gap, niello.NO_UNIT, {size = niello.Size{niello.fixed(10), niello.fixed(300)}})
+	niello.mint(&rp_far, niello.NO_UNIT, {size = niello.Size{niello.fixed(30), niello.fixed(20)}, color = niello.Color{200, 200, 200, 255}})
+	frame :: proc() -> niello.Frame_Result {
+		niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 1400}}, 0.016)
+		rp_far_declare()
+		return niello.frame_end()
+	}
+	rp_cells_on = false
+	frame()
+	rp_cells_on = true
+	res := frame()
+	testing.expect(t, len(res.repaint) <= 8, "a few rects at most")
+	far_alone := false
+	for r in res.repaint {
+		if r.size.x <= 40 && r.size.y <= 30 {
+			far_alone = true // the far cell's own rect
+		}
+	}
+	testing.expectf(t, far_alone, "the far change keeps a small rect of its own: %v", res.repaint)
+}

@@ -740,7 +740,11 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 		win.cursor_applied = result.cursor
 	}
 
-	if result.changed || win.force_render {
+	// Changed, but nothing visible to repaint (everything that changed is
+	// clipped away or off the window): a backend that keeps its pixels
+	// needs no frame at all.
+	nothing_visible := result.changed && !win.force_render && win.partial_ok && len(result.repaint) == 0
+	if (result.changed || win.force_render) && !nothing_visible {
 		// During a render-failure backoff the frame still runs;
 		// only the backend call waits for its deadline.
 		if now_ns >= win.render_retry_ns {
