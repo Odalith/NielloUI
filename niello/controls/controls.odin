@@ -1,6 +1,6 @@
 // Package controls is NielloUI's shipped control collection: buttons, a
-// switch, a text box, a slider, a progress bar and a scrollbar, built on
-// niello's public API only.
+// switch, check boxes, radio groups, a text box, a slider, a progress bar
+// and a scrollbar, built on niello's public API only.
 //
 //	controls.init()                       // once, after niello is up: mints every part
 //	if niello.clicked(controls.button("Save", .Primary)) { save() }
@@ -121,6 +121,7 @@ Roles :: struct {
 	accent, accent_hot, on_accent:   niello.Group,
 	danger, danger_hot, success:     niello.Group,
 	selection:                       niello.Group,
+	outline:                         niello.Group, // .Border_Color from dim: unchecked boxes and rings
 	// type (Type_Sizes): .Font_Size
 	caption, body, subtitle, title:  niello.Group,
 	// spacing (Spacing): control_pad and panel_pad .Padding, the gaps .Gap
@@ -148,6 +149,8 @@ Parts :: struct {
 	danger:    Button_Parts,
 	toggle_on: niello.Unit, // a toggle button's on variant (root)
 	switch_:   Switch_Parts,
+	check:     Check_Parts,
+	radio:     Radio_Parts,
 	text_box:  Text_Box_Parts,
 	slider:    Slider_Parts,
 	scrollbar: Scrollbar_Parts,
@@ -176,6 +179,7 @@ init :: proc(t := DARK, ty := DEFAULT_TYPE, sp := DEFAULT_SPACING) {
 		accent_hot = niello.group_new("controls.accent_hot"), on_accent = niello.group_new("controls.on_accent"),
 		danger = niello.group_new("controls.danger"), danger_hot = niello.group_new("controls.danger_hot"),
 		success = niello.group_new("controls.success"), selection = niello.group_new("controls.selection"),
+		outline = niello.group_new("controls.outline"),
 		caption = niello.group_new("controls.caption"), body = niello.group_new("controls.body"),
 		subtitle = niello.group_new("controls.subtitle"), title = niello.group_new("controls.title"),
 		control_pad = niello.group_new("controls.control_pad"), control_gap = niello.group_new("controls.control_gap"),
@@ -184,6 +188,7 @@ init :: proc(t := DARK, ty := DEFAULT_TYPE, sp := DEFAULT_SPACING) {
 	mint_label(t)
 	mint_buttons(t)
 	mint_switch(t)
+	mint_check(t)
 	mint_text_box(t)
 	mint_slider(t)
 	mint_scrollbar(t)
@@ -212,6 +217,7 @@ apply_theme :: proc(t: Theme, ms: u32 = 0) {
 	niello.group_set(G.danger_hot, .Color, t.danger_hot, ms)
 	niello.group_set(G.success, .Color, t.success, ms)
 	niello.group_set(G.selection, .Color, t.selection, ms)
+	niello.group_set(G.outline, .Border_Color, t.dim, ms)
 	niello.set_focus_ring({color = t.accent, width = 2, offset = 2})
 }
 
