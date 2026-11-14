@@ -63,6 +63,14 @@ Draw_Cmd :: struct {
 
 // ============ emission ============
 
+// render_png_hook is how a host renders a draw list to a PNG file with no
+// window (niello/sdl sets it when it is imported, through the native
+// backend; niello/agent's snapshots write pictures with it). It draws the
+// region of size DIP starting at origin, scale pixels per DIP, as a window
+// would show it, and reports whether the file was written. Nil: no host
+// can make pictures.
+render_png_hook: proc(cmds: []Draw_Cmd, origin, size: Vec2, scale: f32, path: string) -> bool
+
 // draw_list returns the current frame's draw commands, for a host to
 // render. Call it after frame_end; the slice is valid until the next
 // frame_begin, and calling again rebuilds the list.

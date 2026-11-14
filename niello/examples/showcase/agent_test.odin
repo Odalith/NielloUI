@@ -39,6 +39,10 @@ when niello.NIELLO_DEBUG {
 		agent.allow(s, .Unsettled, agent.find(s, text = "not hovered"))
 		agent.hover(s, agent.find(s, role = .Button, name = "Hover me"))
 		agent.snapshot(s, "tooltip")
+		// A close-up of the button and its tooltip.
+		agent.crop(s, agent.find(s, role = .Button, name = "Hover me"), "tooltip close-up", margin = 80)
+		// The showcase imports niello/sdl: every snapshot is a picture too.
+		testing.expect(t, s.pictures == s.snapshots, "a picture for every snapshot and the crop")
 		testing.expect(t, agent.report(s) == 0, "the showcase has no findings")
 	}
 }

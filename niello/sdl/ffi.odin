@@ -6,7 +6,7 @@ package sdl
 // API: nui_init / nui_create_window / nui_resize / nui_set_refresh_rate /
 // nui_render / nui_present_cached / nui_register_font / nui_measure_word /
 // nui_line_height / nui_destroy_window / nui_shutdown / nui_gpu_cache_bytes /
-// nui_purge_gpu_cache. Multi-window (M2):
+// nui_purge_gpu_cache / nui_render_png. Multi-window (M2):
 // the device + Graphite context are shared; each window renders through
 // its own opaque Window handle.
 //
@@ -139,6 +139,18 @@ foreign native {
 	is_resizing      :: proc(win: Window) -> c.int ---
 
 	present_cached   :: proc(win: Window) -> c.int ---
+
+	// Render commands into a PNG file on a CPU surface: no window, GPU
+	// or init needed. The picture is width_px x height_px, showing the
+	// DIP region from origin at scale pixels per DIP. Returns 1 on
+	// success.
+	render_png :: proc(
+		cmds: [^]niello.Draw_Cmd, n_cmds: i32,
+		origin_x, origin_y: f32,
+		width_px, height_px: u32,
+		scale: f32,
+		path: cstring,
+	) -> c.int ---
 
 	// Repaint the window's owned pixel cache and present it. Borrowed
 	// commands are never retained. With damage (n_damage > 0) the
@@ -294,6 +306,27 @@ wire_backend_hooks :: proc "contextless" () {
 	niello.line_height_hook = hook_line_height
 	niello.decode_image_hook = hook_decode_image
 	niello.release_image_hook = hook_release_image
+	niello.render_png_hook = hook_render_png
+}
+
+// hook_render_png adapts nui_render_png to niello.render_png_hook: the DIP
+// region at origin, size DIP, becomes a picture of size * scale pixels
+// (rounded up, so the region is never cut).
+@(private)
+hook_render_png :: proc(cmds: []niello.Draw_Cmd, origin, size: niello.Vec2, scale: f32, path: string) -> bool {
+	if size.x <= 0 || size.y <= 0 || scale <= 0 || len(path) == 0 {
+		return false
+	}
+	w := u32(size.x * scale)
+	if f32(w) < size.x * scale {
+		w += 1
+	}
+	h := u32(size.y * scale)
+	if f32(h) < size.y * scale {
+		h += 1
+	}
+	cpath := strings.clone_to_cstring(path, context.temp_allocator)
+	return render_png(raw_data(cmds), i32(len(cmds)), origin.x, origin.y, w, h, scale, cpath) == 1
 }
 
 // hook_measure_word / hook_line_height adapt the C measurement procs to

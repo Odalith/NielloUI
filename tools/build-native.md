@@ -26,16 +26,20 @@ implemented in `native/CMakeLists.txt`: the `find_package` calls are
 gated to Linux, and macOS/Windows link their platform system libs.
 
 **Frozen native surface — ruled target** (F9, 2026-11-01): a release
-pins exactly the ABI in `native/nui.h` — 21 functions: `nui_init`,
+pins exactly the ABI in `native/nui.h` — 22 functions since
+native-v0.3.0 (21 before it): `nui_init`,
 `nui_create_window`, `nui_destroy_window`, `nui_resize`,
 `nui_set_refresh_rate`, `nui_is_resizing`, `nui_render`,
-`nui_present_cached`, `nui_register_font`, `nui_register_font_family`,
+`nui_present_cached`, `nui_render_png`, `nui_register_font`, `nui_register_font_family`,
 `nui_measure_word`, `nui_line_height`, `nui_image_decode`,
 `nui_image_release`, `nui_gpu_cache_bytes`, `nui_purge_gpu_cache`,
 `nui_atspi_start`, `nui_atspi_stop`, `nui_atspi_sync`,
 `nui_atspi_remove_window`, `nui_shutdown` — mirrored by
 `niello/sdl/ffi.odin`. Changing any signature means a new native
-release train, not a patch. Count note: the freeze fork said "20",
+release train, not a patch; `tools/check-native-exports.sh` (run by
+build-native.sh and the release workflow) fails an archive missing any of
+them. native-v0.3.0 added `nui_render_png` (headless pictures, for
+niello/agent). Count note: the freeze fork said "20",
 but 13 + 2 + 2 + 4 = 21 and `nui.h` declares 21;
 `nui_atspi_sync` carries the trailing `win_focused` parameter.
 The 2026-10-22 thirteen-function freeze is superseded; the

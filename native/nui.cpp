@@ -41,9 +41,11 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkSamplingOptions.h"
+#include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTextBlob.h"
 
+#include "include/encode/SkPngEncoder.h"
 #include "modules/skshaper/include/SkShaper.h"
 #include "include/core/SkTypeface.h"
 
@@ -650,7 +652,9 @@ void DrawRect(SkCanvas* canvas, const UiDrawCmd& command) {
     canvas->drawDRRect(outer, inner, paint);
 }
 
-void DrawImage(SkCanvas* canvas, const UiDrawCmd& command) {
+// raster: the canvas is a CPU one (nui_render_png), which draws the
+// decoded image as it is; a Graphite canvas draws a texture made from it.
+void DrawImage(SkCanvas* canvas, const UiDrawCmd& command, bool raster) {
     auto it = g.images.find(command.image);
     if (it == g.images.end() ||
         command.bounds_w <= 0 || command.bounds_h <= 0 ||
@@ -662,7 +666,7 @@ void DrawImage(SkCanvas* canvas, const UiDrawCmd& command) {
     // silently lost its mips to an enum mismatch here).
     const bool needMips = command.interp == 0 || command.interp == 1;
 
-    if (!entry.texture || (needMips && !entry.mipmapped)) {
+    if (!raster && (!entry.texture || (needMips && !entry.mipmapped))) {
         SkImage::RequiredProperties properties{};
         properties.fMipmapped = needMips;
         auto texture = SkImages::TextureFromImage(
@@ -704,8 +708,8 @@ void DrawImage(SkCanvas* canvas, const UiDrawCmd& command) {
                           SkClipOp::kIntersect, true);
     }
     canvas->drawImageRect(
-        entry.texture.get(), source, Bounds(command), sampling, nullptr,
-        SkCanvas::kStrict_SrcRectConstraint);
+        raster ? entry.raster.get() : entry.texture.get(), source, Bounds(command),
+        sampling, nullptr, SkCanvas::kStrict_SrcRectConstraint);
 }
 
 void DrawText(SkCanvas* canvas, const UiDrawCmd& command) {
@@ -775,8 +779,9 @@ void DrawText(SkCanvas* canvas, const UiDrawCmd& command) {
     canvas->drawTextBlob(blob.get(), command.bounds_x, command.bounds_y, paint);
 }
 
+// raster: canvas is a CPU canvas (nui_render_png), not the Graphite one.
 void Replay(SkCanvas* canvas, const UiDrawCmd* commands,
-            int32_t count, float scale) {
+            int32_t count, float scale, bool raster = false) {
     // Restores the original save count even if a C++ allocation throws.
     SkAutoCanvasRestore restore(canvas, true);
     canvas->scale(scale, scale);
@@ -792,7 +797,7 @@ void Replay(SkCanvas* canvas, const UiDrawCmd* commands,
                 DrawText(canvas, command);
                 break;
             case UI_CMD_IMAGE:
-                DrawImage(canvas, command);
+                DrawImage(canvas, command, raster);
                 break;
             case UI_CMD_PUSH_CLIP: {
                 canvas->save();
@@ -1396,6 +1401,59 @@ int32_t nui_present_cached(nui_window* window) {
         // must not burn a vsync interval before its retry.
         if (!Present(*window)) return 0;
         Pace(*window);
+        return 1;
+    });
+}
+
+// The largest picture nui_render_png makes, per side, in pixels: a
+// 16384x16384 RGBA surface is 1 GiB, past which a typo would only swap.
+constexpr uint32_t kMaxPngDimension = 16384;
+
+int32_t nui_render_png(const UiDrawCmd* commands, int32_t count,
+                       float origin_x, float origin_y,
+                       uint32_t width_px, uint32_t height_px,
+                       float scale, const char* path) {
+    return Api<int32_t>("nui_render_png", 0, [&] {
+        if (!path || !*path || width_px == 0 || height_px == 0 ||
+            width_px > kMaxPngDimension || height_px > kMaxPngDimension ||
+            !std::isfinite(scale) || scale <= 0 ||
+            !std::isfinite(origin_x) || !std::isfinite(origin_y)) {
+            Log("render_png skipped: bad path, size, scale or origin");
+            return 0;
+        }
+        if (!ValidateCommands(commands, count)) {
+            Log("render_png: invalid render command stream");
+            return 0;
+        }
+        // A CPU surface: no window, GPU or device needed. Cleared as a
+        // window's frame is, then the commands replayed from origin.
+        auto surface = SkSurfaces::Raster(
+            SkImageInfo::MakeN32Premul(static_cast<int>(width_px), static_cast<int>(height_px)));
+        if (!surface) {
+            Log("render_png: cannot allocate the surface");
+            return 0;
+        }
+        auto* canvas = surface->getCanvas();
+        canvas->clear(SkColors::kBlack);
+        canvas->translate(-origin_x * scale, -origin_y * scale);
+        Replay(canvas, commands, count, scale, /*raster=*/true);
+
+        SkPixmap pixmap;
+        if (!surface->peekPixels(&pixmap)) {
+            Log("render_png: cannot read the pixels");
+            return 0;
+        }
+        SkFILEWStream file(path);
+        if (!file.isValid()) {
+            std::fprintf(stderr, "nui: render_png: cannot write %s\n", path);
+            return 0;
+        }
+        SkPngEncoder::Options options;
+        options.fZLibLevel = 1; // fast: pictures are looked at, not kept
+        if (!SkPngEncoder::Encode(&file, pixmap, options)) {
+            Log("render_png: PNG encoding failed");
+            return 0;
+        }
         return 1;
     });
 }

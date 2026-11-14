@@ -32,7 +32,10 @@
 //
 // report writes everything to agent-out/<scenario>/ (set the folder with
 // -define:NIELLO_AGENT_OUT=path): the snapshots, findings.txt and
-// summary.txt. tools/agent.sh runs an app's scenarios and prints them.
+// summary.txt. A snapshot is also a picture (NN-label.png), when the app
+// imports niello/sdl: the screen as the window shows it, rendered without
+// a window; crop writes a close-up of one control. tools/agent.sh runs an
+// app's scenarios and prints them.
 //
 // AGENTS.md beside this package is the guide for coding agents: the loop,
 // a scenario template, what each control is called, how to read a
@@ -61,6 +64,10 @@ when niello.NIELLO_DEBUG {
 	// DEFAULT_VIEWPORT is a session's window size, in DIP, unless it is given
 	// one.
 	DEFAULT_VIEWPORT :: niello.Vec2{1180, 780}
+
+	// PICTURE_SCALE is the pictures' pixels per DIP: 2, so small text stays
+	// legible when an agent looks at a picture.
+	PICTURE_SCALE :: 2
 
 	// SETTLE_SECONDS is the most simulated time settle runs before it reports
 	// the screen as unsettled: longer than any glide or delay a UI means.
@@ -93,6 +100,8 @@ when niello.NIELLO_DEBUG {
 		seen:        map[Finding_Key]bool,
 		allows:      [dynamic]Allow,
 		snapshots:   int,
+		pictures:    int, // PNGs written (snapshots and crops)
+		picture_scale: f32, // pixels per DIP in pictures; 0: none are made
 		steps:       [dynamic]string, // what the scenario did, in order
 		dir:         string,
 		metrics:     Metrics,
@@ -178,6 +187,12 @@ when niello.NIELLO_DEBUG {
 		s.viewport = viewport
 		s.dt = 1.0 / 60
 		s.metrics = metrics
+		// Pictures need a host that renders without a window (niello/sdl's
+		// hook), and the real metrics: a mock layout drawn with real fonts
+		// would show text that doesn't fit where it does.
+		if niello.render_png_hook != nil && metrics == .App && niello.measure_word_hook != nil {
+			s.picture_scale = PICTURE_SCALE
+		}
 		s.findings = make([dynamic]Finding, s.alloc)
 		s.seen = make(map[Finding_Key]bool, s.alloc)
 		s.allows = make([dynamic]Allow, s.alloc)

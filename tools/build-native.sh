@@ -113,6 +113,7 @@ MRI="$WORK/merge.mri"
 	echo "END"
 } > "$MRI"
 ar -M < "$MRI"
+"$ROOT/tools/check-native-exports.sh" "$WORK/libniello_native.a" "$ROOT/native/nui.h"
 
 # 5. Zip in the third_party layout, with provenance.
 STAGE="$WORK/stage"
