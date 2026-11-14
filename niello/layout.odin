@@ -40,6 +40,10 @@ Wrap_Line :: struct {
 
 X_AXIS, Y_AXIS :: 0, 1
 
+// SUBPIXEL is the size difference layout and paint treat as none: far below
+// a device pixel, far above the float rounding of summed sizes.
+SUBPIXEL :: 0.01
+
 main_axis :: proc(l: Layout) -> int {
 	return X_AXIS if l == .Left_To_Right || l == .Wrap else Y_AXIS
 }
@@ -655,7 +659,10 @@ distribute_main :: proc(i: int, axis: int, inner: f32) {
 		gaps = f32(nchild-1) * f32(s.gap)
 	}
 	remaining := inner - committed - gaps
-	if remaining < 0 && !scrollable_axis(s, axis) {
+	// A deficit under SUBPIXEL is float rounding (the children's sizes sum
+	// in a different order than the parent's size was), not a squeeze:
+	// shaving a millionth off a label would trim its text at paint.
+	if remaining < -SUBPIXEL && !scrollable_axis(s, axis) {
 		// Scroll containers skip the take: children keep natural sizes and the
 		// excess becomes scrollable overflow. That IS the scroll semantic.
 		// The take runs even under parent_fit: FIT only means the container
