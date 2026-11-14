@@ -284,7 +284,7 @@ test_cross_context_reads :: proc(t: ^testing.T) {
 @(test)
 test_frame_begin_sanitizes_host_numbers :: proc(t: ^testing.T) {
 	// Host-supplied dt and viewport are sanitized at frame_begin
-	// (audit core-H8 class): a NaN dt must not become garbage
+	//: a NaN dt must not become garbage
 	// engine time, and a NaN viewport must not poison layout —
 	// both degrade to zero, and a normal frame is unaffected.
 	z: f32 = 0

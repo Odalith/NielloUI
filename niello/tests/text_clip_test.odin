@@ -107,7 +107,7 @@ test_text_cache_evicts_unused :: proc(t: ^testing.T) {
 	}
 	peak := niello.test_text_cache_len()
 	testing.expect(t, peak >= 50, "every size was measured")
-	for _ in 0 ..< niello.TEXT_KEEP_FRAMES + 2 * niello.TEXT_SWEEP_EVERY {
+	for _ in 0 ..< niello.TEST_TEXT_KEEP_FRAMES + 2 * niello.TEST_TEXT_SWEEP_EVERY {
 		frame()
 	}
 	testing.expect(t, niello.test_text_cache_len() <= 2, "only the size still shown stays cached")

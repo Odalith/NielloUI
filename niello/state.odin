@@ -1,3 +1,5 @@
+package niello
+
 // state.odin — cold unit store and context state.
 // The engine threads explicit contexts (one per window); g is the
 // currently bound context, bound by the glue for each frame.
@@ -5,12 +7,12 @@
 // The public mutation path (mint/set/set_many) lives in public.odin; this file
 // holds the stores it writes to. The struct-of-structs here stands in for the
 // §8 struct-of-arrays layout — a mechanical perf pass once the API settles.
-package niello
 
 import "base:intrinsics"
 import "base:runtime"
 import "core:unicode/utf8"
 
+@(private)
 Unit_Rec :: struct {
 	// Slot bookkeeping (unmint): a handle carries its slot's
 	// generation, so a handle to a freed unit never reaches the unit
@@ -53,6 +55,7 @@ Unit_Rec :: struct {
 
 // Group_Member is one (unit, field-mask) pair: the mask scopes which
 // fields a broadcast may write on this member (§3.7).
+@(private)
 Group_Member :: struct {
 	unit:   Unit,
 	fields: Fields,
@@ -61,6 +64,7 @@ Group_Member :: struct {
 // Group_Rec is the group's whole state — an address book (§3.7). There
 // is deliberately no retained patch: joining applies nothing, and a
 // broadcast reaches only the members present when it is issued.
+@(private)
 Group_Rec :: struct {
 	members: [dynamic]Group_Member,
 	name:    string, // debug/inspector only
@@ -74,6 +78,7 @@ Group_Rec :: struct {
 // with no per-context copies and no surprises.
 // Ring_Paint is the focus ring one frame painted, kept so the next
 // frame can damage exactly the change (focus_ring_damage).
+@(private)
 Ring_Paint :: struct {
 	on:     bool,
 	rect:   Rect, // outer bounds
@@ -82,6 +87,7 @@ Ring_Paint :: struct {
 	radius: u8,
 }
 
+@(private)
 Store :: struct {
 	// Cold store: units own their style values. Survives across frames.
 	// Index 0 is the NO_UNIT sentinel (§8).
@@ -94,7 +100,7 @@ Store :: struct {
 	// digest decide all damage in pass F. There is no write
 	// journal — an earlier design kept one alongside the stamps;
 	// nothing read it outside tests, and a context that never
-	// framed pinned it forever (audit X-1).
+	// framed pinned it forever.
 
 	// Live contexts, in creation order: tween() cancels a unit's
 	// tweens across all of them (animate.odin).
@@ -120,7 +126,7 @@ Store :: struct {
 	text_epoch:       u64, // frames completed, any window: the text cache's clock
 	font_epoch:       u64, // bumped by fonts_changed(); mixed into both
 	                       // text cache keys so a (re)registered font
-	                       // invalidates everything it measured (txt-5)
+	                       // invalidates everything it measured
 
 	// The headless clipboard (set_clipboard_text with no glue hook).
 	clipboard: string,
@@ -131,12 +137,14 @@ Store :: struct {
 	focus_ring: Maybe(Focus_Ring),
 }
 
-// Context is one window's frame state (multi-window plan, M1):
-// everything a single tree's frames own — nodes, instances,
-// interaction, scheduling, mutation — and nothing they share. The
-// package handle `g` (below) points at the currently bound
-// context; frame_begin binds, declare-time procs read the binding.
+// Context is one window's UI: its tree, instances, interaction and
+// scheduling state. Create one per window (context_create) and use it only
+// through the procedures that take it; its fields are internal.
 Context :: struct {
+	// Internals: everything a single tree's frames own and nothing they
+	// share. The package handle `g` points at the bound context;
+	// frame_begin binds, declaring reads the binding.
+
 	// Frame text arena: With.text copies land here at declare time.
 	// Chunked so a slice, once taken, never moves; rewound at
 	// frame_begin and reused across frames (freed only at teardown).
@@ -159,7 +167,7 @@ Context :: struct {
 	emit_breaks: [dynamic][2]int,
 	emit_runs:   [dynamic]Text_Run,
 	emit_scopes: [dynamic]int,
-	emit_clips:  [dynamic]Rect, // accumulated clip per open emit scope (ren-1)
+	emit_clips:  [dynamic]Rect, // accumulated clip per open emit scope
 
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
@@ -237,7 +245,7 @@ Context :: struct {
 	// frame_begin and by scroll_to, read and re-clamped by pass F every
 	// frame (the stored value is the offset the last frame rendered
 	// with). Only scrollable containers ever get an entry; absence = 0.
-	// Lifetime (audit int-2, ruled 2026-11-04): scroll state shares
+	// Lifetime (ruled 2026-11-04): scroll state shares
 	// the instance lifetime — when an instance record is recycled
 	// (undeclared, or a popup not shown), its scroll_off/scroll_max/scroll_glides
 	// entries are purged with it. There is deliberately no separate
@@ -284,7 +292,7 @@ Context :: struct {
 	                                  // drag_started reads it so a flick
 	                                  // that starts and ends in one
 	                                  // dispatch still reports its start
-	                                  // (audit int-14)
+	                                  //
 	drag_ended_id:        Instance,
 	drag_ended_chain:     [dynamic]Instance,
 	drag_ended_completed: bool, // release (true) vs capture loss (false)
@@ -391,10 +399,12 @@ Context :: struct {
 
 // Section_Build is a section's build proc in its untyped form
 // (begin_section's typed form transmutes to it: both take a pointer).
+@(private)
 Section_Build :: proc(data: rawptr, s: Section)
 
 // Section_Rec is one queued section (begin_section): its host node
 // and the build that declares the host's flow children.
+@(private)
 Section_Rec :: struct {
 	host:  int,
 	build: Section_Build,
@@ -410,39 +420,14 @@ store: Store
 // did when g was the one global struct — only the declaration and
 // the lifecycle changed. nil until a context is bound; frame_begin
 // binds, context_destroy unbinds itself.
+@(private)
 g: ^Context
 
 // test_ctx is the harness's context: test_reset creates and binds
 // a fresh one per test, test_teardown destroys it.
+@(private)
 test_ctx: ^Context
 
-// test_reset clears everything, including cold units, and re-seeds
-// the NO_UNIT sentinel: each test starts from a working empty engine.
-// test_teardown is its exit-side pair: it frees the same containers but
-// leaves NO sentinel behind, so a test ends with zero engine allocations
-// live. Tests open with test_reset() and defer test_teardown(). The
-// pairing is what keeps the runner's per-test tracking allocator honest:
-// engine state is global by design, so without it the NEXT test's reset
-// frees this test's allocations under the wrong tracker and they report
-// as leaks (still live at test end) and bad frees (freed by a tracker
-// that never allocated them).
-test_reset :: proc() {
-	if test_ctx != nil {
-		context_destroy(test_ctx)
-		test_ctx = nil
-	}
-	free_store()
-	store = Store{}
-	test_ctx = context_create()
-	g = test_ctx
-	append(&store.units, Unit_Rec{name = "NO_UNIT"}) // §8 sentinel at index 0
-	append(&store.groups, Group_Rec{name = "NO_GROUP"})
-}
-
-test_teardown :: proc() {
-	shutdown() // destroys test_ctx with every other live context
-	test_ctx = nil
-}
 
 // free_store deletes every heap-owning container in the global store.
 @(private)
@@ -631,6 +616,7 @@ touch_unmarked :: proc(u: Unit, f: Fields) {
 
 // unit_derived returns u's record with its derived facts current:
 // recomputed only when the unit's style has been written since.
+@(private)
 unit_derived :: proc(u: Unit) -> ^Unit_Rec {
 	rec := &store.units[unit_index(u)]
 	if !rec.derived_valid || rec.derived_gen != rec.gen {
@@ -644,35 +630,30 @@ unit_derived :: proc(u: Unit) -> ^Unit_Rec {
 	return rec
 }
 
-style_of :: proc(u: Unit) -> ^Style {
+// unit_style is a unit's live style, by pointer (style_of is the public copy).
+@(private)
+unit_style :: proc(u: Unit) -> ^Style {
 	return &store.units[unit_index(u)].style
 }
 
 // A Unit handle is a slot index (low 32 bits) plus that slot's
 // generation when the unit was minted (high 32 bits). NO_UNIT is slot 0,
 // generation 0, and is never live.
+@(private)
 unit_index :: #force_inline proc "contextless" (u: Unit) -> int {
 	return int(u64(u) & 0xffff_ffff)
 }
 
+@(private)
 unit_handle :: #force_inline proc "contextless" (index: int, generation: u32) -> Unit {
 	return Unit(u64(generation) << 32 | u64(index))
 }
 
-// unit_live reports that u names a minted unit that has not been
-// unmint-ed: its slot exists, is live, and still has u's generation.
-unit_live :: proc "contextless" (u: Unit) -> bool {
-	i := unit_index(u)
-	if i < 1 || i >= len(store.units) {
-		return false
-	}
-	rec := &store.units[i]
-	return rec.live && rec.generation == u32(u64(u) >> 32)
-}
 
 // ---------------------------------------------------------------------------
 // Hashing (FNV-1a; identity = hash(parent_id, unit, key))
 
+@(private)
 str_hash :: proc(s: string) -> u64 {
 	h, _ := text_scan(s)
 	return h
@@ -681,6 +662,7 @@ str_hash :: proc(s: string) -> u64 {
 // text_scan hashes s eight bytes at a time (the length seeds the hash,
 // so a zero-padded tail is unambiguous) and reports whether every byte
 // is ASCII — all-ASCII text is valid UTF-8 without further checks.
+@(private)
 text_scan :: proc(s: string) -> (h: u64, ascii: bool) #no_bounds_check {
 	p := raw_data(s)
 	n := len(s)
@@ -703,6 +685,7 @@ text_scan :: proc(s: string) -> (h: u64, ascii: bool) #no_bounds_check {
 	return h, bits & 0x8080808080808080 == 0
 }
 
+@(private)
 hash_mix :: proc(h, v: u64) -> u64 {
 	return (h ~ v) * 1099511628211
 }
@@ -713,6 +696,7 @@ hash_mix :: proc(h, v: u64) -> u64 {
 // inputs (parent hashes, call-site addresses, small keys) two nodes
 // collide whenever h1 ~ h2 == k1 ~ k2, and call-site keys move with
 // ASLR, so such collisions came and went between runs.
+@(private)
 mix64 :: proc(x: u64) -> u64 {
 	x := x
 	x ~= x >> 30
@@ -723,6 +707,7 @@ mix64 :: proc(x: u64) -> u64 {
 	return x
 }
 
+@(private)
 identity_of :: proc(parent_id: u64, u: Unit, key: u64) -> Instance {
 	h := mix64(parent_id ~ u64(u) * 0x243f6a8885a308d3)
 	h = mix64(h ~ key)
@@ -733,6 +718,7 @@ identity_of :: proc(parent_id: u64, u: Unit, key: u64) -> Instance {
 // time by begin_popup. root_idx indexes the node array of the frame
 // that declared it — during the next frame_begin's dispatch, that
 // is exactly the tree being hit-tested.
+@(private)
 Popup_Rec :: struct {
 	root_idx: int,
 	id:       Instance,
@@ -746,6 +732,7 @@ Popup_Rec :: struct {
 // accumulated target, so rapid ticks feel like one continuous glide.
 // Axis_Glide is one axis of a scroll glide: its own from/to and
 // its own clock.
+@(private)
 Axis_Glide :: struct {
 	from:   f32,
 	to:     f32,
@@ -759,11 +746,12 @@ Axis_Glide :: struct {
 	              // this target.
 }
 
-// Scroll_Glide holds a scroller's in-flight glides, one per axis
-// (audit int-8): active[axis] says that axis is gliding, and the
+// Scroll_Glide holds a scroller's in-flight glides, one per axis:
+// active[axis] says that axis is gliding, and the
 // axes share nothing — a Y tick never re-bases or re-times an
 // in-flight X glide. (The old single record coupled them: one
 // from/to pair, one clock, one spring flag.)
+@(private)
 Scroll_Glide :: struct {
 	axis:   [2]Axis_Glide,
 	active: [2]bool,
@@ -778,18 +766,19 @@ Scroll_Glide :: struct {
 // per-instance content hash 2026-10-23: styles are versioned by
 // their write funnel, so re-mixing every resolved value every
 // frame re-proved what the generations already knew.)
+@(private)
 Inst_Rec :: struct {
 	rect:  Rect,
 	gen:   u64,
 	digest: u64,
 	stamp: u64,
 	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
-	// The overflow committed with the rect (audit core-H7): damage
+	// The overflow committed with the rect: damage
 	// for a change or death must cover the OLD spill as well as the
 	// new — a shrinking spill otherwise leaves its outermost pixels
 	// undamaged forever.
 	overfl: Vec2,
-	// frame_index of the last pass-F commit (audit core-H4): the
+	// frame_index of the last pass-F commit: the
 	// recycle sweep deletes records whose last_seen is stale,
 	// which catches deaths the old map-outgrew-the-tree signal
 	// missed (a death balanced by a birth in the same frame).

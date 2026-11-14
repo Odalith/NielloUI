@@ -1,3 +1,4 @@
+#+private
 package debugui
 
 // debugui_impl.odin — the debugger itself. Every declaration is

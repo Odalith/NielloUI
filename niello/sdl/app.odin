@@ -1,41 +1,30 @@
-// niello/sdl/app — SDL3 application scaffolding for NielloUI apps.
+// Package sdl is NielloUI's host for desktop windows, on SDL3: it opens
+// windows, runs the event loop, drives each window's frames (input,
+// declare, layout, draw) and renders them through the native Skia backend.
+// When nothing changes it sleeps, using no CPU.
 //
-// This is the window layer. It owns the SDL windows and event loop,
-// drives the niello frame pipeline per window (frame_begin → declare →
-// frame_end → draw_list → nui_render), wires the text-measurement
-// hooks to the native backend, and sleeps when the UI is idle. An app
-// provides one UI declaration proc per window; this package handles
-// everything else.
+//	import niello "niello:."
+//	import niello_sdl "niello:sdl"
 //
-// Multi-window (M3): the app creates one engine Context per window
-// and hands it over — the glue never creates or destroys contexts.
-// Units and groups are global (mint once at startup); each window's
-// context instances them independently.
+//	declare:: proc {
+//		// niello.begin / niello.show …
+//	}
 //
-// Usage:
+//	main:: proc {
+//		ctx:= niello.context_create
+//		defer niello.shutdown
+//		niello_sdl.run(ctx, {title = "My app", width = 800, height = 600}, declare)
+//	}
 //
-//   import niello_sdl "niello/sdl"
+// run's typed form hands your app's state to declare every frame
+// (run(ctx, config, declare_app, &app) with declare_app :: proc(app: ^App)).
+// Every window has its own niello context; open_window and close_window add
+// and remove windows from anywhere, declare procs included. Importing this
+// package also connects the core's text measurement, image decoding and
+// clipboard to the backend and the system.
 //
-//   declare :: proc() {
-//       // niello.show / niello.begin / niello.end ...
-//   }
-//
-//   main :: proc() {
-//       ctx := niello.context_create()
-//       defer niello.context_destroy(ctx)
-//       niello_sdl.run(ctx, {title = "My App", width = 800, height = 600}, declare)
-//   }
-//
-//   // Or keep the app's state in a struct instead of globals: a
-//   // typed declare proc receives a pointer to it every frame.
-//   //   App :: struct { count: int }
-//   //   declare_app :: proc(app: ^App) { ... }
-//   //   app: App
-//   //   niello_sdl.run(ctx, {title = "My App"}, declare_app, &app)
-//
-//   // More windows, from inside any declare proc or anywhere else:
-//   //   inspector := niello_sdl.open_window(ctx2, {title = "Inspector"}, declare2)
-//   //   niello_sdl.close_window(inspector)
+// Linking needs the prebuilt native backend for your platform (see
+// third_party/native/README.md).
 package sdl
 
 import "core:fmt"
@@ -115,7 +104,7 @@ Glue_Window :: struct {
 	force_render:  bool,
 	was_minimized: bool, // the minimized early-return ran; the first
 	                     // live frame after restore re-arms force_render
-	render_fails:     int,  // consecutive render failures (audit sdl-H4)
+	render_fails:     int,  // consecutive render failures
 	render_retry_ns:  u64,  // backoff: no render attempt before this tick
 	// loop bookkeeping
 	last_changed:   bool, // last frame_end's changed; idle windows are not framed
@@ -141,13 +130,8 @@ Window_Info :: struct {
 @(private)
 g_window_infos: [dynamic]Window_Info
 
-// window_list returns the live windows in creation order
-// (closing ones excluded) as borrowed scratch — valid until the
-// next call. Its consumer is the debugger (niello/debugui):
-// targets are WINDOWS, not contexts. A closed window's context
-// can outlive it in the engine registry (contexts are the app's
-// to destroy), and the debugger must stop offering the window
-// the moment it closes.
+// window_list returns the open windows, in the order they were opened. The
+// slice is valid until the next call.
 window_list :: proc() -> []Window_Info {
 	clear(&g_window_infos)
 	for win in g_windows {
@@ -194,6 +178,7 @@ content_scale :: proc(win: ^Glue_Window) -> f32 {
 // SDL_GetWindowProperties. The C++ backend takes these instead of the
 // SDL_Window, so it never links or includes SDL. Exported: embedders
 // driving their own loop (see examples/twowin_smoke) need it too.
+@(private)
 native_handles_for_window :: proc(window: ^sdl.Window) -> Native_Handles {
 	handles := Native_Handles{}
 	props := sdl.GetWindowProperties(window)
@@ -359,10 +344,12 @@ apply_pending :: proc() {
 // window.
 open_window :: proc{open_window_plain, open_window_with}
 
+// open_window_plain is open_window's plain form (a proc declare).
 open_window_plain :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> Window_Id {
 	return queue_open(ctx, config, Declare{plain = declare})
 }
 
+// open_window_with is open_window's typed form (declare receives ^T every frame).
 open_window_with :: proc(ctx: ^niello.Context, config: App_Config, declare: proc(state: ^$T), state: ^T) -> Window_Id {
 	return queue_open(ctx, config, Declare{with = transmute(proc(state: rawptr))declare, state = state})
 }
@@ -509,7 +496,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 		// consumed: it is stale by restore time and the restore
 		// brings fresh size events. force_render is cleared too —
 		// left armed it kept window_due true and loop_timeout at 0
-		// for the whole minimization: a busy spin (audit sdl-H3).
+		// for the whole minimization: a busy spin.
 		// The first live frame after restore re-arms it below (a
 		// restored window must repaint regardless), and the frame
 		// clock restarts there, so dt never spans the minimization.
@@ -595,12 +582,12 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 
 	if result.changed || win.force_render {
 		// During a render-failure backoff the frame still runs;
-		// only the backend call waits for its deadline (sdl-H4).
+		// only the backend call waits for its deadline.
 		if now_ns >= win.render_retry_ns {
 			cmds := niello.draw_list()
 			// nui_render returns 1 on success, 0 on failure
 			// (main's original line: force_render armed by
-			// `render(...) == 0`). The first sdl-H4 build had
+			// `render(...) == 0`). The first backoff build had
 			// this test backwards — successes climbed the
 			// failure ladder (gate runs 2026-11-04: healthy
 			// renders "failed" 1/5..5/5 while drawing fine).
@@ -632,7 +619,7 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 	// itself changed nothing, nothing else schedules that next
 	// frame: the loop sleeps until an unrelated event arrives,
 	// and the click's effect sits invisible until the cursor
-	// moves (his a11y-demo / popups catch, 2026-11-04). Re-arm
+	// moves (seen in the a11y and popups demos, 2026-11-04). Re-arm
 	// targeted for exactly one follow-up frame; that frame
 	// consumes no new edges, so the chain ends there. Motion is
 	// deliberately excluded: hover is same-frame state, and a
@@ -644,7 +631,8 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 }
 
 // RENDER_FAIL_LIMIT: consecutive render failures tolerated before
-// the run ends (audit sdl-H4, ruling F4(a) AS AMENDED 2026-11-04).
+// the run ends (ruling F4(a) AS AMENDED 2026-11-04).
+@(private)
 RENDER_FAIL_LIMIT :: 5
 
 // note_render_failure advances one window's failure escalation:
@@ -664,8 +652,8 @@ RENDER_FAIL_LIMIT :: 5
 // the device tier is latched, so the recreate could only ever
 // succeed while the device was healthy and the failure local or
 // transient — exactly what backoff-and-retry already covers. On
-// his ruling the recreate is gone; the surface tier's own in-place
-// recreation (native, BL-4) remains the window-local recovery.
+// that basis the recreate is gone; the surface tier's own in-place
+// recreation (native) remains the window-local recovery.
 @(private)
 note_render_failure :: proc(win: ^Glue_Window, now_ns: u64) {
 	win.render_fails += 1
@@ -942,7 +930,7 @@ loop_timeout :: proc() -> i32 {
 	now_ns := sdl.GetTicksNS()
 	best: i32 = -1
 	for win in g_windows {
-		// A minimized window contributes nothing (audit sdl-H3):
+		// A minimized window contributes nothing:
 		// not a 0 (its force_render/wake state would spin the
 		// loop) and not a deadline (its frame clock is frozen).
 		// The restore event wakes the loop itself.
@@ -953,7 +941,7 @@ loop_timeout :: proc() -> i32 {
 			return 0
 		}
 		if win.force_render {
-			// Armed but backing off (sdl-H4): the retry
+			// Armed but backing off: the retry
 			// deadline is a wake time, not a spin.
 			if now_ns >= win.render_retry_ns {
 				return 0
@@ -1026,56 +1014,46 @@ live_resize_watch :: proc "c" (userdata: rawptr, event: ^sdl.Event) -> bool {
 	return true
 }
 
-// Run_Error is what run() reports when it could not keep going.
-// This is the first piece of the sdl-M7 error surface, pulled
-// forward by audit sdl-H4's ruling: failures are returned, not
-// just printed. None covers every normal exit (last window
-// closed, app quit).
+// Run_Error is why run stopped when it could not keep going. None is
+// every normal exit (the last window closed, the app quit).
 Run_Error :: enum {
 	None,
 	Init_Failed,   // SDL or the main window/backend did not come up
 	Render_Failed, // rendering failed through the whole backoff
-	               // ladder (audit sdl-H4; the recreate step was
-	               // dropped 2026-11-04 — see note_render_failure)
+	               // ladder (the recreate step was
+	               // dropped — see note_render_failure)
 }
 
 // Set by the loop when it ends abnormally; run() returns it.
 @(private)
 g_run_error: Run_Error
 
-// run opens the main window (on the app's context) and drives the
-// frame loop until the last window closes or the app quits. It
-// returns why it ended; callers that do not care may ignore the
-// result.
+// run opens the main window for ctx and runs the app until its last window
+// closes or the app quits, returning why it stopped (None for a normal
+// exit). Each frame it applies the window's input, calls declare, lays the
+// window out and draws what changed; when nothing changes it sleeps until
+// input arrives or the UI needs a frame (an animation, a timer, a
+// context_wake), so an idle app uses no CPU.
 //
-// The loop is hand-driven — the SDL_App* entry points, restructured
-// as plain procs called from here instead of EnterAppMainCallbacks —
-// so the idle path can BLOCK: when every window's last frame changed
-// nothing and no resize is pending, the loop waits in
-// SDL_WaitEventTimeout until the next OS event or the nearest engine
-// deadline across windows, so idle windows sit at ~0% CPU (§3.3). Any
-// event, including the wake user event, cuts the wait short. Desktop
-// targets only: platforms where SDL must own main() (web, consoles)
-// are not NielloUI targets.
+// Two forms. The plain form takes a proc, and the app keeps its state in
+// package variables:
 //
-// Two forms. The plain form takes a proc() and the app keeps its
-// state in package globals:
+//	niello_sdl.run(ctx, config, declare)
 //
-//   run(ctx, config, declare)
+// The typed form hands a pointer to the app's state to declare every frame:
 //
-// The typed form hands a pointer to the app's state to the declare
-// proc every frame:
-//
-//   App :: struct { count: int }
-//   declare :: proc(app: ^App) { ... }
-//   app: App
-//   run(ctx, config, declare, &app)
+//	App :: struct { count: int }
+//	declare :: proc(app: ^App) { … }
+//	app: App
+//	niello_sdl.run(ctx, config, declare, &app)
 run :: proc{run_plain, run_with}
 
+// run_plain is run's plain form (a proc declare).
 run_plain :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare_Proc) -> Run_Error {
 	return run_impl(ctx, config, Declare{plain = declare})
 }
 
+// run_with is run's typed form (declare receives ^T every frame).
 run_with :: proc(ctx: ^niello.Context, config: App_Config, declare: proc(state: ^$T), state: ^T) -> Run_Error {
 	return run_impl(ctx, config, Declare{with = transmute(proc(state: rawptr))declare, state = state})
 }
@@ -1132,7 +1110,7 @@ run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> 
 		if res == .CONTINUE {
 			res = app_iterate()
 		}
-		// Reset the temp allocator every iteration (audit sdl-H2):
+		// Reset the temp allocator every iteration:
 		// the glue allocates from it per frame — the AT-SPI rows
 		// array and window-title cstring in atspi_sync_window, the
 		// window title at creation — and nothing reset it, so those
@@ -1155,12 +1133,14 @@ run_impl :: proc(ctx: ^niello.Context, config: App_Config, declare: Declare) -> 
 // The system clipboard behind niello.clipboard_text / set_clipboard_text
 // (text only). Wired at package init like the backend hooks; the calls
 // happen during frames, after run has started SDL's video subsystem.
+@(private)
 @(init)
 wire_clipboard_hooks :: proc "contextless" () {
 	niello.clipboard_get_hook = hook_clipboard_get
 	niello.clipboard_set_hook = hook_clipboard_set
 }
 
+@(private)
 hook_clipboard_get :: proc(allocator: runtime.Allocator) -> string {
 	raw := sdl.GetClipboardText()
 	if raw == nil {
@@ -1170,6 +1150,7 @@ hook_clipboard_get :: proc(allocator: runtime.Allocator) -> string {
 	return strings.clone(string(cstring(raw)), allocator)
 }
 
+@(private)
 hook_clipboard_set :: proc(text: string) {
 	ctext := strings.clone_to_cstring(text, context.temp_allocator)
 	_ = sdl.SetClipboardText(ctext)

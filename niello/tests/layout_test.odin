@@ -455,7 +455,7 @@ test_mint_prototype_and_set :: proc(t: ^testing.T) {
 	child: niello.Unit
 	niello.mint(&child, proto) // snapshot-copies proto's style
 	s := niello.style_of(child)
-	testing.expect(t, s.size[niello.X_AXIS].value == 100, "prototype size.x copied")
+	testing.expect(t, s.size[0].value == 100, "prototype size.x copied")
 	testing.expect(t, s.gap == 8, "prototype gap copied")
 	testing.expect(t, niello.test_proto(child) == proto, "proto recorded")
 
@@ -1026,7 +1026,7 @@ test_recycle_swap_with_unshown_popup :: proc(t: ^testing.T) {
 	_, ok_b1 := niello.rect(ids[2])
 	testing.expect(t, ok_b1, "row 2 committed")
 
-	// The swap the old sweep missed (audit core-H4): row 2 dies, row 4
+	// The swap the old sweep missed: row 2 dies, row 4
 	// is born in its place, and the unshown popup stays declared. The
 	// declared-node count then equals the instance-map size, so a
 	// map-outgrew-the-tree signal would never fire and row 2's record
@@ -1045,7 +1045,7 @@ test_overflow_propagates_and_damage_covers_old_spill :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 
-	// (a) Propagation (audit core-H7): a grandchild spilling past a
+	// (a) Propagation: a grandchild spilling past a
 	// non-clipping child extends the grandparent's scroll range.
 	gp: niello.Unit
 	niello.mint(&gp, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, scroll = .Vertical})

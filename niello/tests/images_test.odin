@@ -73,8 +73,8 @@ test_image_nan_guards :: proc(t: ^testing.T) {
 	niello.test_reset()
 	defer niello.test_teardown()
 
-	// A NaN / Inf / absurd hook result must not register (audit
-	// img-4): comparisons alone wave NaN through, and a NaN-sized
+	// A NaN / Inf / absurd hook result must not register:
+	// comparisons alone wave NaN through, and a NaN-sized
 	// entry poisons every frame the image appears in.
 	niello.decode_image_hook = nan_decode
 	niello.release_image_hook = fake_release

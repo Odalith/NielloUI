@@ -1,3 +1,6 @@
+#+private
+package niello
+
 // declare.odin — the internal declare machinery.
 //
 // The public declare API (show/begin/end) lives in public.odin; this file
@@ -5,7 +8,6 @@
 // begin uses @(deferred_out=end): `if begin(u) { ... }` closes the container
 // when the if statement ends, LIFO for nesting, and end() still runs when the
 // container is closed (a popup not shown) or on early return.
-package niello
 
 import "base:runtime"
 import "core:unicode/utf8"
@@ -246,8 +248,8 @@ declare_as :: proc(
 ) {
 	id := identity_of(parent_id, unit, k)
 
-	text := resolve_text(with, style_of(unit))
-	img := style_of(unit).image
+	text := resolve_text(with, unit_style(unit))
+	img := unit_style(unit).image
 	if v, ok := with.image.?; ok {
 		img = v
 	}
@@ -306,8 +308,8 @@ declare_as :: proc(
 			text_hash, ascii = text_scan(text)
 			valid = ascii || utf8.valid_string(text)
 		}
-		// Invalid UTF-8 is sanitized at this one boundary (audit
-		// txt-6): nothing downstream validates display text, and the
+		// Invalid UTF-8 is sanitized at this one boundary: nothing
+		// downstream validates display text, and the
 		// native replay validator rejects the ENTIRE command stream
 		// over one bad byte — one corrupt label (a file tag, a paste)
 		// blanked the window with no Odin-side diagnostic. Valid

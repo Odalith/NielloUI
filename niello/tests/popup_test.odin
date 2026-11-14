@@ -506,7 +506,7 @@ test_modal_without_candidates_contains_keyboard :: proc(t: ^testing.T) {
 
 	// The modal has no focusable inside: the grab finds no
 	// candidate, so focus is cleared rather than left parked on
-	// the field behind the modal (audit int-1).
+	// the field behind the modal.
 	frame_mk(root, field, dialog, label, &field_i, &anchor_i, true, idle())
 	testing.expect(t, !niello.focused(field_i), "no candidate in the modal: focus does not stay behind it")
 

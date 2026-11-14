@@ -11,6 +11,7 @@ Button_Parts :: struct {
 	hover, press, disabled: niello.Unit,
 }
 
+// Button_Kind is a button's look.
 Button_Kind :: enum {
 	Normal,  // a raised surface
 	Primary, // the accent: the main action of a view
@@ -135,7 +136,9 @@ Switch_Parts :: struct {
 	track_disabled:            niello.Unit,
 }
 
+// SWITCH_W is the switch track's width in DIP.
 SWITCH_W :: 36
+// SWITCH_H is the switch track's height in DIP.
 SWITCH_H :: 20
 
 @(private)

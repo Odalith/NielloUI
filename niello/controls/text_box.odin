@@ -26,6 +26,8 @@ import niello ".."
 // a11y: Edit, named by the placeholder, valued by the text, ReadOnly while
 // read-only.
 
+// Text_Box_Parts are the text box's parts: the box and its state overlays,
+// the text and placeholder, and the caret and selection marks.
 Text_Box_Parts :: struct {
 	box, focus, disabled:    niello.Unit, // the box and its state overlays
 	content:                 niello.Unit, // the layers' row
@@ -34,6 +36,10 @@ Text_Box_Parts :: struct {
 	layer:                   niello.Unit, // a spacer-then-mark row (caret, selection)
 }
 
+// Text_Box is one text box's state, owned by the app: its text, the caret
+// and selection (anchor..caret), its undo history, and whether it is
+// read-only or disabled. The zero value is an empty, editable box; free it
+// with text_box_destroy.
 Text_Box :: struct {
 	buf:       [dynamic]u8,
 	caret:     int, // byte offset into buf
@@ -47,19 +53,23 @@ Text_Box :: struct {
 }
 
 // Text_Box_Edit is one undo step: the state before an edit.
+@(private)
 Text_Box_Edit :: struct {
 	text:          string, // owned
 	caret, anchor: int,
 }
 
+@(private)
 Edit_Op :: enum u8 {
 	None,
 	Type,
 	Delete,
 }
 
+// UNDO_LIMIT is how many undo steps a text box keeps.
 UNDO_LIMIT :: 100
 
+// Text_Box_Result is what happened to a text box this frame.
 Text_Box_Result :: struct {
 	changed:   bool, // the text changed this frame
 	submitted: bool, // Enter was pressed
@@ -75,6 +85,7 @@ when ODIN_OS == .Darwin {
 	WORD_MOD :: niello.Modifier.Ctrl
 }
 
+// CARET_W is the caret's width in DIP.
 CARET_W :: 2
 
 @(private)

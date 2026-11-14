@@ -368,7 +368,7 @@ test_core_keys_are_consumed :: proc(t: ^testing.T) {
 	fo_frame() // settle
 
 	// Tab down moves focus; Tab UP must not leak to the instance
-	// that just received focus (audit int-11).
+	// that just received focus.
 	fo_frame({kev(TAB_EV, true)})
 	testing.expect(t, niello.focused(fo_a), "Tab landed on the first focusable")
 	fo_frame({kev(TAB_EV, false)})

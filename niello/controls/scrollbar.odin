@@ -15,6 +15,7 @@ import niello ".."
 //		controls.scrollbar(&app.list_bar, app.list_i)
 //	}
 
+// Bar_Axis is the axis a scrollbar scrolls.
 Bar_Axis :: enum {
 	Vertical,
 	Horizontal,
@@ -37,7 +38,9 @@ Scrollbar :: struct {
 	track_down:       bool,
 }
 
+// BAR_WIDTH is a scrollbar's thickness in DIP.
 BAR_WIDTH     :: 10
+// BAR_MIN_THUMB is the shortest a thumb gets, in DIP.
 BAR_MIN_THUMB :: f32(24)
 
 @(private)

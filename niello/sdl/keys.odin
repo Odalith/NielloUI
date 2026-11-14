@@ -1,8 +1,9 @@
+package sdl
+
 // keys.odin — SDL keyboard codes → the core's Key_Code / Modifiers.
 //
 // The core never sees an SDL number: every key event is translated
 // here, once, at the glue boundary.
-package sdl
 
 import sdl "vendor:sdl3"
 import niello "../"

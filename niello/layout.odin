@@ -1,3 +1,6 @@
+#+private
+package niello
+
 // layout.odin — the layout engine: seven linear passes over the flat node array.
 // Faithful to UI_API_Design.md §9. Deviations from the doc are marked DEVIATION
 // and collected in the test report.
@@ -13,7 +16,6 @@
 //
 // Every pass runs over an index range [lo, hi): the whole tree for the
 // main layout, a section's appended nodes for a section pass.
-package niello
 
 
 Lay :: struct {
@@ -710,7 +712,7 @@ wrap_text :: proc() {
 }
 
 // purge_scroll_state drops an instance's scroll records when its
-// committed record goes away (audit int-2; lifetime ruled with the
+// committed record goes away (lifetime ruled with the
 // instances, 2026-11-04).
 purge_scroll_state :: proc(id: Instance) {
 	if len(g.scroll_off) > 0 {
@@ -760,7 +762,7 @@ position_range :: proc(host, lo, hi: int) {
 	for i in lo ..< hi {
 		place_children(i)
 	}
-	// Overflow, bottom-up (audit core-H7): a container's content
+	// Overflow, bottom-up: a container's content
 	// extent includes each child's own overflow — a grandchild
 	// spilling past a non-clipping child extends the grandparent's
 	// overflow (and therefore its scroll range). Children sit after
@@ -922,7 +924,7 @@ close_overflow :: #force_inline proc(i: int, publish: bool) {
 		}
 		for axis in 0 ..< 2 {
 			if scrollable_axis(s, axis) {
-				// Per axis (audit int-8): the band domain
+				// Per axis: the band domain
 				// applies to an axis while ITS spring owns it.
 				springing := has_gl && gl.active[axis] && gl.axis[axis].spring
 				lo := springing ? -allow : f32(0)
@@ -1009,7 +1011,7 @@ pick_clips_and_commit :: proc() {
 			}
 			if old.rect != new || old.gen != ugen || old.stamp != stamp ||
 			   tr_now || (!nd.static_values && old.digest != nd.digest) {
-				// Union of BOTH spill-expanded rects (audit core-H7):
+				// Union of BOTH spill-expanded rects:
 				// expanding only by the new overflow leaves a shrinking
 				// spill's old outermost pixels undamaged forever.
 				append(&g.damage, rect_union(
@@ -1033,7 +1035,7 @@ pick_clips_and_commit :: proc() {
 	// Clear: the placeholder returning with its settle-frame rect+hash
 	// looked "unchanged" while the dead text label was never damaged).
 	// The trigger is exact arithmetic, not the old map-outgrew-the-tree
-	// heuristic (audit core-H4): every live instance committed exactly
+	// heuristic: every live instance committed exactly
 	// once this frame, so a map larger than the commit count holds a
 	// stale record — including the swap case the heuristic missed (a
 	// death and a birth in one frame, balanced in the node count by
