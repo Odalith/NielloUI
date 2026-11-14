@@ -311,3 +311,75 @@ Text "a label far too long for it" @16,176 60x16 !Truncated
 	}
 
 }
+
+// Pictures: with a render hook (niello/sdl's, faked here) and real
+// metrics (faked too), a snapshot renders the window and crop a control's
+// surroundings; without a hook, none are made and the summary says why.
+when niello.NIELLO_DEBUG {
+	Px_Call :: struct {
+		origin, size: niello.Vec2,
+		scale:        f32,
+		file:         string,
+		cmds:         int,
+	}
+	px_calls: [dynamic]Px_Call
+
+	px_render :: proc(cmds: []niello.Draw_Cmd, origin, size: niello.Vec2, scale: f32, path: string) -> bool {
+		slash := strings.last_index_byte(path, '/')
+		append(&px_calls, Px_Call{origin, size, scale, strings.clone(path[slash + 1:]), len(cmds)})
+		return true
+	}
+
+	px_measure :: proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32, text: string) -> f32 {
+		return f32(len(text)) * size * 0.5
+	}
+
+	@(test)
+	test_pictures :: proc(t: ^testing.T) {
+		niello.test_reset()
+		defer niello.test_teardown()
+		a: Fx
+		fx_setup(&a)
+		defer fx_teardown(&a)
+		defer {
+			for c in px_calls {
+				delete(c.file)
+			}
+			delete(px_calls)
+			px_calls = nil
+			niello.render_png_hook = nil
+			niello.measure_word_hook = nil
+		}
+
+		// No render hook: no pictures, and the summary says why.
+		s0 := agent.session_open(fx_declare, &a, ctx = a.ctx, name = "agent-test-nopics")
+		agent.snapshot(s0, "plain")
+		testing.expect_value(t, s0.pictures, 0)
+		testing.expect(t, !agent.crop(s0, agent.find(s0, role = .Button, name = "Add item"), "add"), "no crop without a hook")
+		agent.session_close(s0)
+
+		niello.render_png_hook = px_render
+		niello.measure_word_hook = px_measure
+		s := agent.session_open(fx_declare, &a, ctx = a.ctx, viewport = {600, 400}, name = "agent-test-pics")
+		defer agent.session_close(s)
+		agent.snapshot(s, "start")
+		testing.expect_value(t, len(px_calls), 1)
+		if len(px_calls) == 1 {
+			c := px_calls[0]
+			testing.expect_value(t, c.origin, niello.Vec2{0, 0})
+			testing.expect_value(t, c.size, niello.Vec2{600, 400})
+			testing.expect_value(t, c.scale, f32(agent.PICTURE_SCALE))
+			testing.expect_value(t, c.file, "01-start.png")
+			testing.expect(t, c.cmds > 0, "the frame's draw list")
+		}
+		add := agent.find(s, role = .Button, name = "Add item")
+		testing.expect(t, agent.crop(s, add, "add button", margin = 10), "a crop is written")
+		if len(px_calls) == 2 {
+			c := px_calls[1]
+			testing.expect_value(t, c.origin, add.rect.pos - {10, 10})
+			testing.expect_value(t, c.size, add.rect.size + {20, 20})
+			testing.expect_value(t, c.file, "02-add-button.png")
+		}
+		testing.expect_value(t, s.pictures, 2)
+	}
+}

@@ -343,6 +343,7 @@ when niello.NIELLO_DEBUG {
 		fmt.sbprintf(&sb, "result:   %s (%d errors, %d warnings)\n", errors == 0 ? "PASS" : "FAIL", errors, warnings)
 		fmt.sbprintf(&sb, "viewport: %vx%v DIP\n", s.viewport.x, s.viewport.y)
 		fmt.sbprintf(&sb, "metrics:  %s\n", metrics_desc(s))
+		fmt.sbprintf(&sb, "pictures: %s\n", pictures_desc(s))
 		fmt.sbprintf(&sb, "frames:   %d (%.2f s simulated)\n", s.frames, s.time)
 		fmt.sbprintf(&sb, "snapshots: %d\n", s.snapshots)
 		for a in s.allows {
@@ -385,6 +386,18 @@ when niello.NIELLO_DEBUG {
 			return "mock (fixed-width text; real fonts differ)"
 		}
 		return "real (the app's text measurement)"
+	}
+
+	@(private)
+	pictures_desc :: proc(s: ^Session) -> string {
+		switch {
+		case s.picture_scale > 0:
+			return fmt_temp("%d PNGs at %g pixels per DIP", s.pictures, s.picture_scale)
+		case niello.render_png_hook == nil:
+			return "none: no host renders without a window (import niello/sdl, which needs the native backend)"
+		case:
+			return "none: mock metrics (a mock layout drawn with real fonts would mislead)"
+		}
 	}
 
 	@(private)

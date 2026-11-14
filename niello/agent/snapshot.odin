@@ -12,7 +12,9 @@ when niello.NIELLO_DEBUG {
 	// piece of text, indented under the control it belongs to, with its rect
 	// and the file:line that declared it. Containers with nothing to say are
 	// left out; their contents move up a level. Lines with a finding end in
-	// "!kind". Text the renderer did not draw (scrolled or clipped out of
+	// "!kind". When the session makes pictures, it also writes
+	// NN-label.png: the screen as the window would show it, at 2 pixels per
+	// DIP. Text the renderer did not draw (scrolled or clipped out of
 	// view) is tagged [out of view] and counted at the end: the text lints
 	// check only what is drawn. Returns the dump (valid until the next
 	// frame).
@@ -20,10 +22,55 @@ when niello.NIELLO_DEBUG {
 		lint(s, label)
 		s.snapshots += 1
 		text := dump(s, label, true)
-		name := fmt_temp("%02d-%s.txt", s.snapshots, file_safe(label))
-		write_file(s, name, text)
-		log_step(s, "snapshot %s", name)
+		base := fmt_temp("%02d-%s", s.snapshots, file_safe(label))
+		write_file(s, fmt_temp("%s.txt", base), text)
+		if picture(s, fmt_temp("%s.png", base), {0, 0}, s.viewport) {
+			log_step(s, "snapshot %s.txt, %s.png", base, base)
+		} else {
+			log_step(s, "snapshot %s.txt", base)
+		}
 		return text
+	}
+
+	// crop writes a close-up of target t to NN-label.png: its rect with
+	// margin DIP around it, within the window, at the pictures' scale (2
+	// pixels per DIP). For looking at one control closely. Reports whether
+	// a picture was written: none when the session makes no pictures (see
+	// summary.txt) or t was not found.
+	crop :: proc(s: ^Session, t: Target, label: string, margin: f32 = 16) -> bool {
+		if !t.ok {
+			return false
+		}
+		lo := niello.Vec2{max(t.rect.pos.x - margin, 0), max(t.rect.pos.y - margin, 0)}
+		hi := niello.Vec2{
+			min(t.rect.pos.x + t.rect.size.x + margin, s.viewport.x),
+			min(t.rect.pos.y + t.rect.size.y + margin, s.viewport.y),
+		}
+		if hi.x <= lo.x || hi.y <= lo.y {
+			return false
+		}
+		s.snapshots += 1
+		name := fmt_temp("%02d-%s.png", s.snapshots, file_safe(label))
+		ok := picture(s, name, lo, hi - lo)
+		if ok {
+			log_step(s, "crop %s: %s", t.desc, name)
+		}
+		return ok
+	}
+
+	// picture renders the current frame's region at origin, size DIP, to a
+	// PNG in the session's folder, when the session makes pictures.
+	@(private)
+	picture :: proc(s: ^Session, name: string, origin, size: niello.Vec2) -> bool {
+		if s.picture_scale <= 0 || niello.render_png_hook == nil {
+			return false
+		}
+		if !niello.render_png_hook(niello.draw_list(), origin, size, s.picture_scale, path(s, name)) {
+			fmt.eprintf("agent: can't write the picture %s\n", path(s, name))
+			return false
+		}
+		s.pictures += 1
+		return true
 	}
 
 	// dump renders the current screen as snapshot writes it. locs: include

@@ -17,7 +17,8 @@ until the report says PASS.
    would do, and takes a snapshot of each screen that matters.
 3. Run it with `tools/agent.sh <app-package>`.
 4. Read `findings.txt` first, then the snapshots. Each finding starts with
-   `file:line`; go there.
+   `file:line`; go there. Then look at the pictures (`NN-label.png`): the
+   lints catch what can be measured, and the picture shows the rest.
 5. Fix the code, not the scenario, and run it again. Exempt something with
    `allow` only when it is deliberate, and say why in a comment.
 
@@ -93,7 +94,9 @@ set `NIELLO_AGENT_OUT` to put them elsewhere:
 - `findings.txt`: one finding per line;
 - `summary.txt`: PASS or FAIL, the counts, the viewport, the text metrics
   used, the allows, and every step the scenario took;
-- `NN-label.txt`: one per snapshot, in order.
+- `NN-label.txt`: one per snapshot, in order;
+- `NN-label.png`: the same screen as a picture, as the window shows it,
+  at 2 pixels per DIP (see below).
 
 ## Reading a snapshot
 
@@ -118,6 +121,22 @@ Text "a label far too long for it" @16,176 60x16 !Truncated  app/main.odin:74
 - **`[out of view]`** marks text the renderer did not draw, because it was
   scrolled or clipped away. A footer counts it: that text has not been
   checked yet.
+
+## Looking at the pictures
+
+Each snapshot also writes `NN-label.png`: the screen rendered by the real
+renderer, with the same fonts, colors, images and antialiasing as the
+window, but without a window or a GPU. Open it as an image to see the
+screen; `summary.txt` says how many were written.
+`agent.crop(s, target, "label")` writes a close-up of one control, with
+some margin around it, for checking details such as a focus ring, a
+truncated label or an icon.
+
+Pictures need the app to import `niello/sdl`, which wires the renderer
+and the real fonts. With `metrics = .Mock` they are off, because a mock
+layout drawn with real fonts would show text that doesn't fit where it
+does. A picture shows the window's size: for a whole scrolling page, open
+the session taller, as for the text lints.
 
 ## Finding controls
 
