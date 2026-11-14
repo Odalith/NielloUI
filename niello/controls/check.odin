@@ -5,18 +5,20 @@ import niello ".."
 // ---- check box and radio group ----------------------------------------------
 
 // Check_Parts: the row (box + label), the box, its checked variant (an
-// accent fill with the check mark), and the box's disabled look.
+// accent fill with the check mark), the box's disabled look, and the
+// label, which wraps.
 Check_Parts :: struct {
-	row, box, box_on, box_disabled: niello.Unit,
+	row, box, box_on, box_disabled, label: niello.Unit,
 }
 
 // Radio_Parts: a group's container (a column, or a row with horizontal),
 // each option's row (ring + label), the ring, its selected variant, the
-// dot a selected ring shows, and the ring's disabled look.
+// dot a selected ring shows, the ring's disabled look, and each option's
+// label, which wraps.
 Radio_Parts :: struct {
 	column, row_group:             niello.Unit,
 	row, ring, ring_on, dot:       niello.Unit,
-	ring_disabled:                 niello.Unit,
+	ring_disabled, label:          niello.Unit,
 }
 
 // CHECK_SIZE is a check box's box, and a radio button's ring, in DIP.
@@ -30,15 +32,26 @@ CHECK_MARK :: "✓"
 @(private)
 mint_check :: proc(t: Theme) {
 	// A row: the box or ring and its label, the whole row clickable and
-	// one Tab stop (the engine's focus ring goes round it).
+	// one Tab stop (the engine's focus ring goes round it). The label
+	// wraps when the row is narrower than it, so a row short of space
+	// gives way first (priority -1): its label takes another line before
+	// a neighbour (a button beside it) is cut short. The box sits at the
+	// label's first line.
 	row := niello.Style_Decl{
-		layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fit()), gap = spacing.control_gap,
-		align = niello.align(.Start, .Center), padding = niello.pad_xy(2, 4), corner_radius = 6,
+		layout = .Left_To_Right, size = niello.size(niello.fit(priority = -1), niello.fit()), gap = spacing.control_gap,
+		align = niello.align(.Start, .Start), padding = niello.pad_xy(2, 4), corner_radius = 6,
 		cursor = .Pointer, focusable = true,
 		group_masks = joins(as(groups.control_gap, .Gap)),
 	}
+	// The label: the label part's look, wrapping (a part of its own, so
+	// restyling it leaves other labels alone).
+	label := niello.Style_Decl{
+		font_size = type_sizes.body, font_color = t.ink, disabled = parts.label.disabled, wrap = .Word,
+		group_masks = joins(as(groups.ink, .Font_Color), as(groups.body, .Font_Size)),
+	}
 	C := &parts.check
 	niello.mint(&C.row, niello.NO_UNIT, row)
+	niello.mint(&C.label, niello.NO_UNIT, label)
 	niello.mint(&C.box_disabled, niello.NO_UNIT, {opacity = 110})
 	niello.mint(&C.box, niello.NO_UNIT, {
 		size = niello.size(niello.fixed(CHECK_SIZE), niello.fixed(CHECK_SIZE)), corner_radius = 4,
@@ -54,13 +67,14 @@ mint_check :: proc(t: Theme) {
 
 	R := &parts.radio
 	niello.mint(&R.column, niello.NO_UNIT, {
-		layout = .Top_To_Bottom, size = niello.size(niello.fit(), niello.fit()), gap = 2,
+		layout = .Top_To_Bottom, size = niello.size(niello.fit(priority = -1), niello.fit()), gap = 2,
 	})
 	niello.mint(&R.row_group, niello.NO_UNIT, {
-		layout = .Left_To_Right, size = niello.size(niello.fit(), niello.fit()), gap = spacing.gap,
+		layout = .Left_To_Right, size = niello.size(niello.fit(priority = -1), niello.fit()), gap = spacing.gap,
 		group_masks = joins(as(groups.gap, .Gap)),
 	})
 	niello.mint(&R.row, niello.NO_UNIT, row)
+	niello.mint(&R.label, niello.NO_UNIT, label)
 	niello.mint(&R.ring_disabled, niello.NO_UNIT, {opacity = 110})
 	niello.mint(&R.ring, niello.NO_UNIT, {
 		layout = .Stack, size = niello.size(niello.fixed(CHECK_SIZE), niello.fixed(CHECK_SIZE)),
@@ -81,16 +95,20 @@ mint_check :: proc(t: Theme) {
 
 // checkbox is a check box labelled label: a click (or Space/Enter while
 // focused) flips checked^. Reports whether checked^ changed this frame.
+// A label wider than the row's room wraps onto more lines. with carries
+// per-instance values for the row (a size, a11y overrides); the checkbox
+// fills in its role (CheckBox), its name (label) and disabled.
 // a11y: CheckBox, Checked while checked.
 checkbox :: proc(
 	label: string,
 	checked: ^bool,
 	disabled := false,
+	with: niello.With = {},
 	key: niello.Key = 0,
 	loc := #caller_location,
 ) -> (changed: bool) {
 	C := &parts.check
-	w := with_a11y({}, .CheckBox, label, disabled)
+	w := with_a11y(with, .CheckBox, label, disabled)
 	if checked^ {
 		w.a11y_flags += {.Checked}
 	}
@@ -103,7 +121,7 @@ checkbox :: proc(
 		}
 		niello.show(C.box, bw)
 		if len(label) > 0 {
-			niello.show(parts.label.text, {text = label})
+			niello.show(C.label, {text = label})
 		}
 	}
 	if niello.clicked(i) {
@@ -118,8 +136,10 @@ checkbox :: proc(
 // Space/Enter on the focused option, selects it; the arrow keys move the
 // selection (and focus) to the previous or next option, wrapping. The
 // group is one Tab stop, on the selected option (the first when none is).
-// Options stack in a column, or sit in a row with horizontal. Reports
-// whether selected^ changed this frame.
+// Options stack in a column, or sit in a row with horizontal; an option's
+// text wider than its room wraps. with carries per-instance values for the
+// group's container (a size, a11y overrides). Reports whether selected^
+// changed this frame.
 // a11y: the group is a Group named label; each option a RadioButton,
 // Checked while selected.
 radio_group :: proc(
@@ -128,6 +148,7 @@ radio_group :: proc(
 	horizontal := false,
 	label := "",
 	disabled := false,
+	with: niello.With = {},
 	key: niello.Key = 0,
 	loc := #caller_location,
 ) -> (changed: bool) {
@@ -135,7 +156,7 @@ radio_group :: proc(
 	n := len(options)
 	stop := selected^ >= 0 && selected^ < n ? selected^ : 0
 	items := make([]niello.Instance, n, context.temp_allocator)
-	gw := with_a11y({}, .Group, label, disabled)
+	gw := with_a11y(with, .Group, label, disabled)
 	if niello.begin(horizontal ? R.row_group : R.column, gw, key = key, loc = loc) {
 		for text, k in options {
 			on := k == selected^
@@ -154,7 +175,7 @@ radio_group :: proc(
 					}
 				}
 				if len(text) > 0 {
-					niello.show(parts.label.text, {text = text})
+					niello.show(R.label, {text = text})
 				}
 			}
 		}
