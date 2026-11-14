@@ -69,7 +69,15 @@ declare :: proc() {
 
 main :: proc() {
 	mint_units()
+	// Who the app is, for the desktop: on Wayland the id is what matches
+	// the app to its .desktop file (taskbar icon, grouping).
+	niello_sdl.set_app_settings({name = "Hello, NielloUI", id = "dev.niello.hello"})
 	ctx := niello.context_create()
 	defer niello.context_destroy(ctx)
-	niello_sdl.run(ctx, {title = "Hello, NielloUI", width = 800, height = 600}, declare)
+	niello_sdl.run(ctx, {
+		title  = "Hello, NielloUI",
+		width  = 800,
+		height = 600,
+		icon   = #load("icon.png"),
+	}, declare)
 }

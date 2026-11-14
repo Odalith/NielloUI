@@ -10,7 +10,7 @@
 // context. Every inspector is independent: open several, close
 // them in any order (its Close button exercises close_window from
 // inside the window's own declare; the OS close button works too).
-// run() returns when the last window closes.
+// Closing the main window closes the inspectors and run() returns.
 //
 // Two honest demo simplifications:
 //   - Change detection is per-context: the main window changing

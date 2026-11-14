@@ -144,6 +144,23 @@ Unregistered families, and files that fail to load, fall back to the default
 face. The backend caches (family, weight, slant, size) faces internally;
 measurement goes through Skia only on a word-cache miss.
 
+## The app and its windows
+
+Tell the desktop who the app is before `run`, and give windows an icon:
+
+```odin
+niello_sdl.set_app_settings({name = "Notes", id = "com.example.notes"})
+niello_sdl.run(ctx, {title = "Notes", icon = #load("icon.png"), confirm_close = true}, declare)
+```
+
+On Wayland the id must match the app's `.desktop` file: that is how the
+taskbar finds its icon and groups its windows. Closing the main window ends the
+app (`independent_windows` keeps other windows open). With `confirm_close`, a
+close is a request the app answers (`close_requested`, then `close_window`),
+so it can ask about unsaved work. Titles, icons, maximise, minimise and
+fullscreen change at run time through `set_window_title`, `set_window_icon`,
+`maximize_window` and the rest.
+
 ## Repository layout
 
 ```
