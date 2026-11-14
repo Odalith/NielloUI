@@ -3,7 +3,7 @@ package niello
 import "core:os"
 
 // ============ images (§3.25, TODO #13) ============
-//
+
 // An image is node content, like text: a Style carries an Image
 // handle plus fit/interp modes, and a With can swap the handle per
 // instance. Avalonia's shape (IImage / Bitmap / Image control),
@@ -23,12 +23,17 @@ import "core:os"
 // session, so a stale handle in a style can never silently alias
 // a different image — it just draws nothing.
 
+// Image is a loaded image: content an instance shows like text (Style.image,
+// With.image). Load one with image_load or image_load_memory; free it with
+// image_release. A released image's handle is never reused: it draws
+// nothing.
 Image :: distinct u32
+
+// NO_IMAGE is the null image: no image.
 NO_IMAGE :: Image(0)
 
-// How an image paints inside a box whose aspect differs from its
-// own (Avalonia's Stretch). The box itself stays axis-independent;
-// this is paint-time math only (aspect-coupled sizing is TODO #40).
+// Image_Fit is how an image fills a box whose proportions differ from its
+// own. It affects drawing only, not the box's size.
 Image_Fit :: enum u8 {
 	Uniform,      // fit inside, aspect preserved (letterbox)
 	Fill,         // fill the box, aspect distorted
@@ -36,9 +41,8 @@ Image_Fit :: enum u8 {
 	None,         // natural size, centered, clipped by the box
 }
 
-// Sampling quality at draw (Avalonia's BitmapInterpolationMode).
-// High is the zero value on purpose: bare linear sampling
-// downscales poorly, so the default is the good one.
+// Image_Interp is the sampling quality when an image is scaled. High, the
+// default, also scales down well.
 Image_Interp :: enum u8 {
 	High,   // cubic resampling + mipmaps
 	Medium, // linear + mipmaps
@@ -46,19 +50,19 @@ Image_Interp :: enum u8 {
 	None,   // nearest neighbour (pixel art, exact icons)
 }
 
-// The backend seam, set by the glue at startup (the
-// measure_word_hook pattern — the core never links the backend,
-// and tests install fakes):
-//
-//   decode: encoded bytes (+ optional decode-to size; one of
-//     max_w/max_h may be 0 = derive from aspect) -> backend id and
-//     the decoded DIP size; ok=false for undecodable bytes.
-//   release: drop the backend image for an id.
+// decode_image_hook is how a host decodes images for the core (niello/sdl
+// sets it when it is imported; tests install fakes). It decodes encoded
+// bytes, optionally to a size (max_w or max_h may be 0: derive it from
+// the aspect), and returns the host's id for the image and its size in
+// DIP; ok is false for bytes it cannot decode.
 decode_image_hook: proc(data: []byte, max_w, max_h: int) -> (backend: u32, w, h: f32, ok: bool)
+
+// release_image_hook frees the host's image for an id decode_image_hook
+// returned.
 release_image_hook: proc(backend: u32)
 
-// dim_ok is the boundary check for backend-reported dimensions
-// (audit img-4): every comparison against NaN is false, so the
+// dim_ok is the boundary check for backend-reported dimensions:
+// every comparison against NaN is false, so the
 // naive w <= 0 guard waves a NaN hook result straight into the
 // registry — and from there into layout, where it manufactures
 // NaN src-rects that make native validation reject the whole
@@ -124,7 +128,7 @@ image_size :: proc(img: Image) -> Vec2 {
 }
 
 // image_cropped derives a new Image showing a sub-rect of img
-// (Avalonia's CroppedBitmap — composition, not a style field).
+// (a separate image, not a style field).
 // r is in img's own DIP space; it clamps to img's bounds. The
 // derivative shares img's backend image and keeps it alive.
 image_cropped :: proc(img: Image, r: Rect) -> (Image, bool) {
@@ -133,8 +137,8 @@ image_cropped :: proc(img: Image, r: Rect) -> (Image, bool) {
 		return NO_IMAGE, false
 	}
 	// A NaN rect component would otherwise be silently discarded
-	// by the min/max clamps below into a wrong-but-plausible crop
-	// (audit img-4): reject non-finite input at the boundary.
+	// by the min/max clamps below into a wrong-but-plausible crop:
+	// reject non-finite input at the boundary.
 	if !(r.pos.x == r.pos.x && r.pos.y == r.pos.y &&
 	   r.size.x == r.size.x && r.size.y == r.size.y) {
 		return NO_IMAGE, false

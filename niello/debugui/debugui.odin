@@ -1,40 +1,17 @@
-// debugui — the Niello debugger window (TODO #18).
+// Package debugui is NielloUI's debugger window: a live view of any of the
+// app's windows, with its node tree (hover a row and the node highlights in
+// its window), the selected node's effective style and declared values, and
+// the overflow report (what does not fit, and by how much).
 //
-// A master debugger in the Avalonia DevTools lineage, built on
-// the gated debug API (niello/debug.odin): one window, a target
-// switcher over the app's live contexts, the target's node tree
-// (hover a row and the node highlights in its own window,
-// Clay-style), a selection panel with the effective style, and
-// the §3.13 overflow report as a list whose rows highlight too.
+//	debugui.install() // once, in main
 //
-// Opt-in is two unconditional lines in the app:
+// Build with -define:NIELLO_DEBUG=true and press F12 in any window to open
+// the debugger on it (open does the same from code). Without the define,
+// install and open do nothing and the package and the engine's debug
+// support compile away entirely.
 //
-//	import debugui "niello/debugui" // (path per your layout)
-//	...
-//	debugui.install()
-//
-// In a NIELLO_DEBUG build (-define:NIELLO_DEBUG=true), F12 in
-// ANY window of the app then opens the debugger targeted at
-// that window (or retargets it); the glue consumes the key. In
-// a prod build install() is an empty proc and the debugger
-// package compiles to nothing — the engine side (snapshot,
-// debug API) is gated the same way, so prod pays zero: no
-// per-frame work, no state, no behavior change.
-//
-// The debugger styles itself with a fixed neutral look — never
-// the app's groups or theme — so it stays readable whatever
-// the app under it does.
-//
-// v1 scope notes: the tree has no collapse/expand (declaration
-// culling keeps big trees cheap to paint; a 24k-node target
-// still costs a 24k-row declare in this window — dev tooling,
-// accepted cost). Selection is by instance: if the app's tree
-// reshapes, the selection may point at a different node until
-// re-clicked. Targeting follows the glue's live window list:
-// closed windows drop out of the target bar at once, and when
-// no app window remains the debugger closes itself (otherwise
-// it would keep the app alive). If the debugger's own window
-// is closed from the OS, the next F12 notices and reopens it.
+// The debugger has its own fixed look, untouched by the app's theme. It
+// closes when the last app window does.
 package debugui
 
 import niello ".."

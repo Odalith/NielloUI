@@ -14,6 +14,7 @@ package niello
 
 // ============ command vocabulary ============
 
+// Draw_Cmd_Tag is the kind of a draw command.
 Draw_Cmd_Tag :: enum u8 {
 	Rect, // filled rect with optional inset border
 	Text, // text run; the backend shapes it
@@ -21,13 +22,17 @@ Draw_Cmd_Tag :: enum u8 {
 	Pop_Clip, // restore the clip
 	Push_Opacity, // group opacity (backend: saveLayer)
 	Pop_Opacity, // restore
-	Overlay, // debug/focus overlay: fill + optional inset border
+	Overlay, // an overlay over a node (state overlays, the focus ring, debug):
+	         // fill + optional inset border
 	Image, // image draw: bounds = dest rect; src_rect/image/interp payload
 }
 
+// Draw_Cmd is one drawing command of a frame (draw_list), for a host to
+// render. Its layout is shared with the native backend: it does not change
+// without a new native release.
 Draw_Cmd :: struct {
 	tag:    Draw_Cmd_Tag,
-	bounds: Rect, // DIP. For leaf commands, the damage-culling bounds.
+	bounds: Rect, // in DIP; for drawing commands, also the area they touch
 
 	// Rect / Overlay payload. For Text commands, color carries the text color.
 	color:        Color, // fill color
@@ -56,21 +61,15 @@ Draw_Cmd :: struct {
 
 // ============ emission ============
 
-// draw_list emits the frame's draw commands into a reused buffer and returns
-// them. Call it after frame_end; the result is valid until the next
-// frame_begin. It is idempotent: each call re-emits from the committed frame.
+// draw_list returns the current frame's draw commands, for a host to
+// render. Call it after frame_end; the slice is valid until the next
+// frame_begin, and calling again rebuilds the same list.
 //
-// Paint order is declaration order (later siblings paint on top). Per node:
-// optional opacity scope, optional clip scope, rect fill + border, text,
-// overlay. Scopes wrap the node's whole subtree: opens emit on entry, closes
-// emit once the walk leaves the subtree (detected via subtree_end, which the
-// layout builds). A clipped container's children therefore paint inside its
-// clip.
-//
-// Text note: text_ptr borrows the node's bytes. For With.text those live in
-// the frame arena (freed at frame_begin); for With.text_no_copy they are the
-// app's bytes, which must stay alive until the next frame_begin when the
-// command buffer is in use.
+// Commands come in paint order: declaration order, later siblings on top.
+// A node pushes its opacity and clip, draws its fill and border, image,
+// text and overlay, then its children, then pops; content outside the
+// window or a clip is skipped. Text commands borrow the text's bytes:
+// With.text_no_copy text must stay unchanged while the list is in use.
 draw_list :: proc() -> []Draw_Cmd {
 	clear(&g.draw_cmds)
 	// Iterative pre-order walk over the flat node array, which is already in
@@ -102,7 +101,7 @@ draw_list :: proc() -> []Draw_Cmd {
 		r := Rect{g.lay[i].pos, g.lay[i].size}
 		cur := len(clips) > 0 ? clips[len(clips) - 1] : root_clip
 		clips_node := s.overflow == .Clip || scrollable_axis(s, X_AXIS) || scrollable_axis(s, Y_AXIS)
-		// Geometric culling at emit (audit ren-1): a node whose
+		// Geometric culling at emit: a node whose
 		// spill-expanded rect misses the accumulated clip paints
 		// nothing itself — its text is never packed, its runs never
 		// merged. A clipping node in that state takes its whole

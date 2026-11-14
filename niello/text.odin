@@ -129,8 +129,8 @@ mock_frag_width :: proc(size: f32, weight: Font_Weight, n_bytes: int) -> f32 {
 	return w
 }
 
-// measure_ok is the boundary check for hook returns (audit
-// txt-5): a backend measuring with an unresolved font returns
+// measure_ok is the boundary check for hook returns: a backend
+// measuring with an unresolved font returns
 // 0.0 — or worse, NaN, whose comparisons are all false and which
 // propagates into layout until native validation rejects the
 // whole frame. A return is usable only if finite and
@@ -146,7 +146,7 @@ measure_ok :: proc(v: f32) -> bool {
 // to the mock metrics for this call and reports false — the
 // caller (fill_entry) must not let an entry built on failures
 // into the cache, or the failure becomes permanent: the font
-// registering later could never heal a cached 0 (audit txt-5).
+// registering later could never heal a cached 0.
 // A nil hook is the sanctioned headless path: mock metrics,
 // reported good, cached normally.
 @(private)
@@ -245,7 +245,7 @@ get_text :: proc(s: ^Style, spans: []Text_Span, spans_hash: u64, text_hash: u64,
 		// a scalar-only entry for this frame and cache NOTHING,
 		// so the next frame measures again — the font registering
 		// (and bumping the epoch) heals the text instead of the
-		// failure being served forever (audit txt-5).
+		// failure being served forever.
 		free_entry(&e)
 		return Text_Entry{
 			space_w = mock_frag_width(s.font_size, s.font_weight, 1),

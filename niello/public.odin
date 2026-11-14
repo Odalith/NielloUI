@@ -1,12 +1,19 @@
-// public.odin — the public API of the ui package.
+// Package niello is the core of NielloUI: a desktop UI framework with
+// retained styling and immediate-mode declaration.
 //
-// Everything a user of the framework touches lives in this file: identity,
-// styling, per-frame overrides, containers, frames, and the mutation path.
-// Internals (frame nodes, layout passes, the cold store, text measurement)
-// live in their own files; anything not in this file is not API.
+// You mint units once (mint): objects that own a style. Every frame you
+// declare the UI with show and begin; each occurrence of a unit becomes an
+// instance with its own identity, position and interaction state. The
+// engine compares each frame's declaration with the last, lays out and
+// repaints only what changed. Interaction is polled where a control is
+// declared (clicked, hovered, pressed…), against the previous frame's
+// layout. Groups broadcast a value to every unit playing a role, so a
+// theme, text size or density change is one call.
 //
-// Faithful to UI_API_Design.md §2. Gaps vs §2 are listed at the bottom —
-// each is a subsystem on the roadmap, not an oversight.
+// This package has no OS code: a host drives frames (frame_begin,
+// frame_end) and renders the draw list. niello/sdl is the host for
+// desktop windows; niello/controls, niello/virtual and niello/inbox are
+// optional packages built on this API.
 package niello
 
 import "base:runtime"
@@ -15,41 +22,60 @@ import "core:sync"
 
 // ============ math ============
 
+// Vec2 is a point or a size in DIP (device-independent pixels).
 Vec2 :: [2]f32
 
+// Rect is an axis-aligned rectangle in DIP: its top-left corner and size.
 Rect :: struct {
 	pos:  Vec2,
 	size: Vec2,
 }
 
-INF :: max(f32) // standing in for +infinity
+// INF stands in for infinity: the default maximum of a Sizing.
+INF :: max(f32)
 
 // ============ debug builds ============
 
-// NIELLO_DEBUG is the build gate for all debug tooling (TODO #18:
-// the frame snapshot, the overflow report, the debugger window).
-// Build with -define:NIELLO_DEBUG=true to get it; without the
-// define, the tooling compiles out entirely — no API, no
-// per-frame work, no state. (ODIN_DEBUG was rejected as the gate:
-// it is false under a plain `odin run`, the everyday dev loop.)
+// NIELLO_DEBUG turns on the debug tooling: the frame snapshot, the
+// overflow report and the debugger window (niello/debugui). Build with
+// -define:NIELLO_DEBUG=true to get it; without it the tooling compiles
+// out entirely, with no API, per-frame work or state left behind.
 NIELLO_DEBUG :: #config(NIELLO_DEBUG, false)
 
 // ============ identity ============
 
-// NO_UNIT is the §8 cold-store sentinel (index 0). Passing it as mint's base
-// means "no prototype: start from default_style()".
+// NO_UNIT is the null unit. As mint's base it means "no base: start from
+// the default style"; as an overlay slot in a Style_Decl it means "unset".
 NO_UNIT :: Unit(0)
 
-// NO_GROUP is the group store's sentinel (index 0), mirroring NO_UNIT.
+// NO_GROUP is the null group.
 NO_GROUP :: Group(0)
 
-Unit     :: distinct u64 // cold: minted once, owns its values (slot index + generation; see unit_live)
-Instance :: distinct u64 // hot: one on-screen occurrence = hash(parent, unit, key)
-Group    :: distinct u32 // cold: broadcast list of (unit, fields)
-Key      :: distinct u64 // explicit identity (list items); 0 = the call site
+// Unit is a minted unit: a retained object that owns a style. Units are
+// created with mint, live until unmint, and are shared by every instance
+// declared from them. A handle to a freed unit is never reused (unit_live).
+Unit :: distinct u64
+
+// Instance is one on-screen occurrence of a unit, as declared by show or
+// begin. Its identity is stable from frame to frame (see show), so its
+// interaction state, scroll offset and focus follow it.
+Instance :: distinct u64
+
+// Group is a broadcast list of units (and the fields each joined for):
+// group_set writes a value to all of them.
+Group :: distinct u32
+
+// Key names an instance explicitly: key_int(id), key_str(name). 0, the
+// default, identifies an instance by its call site instead (see show).
+Key :: distinct u64
 
 // ============ styling ============
 
+// Field names one style field, for set, group membership masks, tweens
+// and edits. Fields that change text measurement or positions (sizes,
+// fonts, spacing, layout, alignment, wrapping) relayout; color and paint
+// fields only repaint; Cursor and the scroll-behavior fields affect
+// neither.
 Field :: enum u8 {
 	Color, Font_Color, Border_Color,
 	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Whitespace, Ellipsis, Justify,
@@ -60,21 +86,12 @@ Field :: enum u8 {
 	Overscroll, Overscroll_Px,
 	Image, Image_Fit, Image_Interp,
 }
-// Text_Wrap is layout-invalidating (controls pass-C participation);
-// Align is layout-invalidating (controls child positioning);
-// Font_Size, Font_Weight and Font_Slant are layout-invalidating (they change
-// text measurement); Text_Spans is layout-invalidating (it changes word
-// widths); Whitespace is layout-invalidating (it changes which space
-// advances count toward line widths). Ellipsis and Overflow are paint-only (resolved at draw-command
-// emission). Cursor is host-facing (never reaches a draw command; the host
-// reads the hovered instance's resolved cursor from Frame_Result) and
-// Scroll_Chain steers input dispatch (wheel routing); neither affects
-// layout or paint.
+
+// Fields is a set of style fields: a group membership mask, a pin, the
+// fields a tween animates.
 Fields :: bit_set[Field]
 
-// ALL_FIELDS is every Field, the default membership mask. Written out
-// in full on purpose: a mask built from a bit trick could silently omit
-// a field added later; the tests iterate Field and check membership.
+// ALL_FIELDS is every Field: the mask a unit joins a group with by default.
 ALL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
 	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
@@ -86,13 +103,10 @@ ALL_FIELDS :: Fields{
 	.Image, .Image_Fit, .Image_Interp,
 }
 
-// VISUAL_FIELDS is ALL_FIELDS minus the fields that steer behavior
-// without reaching the draw list — the exclusion the old content
-// hash documented: Cursor is host state; Scroll_Chain, the Smooth
-// pair and the Overscroll pair steer dispatch and glides. A write
-// touching only these must not repaint, so the per-unit visual
-// generation (the §5 stamps, state.odin) advances only on
-// VISUAL_FIELDS writes. Written out in full, like ALL_FIELDS.
+// VISUAL_FIELDS is every field that changes what is drawn: ALL_FIELDS
+// less Cursor and the scroll-behavior fields (Scroll_Chain, Smooth_Scroll,
+// Smooth_Ms, Overscroll, Overscroll_Px). A write to only those never
+// repaints.
 VISUAL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
 	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
@@ -103,24 +117,27 @@ VISUAL_FIELDS :: Fields{
 	.Image, .Image_Fit, .Image_Interp,
 }
 
+// Layout is how a container arranges its children.
 Layout :: enum u8 {
-	Left_To_Right,
-	Top_To_Bottom,
-	Stack, // children resolve independently, excluded from waterfill
+	Left_To_Right, // a row
+	Top_To_Bottom, // a column
+	Stack,         // layered: each child sized and aligned on its own in the content box
 }
 
+// Sizing_Kind is how a Sizing resolves (see fit, grow, fixed, percent).
 Sizing_Kind :: enum u8 {
-	Fit,
-	Grow,
-	Fixed,
-	Percent,
+	Fit,     // the content's size
+	Grow,    // a share of the parent's leftover space
+	Fixed,   // a value in DIP
+	Percent, // a fraction of the parent's content box
 }
 
+// Sizing is one axis of a Size. Build it with fit, grow, fixed or percent.
 Sizing :: struct {
 	kind:   Sizing_Kind,
-	value:  f32, // Fixed: px; Percent: fraction of parent inner size
-	min:    f32, // clamp floor, default 0 (waterfill never goes below max(min, min_c))
-	max:    f32, // clamp ceiling, default INF
+	value:  f32, // Fixed: DIP; Percent: fraction of the parent's content box
+	min:    f32, // the size never goes below this (default 0)
+	max:    f32, // nor above this (default INF)
 	weight: f32, // Grow: share of the leftover relative to sibling growers
 	             // (grow() sets 1; 0 takes no share)
 	priority: i8, // Fit / Grow: when the parent runs short on this axis,
@@ -128,14 +145,17 @@ Sizing :: struct {
 	              // size longer. Default 0 (all equal: shared fairly).
 }
 
-Size :: [2]Sizing // indexed by axis
+// Size is a width and a height: size(grow(), fixed(40)).
+Size :: [2]Sizing
 
+// fixed is a size of v DIP (clamped to min and max).
 fixed :: proc(v: f32, min: f32 = 0, max: f32 = INF) -> Sizing {
 	assert(v == v && min == min && max == max, "niello.fixed: sizing values must not be NaN")
 	assert(min <= max, "niello.fixed: min must not exceed max")
 	return Sizing{kind = .Fixed, value = v, min = min, max = max}
 }
 
+// percent is a fraction v of the parent's content box: percent(0.5) is half.
 percent :: proc(v: f32, min: f32 = 0, max: f32 = INF) -> Sizing {
 	assert(v == v && min == min && max == max, "niello.percent: sizing values must not be NaN")
 	assert(min <= max, "niello.percent: min must not exceed max")
@@ -188,10 +208,12 @@ pad :: proc "contextless" (all: u16) -> [4]u16 {
 	return [4]u16{all, all, all, all}
 }
 
+// pad_xy is x on the left and right, y on the top and bottom.
 pad_xy :: proc "contextless" (x, y: u16) -> [4]u16 {
 	return [4]u16{x, y, x, y}
 }
 
+// pad_each names every side.
 pad_each :: proc "contextless" (left, top, right, bottom: u16) -> [4]u16 {
 	return [4]u16{left, top, right, bottom}
 }
@@ -202,8 +224,10 @@ align :: proc "contextless" (x, y: Align_Kind) -> [2]Align_Kind {
 	return [2]Align_Kind{x, y}
 }
 
+// CENTER centers children on both axes: align = CENTER.
 CENTER :: [2]Align_Kind{.Center, .Center}
 
+// Scroll is the axes a container scrolls on.
 Scroll :: enum u8 {
 	None,
 	Vertical,
@@ -211,21 +235,22 @@ Scroll :: enum u8 {
 	Both,
 }
 
+// Align_Kind places children (or a leaf's content) along one axis.
 Align_Kind :: enum u8 {
 	Start,
 	Center,
 	End,
 }
 
-// Color is RGBA bytes. The concrete representation is provisional until the
-// Skia backend lands; the API contract is "four channels", not the layout.
+// Color is RGBA, one byte per channel: rgb(0x1e2028), or Color{r, g, b, a}.
 Color :: [4]u8
 
-Font_Handle :: distinct u32 // identifies a font FAMILY; 0 = platform default
+// Font_Handle names a font family. 0 is the platform's default face;
+// register others with the host (niello/sdl: register_font,
+// register_font_family).
+Font_Handle :: distinct u32
 
-// Weight uses CSS 100-900 discriminants so the backend casts straight to
-// SkFontStyle. The zero value is not a valid weight; default_style sets
-// .Regular explicitly.
+// Font_Weight is a font weight, on the CSS 100–900 scale.
 Font_Weight :: enum u16 {
 	Thin     = 100,
 	Light    = 300,
@@ -236,17 +261,17 @@ Font_Weight :: enum u16 {
 	Black    = 900,
 }
 
+// Font_Slant is upright, italic or oblique.
 Font_Slant :: enum u8 {
 	Upright,
 	Italic,
 	Oblique,
 }
 
-// A style override applied to a byte range of the unit's resolved text.
-// Byte offsets ([start, end)) — Odin strings and the backend both speak
-// bytes, so there is no conversion layer. Boundaries should fall on UTF-8
-// boundaries (the splitter snaps defensively); out-of-range clamps, empty
-// spans are ignored, and on overlap the later span in the array wins.
+// Text_Span restyles a byte range [start, end) of an instance's text: rich
+// text in one string. Offsets are bytes (span_bytes converts from rune
+// indices) and should fall on UTF-8 boundaries. Out-of-range offsets clamp,
+// empty spans are ignored, and where spans overlap the later one wins.
 Text_Span :: struct {
 	start, end: int,
 	font:        Maybe(Font_Handle),
@@ -282,14 +307,13 @@ span_bytes :: proc(s: string, rune_start, rune_end: int) -> (byte_start, byte_en
 	return byte_start, byte_end
 }
 
+// Text_Wrap is whether text wraps to its box's width.
 Text_Wrap :: enum u8 {
-	None, // default: no auto-wrap; explicit \n still breaks lines
-	Word, // wrap at word boundaries (opts into pass C)
+	None, // the default: one line per \n
+	Word, // wrap at word boundaries
 }
 
-// Whitespace: how space runs count toward text geometry (§3.18).
-// Space runs are always MEASURED (real advances, cut at span
-// boundaries like words); the mode chooses the accounting.
+// Whitespace is how runs of spaces count toward a text's width.
 Whitespace :: enum u8 {
 	Collapse, // default: a run counts as one canonical gap between
 	          // words; leading/trailing runs hang (count for
@@ -300,14 +324,15 @@ Whitespace :: enum u8 {
 	          // markdown, where trailing spaces can be semantic.
 }
 
+// Overflow is what happens to children that do not fit their container.
+// (Scrolling is the separate scroll field.)
 Overflow :: enum u8 {
-	Spill, // default: children may draw past bounds (Clay-like); debug reports it
-	Clip,   // hard clip children at the container's bounds
+	Spill, // the default: children may draw past the container's bounds
+	Clip,  // children are clipped at the container's bounds (and corner radius)
 }
-// Note: scrolling is the `scroll` field, not a third mode here.
 
-// The cursor the host should show while an instance with this style is the
-// hover target. Mapped to the platform's system cursors by the app glue.
+// Cursor_Kind is the pointer cursor shown while an instance is hovered,
+// mapped to the platform's system cursors by the host.
 Cursor_Kind :: enum u8 {
 	Arrow, // zero value: the platform default arrow
 	Text,
@@ -322,11 +347,14 @@ Cursor_Kind :: enum u8 {
 	Not_Allowed,
 }
 
+// Style is a unit's complete style: the values it owns. Read it with
+// style_of; change it with set, set_many, group broadcasts, tweens or edits.
+// mint takes a Style_Decl, which names only the fields it sets.
 Style :: struct {
-	color, font_color, border_color: Color,
-	text:          string,
+	color, font_color, border_color: Color, // fill, text and border colors
+	text:          string,      // the text a leaf shows (With.text overrides per instance)
 	font:          Font_Handle, // family; 0 = platform default
-	font_size:     f32,          // px in DIP
+	font_size:     f32,         // in DIP
 	font_weight:   Font_Weight,
 	font_slant:    Font_Slant,
 	text_spans:    []Text_Span, // rich-text overrides; nil = plain
@@ -340,34 +368,32 @@ Style :: struct {
 	scroll:        Scroll,
 	align:         [2]Align_Kind, // [x, y], for flow and anchored children alike
 	wrap:          Text_Wrap,     // default .None
-	whitespace:    Whitespace,    // default .Collapse (§3.18)
+	whitespace:    Whitespace,    // default .Collapse
 	ellipsis:      bool,          // default true; paint-time trim when no-wrap text overflows
 	justify:       bool,          // wrapped text: spread each line but a paragraph's last to the full width
 	overflow:      Overflow,      // default .Spill
 
-	// Debug/focus overlay, painted on top of the instance's own rect after its
-	// normal content, inside the same clip/opacity scope. Transparent color /
-	// zero width = disabled. The mechanism for keyboard focus rings (via a
-	// per-instance transient overlay) and debug highlighting.
+	// An overlay painted over the instance's own fill and content, following
+	// its corner radius (transparent / zero width: none). Typically set by a
+	// state overlay (Style_Decl.focus): a focused field's highlight.
 	overlay_color:        Color,
 	overlay_border_color: Color,
 	overlay_border_width: u16, // paint-only; drawn inset within the rect
 
 	cursor:       Cursor_Kind, // host-facing; default .Arrow
-	scroll_chain: bool,        // wheel dispatch: hand leftover delta to the next
-	smooth_scroll: bool,       // wheel glides to its target over smooth_ms
-	                           // instead of landing instantly (§3.21)
+	scroll_chain: bool,        // a scroller at its end hands the rest of a wheel
+	                           // step to the next scrolling ancestor; default true
+	smooth_scroll: bool,       // the wheel glides to its target over smooth_ms
+	                           // instead of jumping
 	smooth_ms:    u16,         // glide duration when smooth_scroll is on;
 	                           // also the overscroll spring's duration
-	overscroll:   bool,        // wheel may pull past the range ends with
-	                           // resistance, then springs back (§3.22)
-	overscroll_px: u16,        // the band's max distance past an end
-	                           // scrollable ancestor; default true
+	overscroll:   bool,        // the wheel may pull past the range ends with
+	                           // resistance, then springs back
+	overscroll_px: u16,        // how far past an end the pull can go
 
-	// Image content (§3.25): the node paints this image in its
-	// rect (behind its text and children — a leaf is an image
-	// control, a container gets a background image). NO_IMAGE =
-	// no image. Fit/interp steer the paint only.
+	// An image the instance paints in its rect, behind its text and
+	// children: a leaf is an image, a container gets a background. NO_IMAGE
+	// for none.
 	image:       Image,      // default NO_IMAGE
 	image_fit:   Image_Fit,  // default .Uniform
 	image_interp: Image_Interp, // default .High
@@ -401,10 +427,13 @@ default_style :: proc() -> Style {
 	}
 }
 
-// Declaration-time style: Maybe fields so zero stays a legitimate value.
-// PORTABILITY: never use a bare {...} literal for a Maybe field — some Odin
-// versions reject it ("Invalid compound literal type"). Always name the inner
-// type: size = Size{...}, padding = [4]u16{...}.
+// Style_Decl is the style a unit is minted with (mint) or merged with
+// (set_many): only the fields it sets count, so a zero value stays a
+// legitimate value to set. It also carries what is not a style value: the
+// state overlays, focus behavior, and the groups the unit joins.
+//
+// Name the inner type of a Maybe field's literal: size = Size{…},
+// padding = [4]u16{…} (a bare {…} is rejected by some Odin versions).
 Style_Decl :: struct {
 	color:         Maybe(Color),
 	font_color:    Maybe(Color),
@@ -425,7 +454,7 @@ Style_Decl :: struct {
 	scroll:        Maybe(Scroll),
 	align:         Maybe([2]Align_Kind),
 	wrap:          Maybe(Text_Wrap), // default .None
-	whitespace:    Maybe(Whitespace), // default .Collapse (§3.18)
+	whitespace:    Maybe(Whitespace), // default .Collapse
 	ellipsis:      Maybe(bool),      // default true; paint-time trim when no-wrap text overflows
 	justify:       Maybe(bool),      // default false; spread wrapped lines to the full width
 	overflow:      Maybe(Overflow),  // default .Spill
@@ -445,10 +474,12 @@ Style_Decl :: struct {
 	image_fit:   Maybe(Image_Fit),
 	image_interp: Maybe(Image_Interp),
 
-	hover, press, focus, disabled: Unit, // automatic state overlays, declared as data
-	focusable: Maybe(bool),              // participates in keyboard focus traversal;
-	                                     // Maybe so set_many can tell "unset" from
-	                                     // an explicit false (audit core-H5)
+	// State overlays: units whose explicitly set fields are merged over
+	// this unit's style while an instance is hovered, pressed, focused or
+	// disabled (in that order of precedence, disabled strongest). NO_UNIT
+	// leaves a slot as it is; clear_overlay clears one.
+	hover, press, focus, disabled: Unit,
+	focusable: Maybe(bool),              // a Tab stop (see focus)
 	focus_ring: Maybe(Focus_Ring_Mode),  // when the engine focus ring shows here
 	                                     // (default .Keyboard; see set_focus_ring)
 	text_input: Maybe(bool),             // a text-input instance: while it holds focus,
@@ -461,91 +492,86 @@ Style_Decl :: struct {
 }
 
 // Group_Mask scopes a membership: the unit joins group, and broadcasts
-// through it reach only these fields (§3.7).
+// through it reach only these fields.
 Group_Mask :: struct {
 	group:  Group,
 	fields: Fields,
 }
 
 // ============ per-frame overrides ============
-// Travel with show/begin. No hidden cursor.
+
+// With carries one instance's own values, given to show or begin each
+// frame: what differs between instances of the same unit (text, an image,
+// a size, a variant, accessibility semantics). What it leaves unset comes
+// from the unit's style.
 With :: struct {
-	text:         Maybe(string), // copied into the frame arena at declare time (default)
-	text_no_copy: Maybe(string), // borrowed reference. Contract: bytes must be
-	                             // immutable until frame_end. Contents are hashed at
-	                             // declare time for the declaration hash; the pointer
-	                             // is kept for the render backend.
-	text_spans: Maybe([]Text_Span), // per-instance rich-text overrides; wins
-	                                // over Style.text_spans. Copied at declare
-	                                // time (small), so no borrow contract.
-	image: Maybe(Image), // per-instance image swap; wins over
-	                     // Style.image, and Maybe(NO_IMAGE) clears
-	                     // the base image for this instance (§3.25)
+	text:         Maybe(string), // the instance's text; copied, so a temporary string is fine
+	text_no_copy: Maybe(string), // the instance's text, borrowed: the bytes must stay
+	                             // unchanged until the frame is drawn (saves a copy
+	                             // for large text the app keeps anyway)
+	text_spans: Maybe([]Text_Span), // rich-text spans for this instance (copied)
+	image: Maybe(Image), // the instance's image; Maybe(NO_IMAGE) removes the
+	                     // unit's image for this instance
 	size: Maybe(Size), // per-instance size; wins over the unit's size
 	                   // and over state overlays. Lets one unit serve
 	                   // every instance of a part whose geometry varies
 	                   // (a slider's fill, a scrollbar's thumb).
-	static_values: bool, // the presented values above (text, spans,
-	                     // image) never change for this instance's
-	                     // lifetime; the engine skips their change
-	                     // detection (§5 stamps). Debug builds still
-	                     // compute and assert. Style writes, state
-	                     // and geometry detection are unaffected —
-	                     // the promise covers presented values only.
-	disabled: bool,
-	anchored: bool, // an overlay child (§3.20): removed from flow
-	                // in any container — no flow slot, no waterfill,
-	                // no content extent, no scroll offset — sized
-	                // and positioned against the parent's full rect
-	                // by its align (padding never insets overlays).
-	                // Scrollbar chrome, sticky headers.
+	static_values: bool, // a promise that this instance's text, spans and image
+	                     // never change while it lives: the engine stops
+	                     // comparing them (debug builds still check)
+	disabled: bool, // disabled: no interaction, no focus; the disabled overlay
+	                // applies (to its children too)
+	anchored: bool, // chrome over the parent rather than in its flow: no
+	                // place in the layout, not scrolled, sized and placed
+	                // against the parent's whole rect by the parent's align
+	                // (scrollbars, sticky headers)
 	focusable: Maybe(bool), // per-instance focus participation; wins over
 	                        // the unit's Style_Decl.focusable, so one
 	                        // instance of a repeated unit can be the
 	                        // tabbable one (or none of them can).
 	focus_ring: Maybe(Focus_Ring_Mode), // per-instance ring mode; wins over
 	                        // the unit's Style_Decl.focus_ring
-	variant:  Unit,          // persistent per-instance overlay (e.g. selected)
-	anchor:   Maybe([2]f32), // overlay positioning hint
+	variant:  Unit, // an overlay unit merged over this instance's style while
+	                // it is set (a selected row, a toggle that is on)
 
-	label: Maybe(string), // accessibility: accessible name, copied
-	                      // like text (§3.9). When unset, the mirror
-	                      // falls back to the node's text.
-
-	// Accessibility semantics (§3.9, TODO #23): role, description,
-	// value, and state flags, declared per instance like the rest
-	// of With. A node with none of these set (role .None, no
-	// label/description/value/flags) has no semantics and does
-	// not appear in the mirror.
-	role:        A11y_Role, // .None = unset
-	description: Maybe(string), // accessible description, copied like text
-	value:       A11y_Value, // value for value-bearing roles; text copied like text
-	a11y_flags: A11y_Flags, // Checked/Selected/Expanded/ReadOnly/Required/Multiline
-
-	user: rawptr,
+	// Accessibility semantics: an instance with a role, label, description,
+	// value or flags appears in the accessibility tree (a11y_tree); one with
+	// none of them does not.
+	label: Maybe(string),       // the accessible name; unset, the instance's
+	                            // text names it
+	role:        A11y_Role,     // .None = unset
+	description: Maybe(string), // the accessible description
+	value:       A11y_Value,    // the value of a slider, progress bar or edit field
+	a11y_flags: A11y_Flags,     // Checked, Selected, Expanded, ReadOnly…
 }
 
+// key_int keys an instance by a number: an item's index or id.
 key_int :: proc(v: int) -> Key {
 	return Key(u64(v))
 }
+
+// key_str keys an instance by a string (hashed).
 key_str :: proc(s: string) -> Key {
 	return Key(str_hash(s))
 }
+
+// key_ptr keys an instance by an address: the item it shows.
 key_ptr :: proc(p: rawptr) -> Key {
 	return Key(u64(uintptr(p)))
 }
+// key keys an instance by a number, a string or an address.
 key :: proc{key_int, key_str, key_ptr}
-
-// ============ containers ============
 
 // ============ frames ============
 
+// Mouse_Button is a pointer button.
 Mouse_Button :: enum u8 {
 	Left,
 	Middle,
 	Right,
 }
 
+// Buttons is a set of pointer buttons.
 Buttons :: bit_set[Mouse_Button]
 
 // Key_Code names a keyboard key. It is the core's own vocabulary:
@@ -588,6 +614,8 @@ Modifier :: enum u8 {
 	Alt,
 	Super,
 }
+
+// Modifiers is the set of modifiers held.
 Modifiers :: bit_set[Modifier; u8]
 
 // One keyboard event. A key has two names:
@@ -612,17 +640,19 @@ Key_Event :: struct {
 	repeat:   bool, // key-repeat event (down only)
 }
 
+// Input is one frame of host input, given to frame_begin: the window size,
+// the pointer, buttons, wheel, keys and typed text since the last frame.
+// niello/sdl builds it from SDL's events; a test builds it by hand.
 Input :: struct {
-	viewport: Vec2, // window size in DIP; roots fill it unless FIXED/PERCENT.
+	viewport: Vec2, // the window's size in DIP; root containers fill it
 
 	mouse:       Vec2, // cursor position in DIP
 	mouse_valid: bool, // false when the cursor is outside the window (or no
 	                   // position has been reported yet): no pick, no hover
 
-	// Button state is the HOST's contract: `down` is the current state,
-	// `pressed`/`released` are edges LATCHED by the host since the last
-	// frame. A press and release that both land inside one frame gap are a
-	// real click — a host that samples only current state would eat it.
+	// buttons_down is the buttons held now; buttons_pressed and
+	// buttons_released are the presses and releases since the last frame,
+	// so a press and release between two frames still make a click.
 	buttons_down:     Buttons,
 	buttons_pressed:  Buttons,
 	buttons_released: Buttons,
@@ -631,38 +661,29 @@ Input :: struct {
 	                      // 2 double, 3 triple…); 0 when unknown (counted
 	                      // as 1). Read it back with press_clicks.
 
-	wheel: Vec2, // accumulated scroll delta since the last frame, in wheel
-	             // units (fractional on smooth wheels/trackpads). Sign is
-	             // the SDL convention: positive y is the scroll-UP
-	             // direction (the view moves toward the top; offsets
-	             // decrease), positive x the scroll-left direction. Hosts
-	             // deliver it as SDL reports it — the glue passes events
-	             // through, negating only FLIPPED ones, whose deltas
-	             // arrive pre-inverted.
+	wheel: Vec2, // the wheel motion since the last frame, in notches
+	             // (fractional on trackpads): positive y scrolls up
+	             // (toward the top), positive x scrolls left
 
 	keys:      [16]Key_Event, // events since the last frame, oldest first
 	key_count: int,
 
-	text: string, // text committed since the last frame (host text-input
-	              // events, concatenated, UTF-8): typed characters,
-	              // dead-key results, IME commits. The core routes it to
-	              // the focused instance at dispatch; apps read it back
-	              // with input_text. Inline composition (IME preedit)
-	              // is not reported in v1.
+	text: string, // the text typed since the last frame (UTF-8): characters,
+	              // dead-key results, IME commits. It goes to the focused
+	              // instance (input_text). IME composition in progress is
+	              // not reported.
 
-	window_focused: bool, // false = the window lacks OS focus: on the falling
-	                      // edge, press/drag captures drop (no click completes
-	                      // across the loss) and a held key-press cannot
-	                      // complete; hover is not focus-gated and keeps
-	                      // tracking the pointer over unfocused windows.
+	window_focused: bool, // the window has OS focus; losing it cancels presses
+	                      // and drags in progress (hover keeps following the
+	                      // pointer)
 }
 
+// Frame_Result is what frame_end reports to the host.
 Frame_Result :: struct {
-	changed:      bool,   // anything new, moved, or resized this frame
-	damage:       []Rect, // damaged regions, valid until the next frame_begin
-	next_wake_ms: u32,    // ms until the engine's nearest registered deadline
-	                      // (tween/transient/hover timers, §8); max(u32) = none
-	                      // pending, so the host may sleep until input or a context_wake
+	changed:      bool,   // something changed: the host should draw
+	damage:       []Rect, // the regions that changed, valid until the next frame_begin
+	next_wake_ms: u32,    // ms until the engine needs a frame (an animation, a
+	                      // timer); max(u32) = none: sleep until input or context_wake
 	cursor:       Cursor_Kind, // the hovered instance's resolved cursor
 	                           // (.Arrow when nothing is hovered); the host
 	                           // applies it when it changes
@@ -670,12 +691,16 @@ Frame_Result :: struct {
 
 // ============ cold path ============
 
-// mint creates a unit. base is a SNAPSHOT copy, never a live link: the new
-// unit starts with base's current style, state overlays (hover, press,
-// focus, disabled) and focusability, and never follows later writes to
-// base. A variant is therefore one line: mint(&primary, btn, {color = accent}).
-// Group memberships are not copied — joining stays explicit. Pass NO_UNIT
-// to start from default_style(). decl applies on top via set_many.
+// mint creates a unit into out, from base and decl. With a base, the new
+// unit starts as a copy of base's current style, state overlays and focus
+// behavior, and does not follow later changes to base (propagate pushes
+// them on request): a variant is one line, mint(&primary, button,
+// {color = accent}). Group memberships are not copied. NO_UNIT starts from
+// the default style. decl is merged on top (set_many), and the unit joins
+// decl.groups and decl.group_masks; joining applies nothing.
+//
+// name, by default the expression passed as out, names the unit in the
+// debugger.
 mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
              name := #caller_expression(out), loc := #caller_location) {
 	if len(store.units) == 0 {
@@ -734,7 +759,7 @@ mint :: proc(out: ^Unit, base: Unit, decl: Style_Decl = {},
 	}
 }
 
-// ============ mutation (the only writes; each bumps the unit generation) ============
+// ============ changing units ============
 
 // must asserts the dynamic value has the field's static type. set's $T
 // signature can't dispatch on the runtime Field with a plain switch (Odin
@@ -855,8 +880,9 @@ copy_field_owned :: proc(dst, src: ^Style, f: Field) {
 // NOT a no-op even when the value equals the live (mid-glide) value —
 // the explicit write's job there is to cancel the glide, and skipping
 // it would let the glide carry the value away afterwards.
-// write_style_field is the one compare-then-write path for a style field
-// (audit core-H5): set calls it for a single field, set_many for
+//
+// write_style_field is the one compare-then-write path for a style field:
+// set calls it for a single field, set_many for
 // every field its decl sets — the two routes can no longer drift
 // apart on no-op discipline. Returns true when the stored value
 // changed (or a glide had to be cancelled, which is also a write).
@@ -884,8 +910,10 @@ write_style_field :: proc(u: Unit, f: Field, v: any) -> bool {
 	return true
 }
 
+// set_any is set with the value as an any, for code that handles fields
+// generically (an inspector, a theme editor). v must hold the field's type.
 set_any :: proc(u: Unit, f: Field, v: any) {
-	// One failure policy for cold handles (audit api-A4): an
+	// One failure policy for cold handles: an
 	// invalid unit asserts loudly, exactly like pin — the silent
 	// alternative was writing into the NO_UNIT sentinel record.
 	assert(unit_live(u), "niello.set: unit is not minted")
@@ -894,6 +922,11 @@ set_any :: proc(u: Unit, f: Field, v: any) {
 	}
 }
 
+// set writes one field of unit u: set(title_u, .Font_Size, f32(18)). v
+// must have the field's type. Every instance of the unit changes from the
+// next frame on. Setting a field to the value it already has does nothing
+// (it does not even repaint); setting a field that is gliding stops the
+// glide.
 set :: proc(u: Unit, f: Field, v: $T) {
 	set_any(u, f, v)
 }
@@ -909,14 +942,10 @@ apply_decl_field :: proc(u: Unit, f: Field, m: Maybe($T), changed: ^Fields) {
 	}
 }
 
-// set_many merges a decl into the unit's owned style: Maybe fields that are
-// set overwrite, the rest is untouched. Also records overlay units,
-// focusable, and the explicit field set (for propagate). Every style
-// field goes through write_style_field (audit core-H5), so an unchanged
-// value is a no-op here exactly as it is through set: no clone, no
-// generation bump. Explicitness is recorded for every field the decl
-// sets — changed or not — because a deliberate restatement is still
-// the author's choice, and propagate must not override it.
+// set_many merges decl into unit u: every field decl sets is written (as
+// set would), the rest stay as they are; its state overlays, focusable,
+// focus_ring and text_input are taken too. The fields it sets count as the
+// unit's own: propagate never overwrites them.
 set_many :: proc(u: Unit, decl: Style_Decl) {
 	assert(unit_live(u), "niello.set_many: unit is not minted")
 	changed: Fields
@@ -959,7 +988,7 @@ set_many :: proc(u: Unit, decl: Style_Decl) {
 	rec := &store.units[unit_index(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that
 	// doesn't mention them leaves existing overlays alone; clearing one is
-	// clear_overlay's job (audit core-H5).
+	// clear_overlay's job.
 	if decl.hover != NO_UNIT    { rec.hover = decl.hover }
 	if decl.press != NO_UNIT    { rec.press = decl.press }
 	if decl.focus != NO_UNIT    { rec.focus = decl.focus }
@@ -997,9 +1026,8 @@ Overlay_Kind :: enum {
 	Disabled,
 }
 
-// clear_overlay removes a unit's state overlay for one slot. It is
-// the only way to clear one: in a decl, NO_UNIT means "unset" and
-// leaves the slot alone (audit core-H5).
+// clear_overlay removes one of unit u's state overlays. (In a Style_Decl,
+// NO_UNIT leaves a slot as it is, so this is the way to clear one.)
 clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 	assert(unit_live(u), "niello.clear_overlay: unit is not minted")
 	rec := &store.units[unit_index(u)]
@@ -1052,7 +1080,7 @@ show_at :: proc(unit: Unit, with: With, key: Key, site: u64) -> Instance {
 // end runs when the if statement's scope closes:
 //
 //	if niello.begin(panel_u) {
-//		niello.show(label_u, 0, {text = "inside"})
+//		niello.show(label_u, {text = "inside"})
 //	}
 //
 // The result is true for every container that is laid out this frame —
@@ -1062,8 +1090,8 @@ show_at :: proc(unit: Unit, with: With, key: Key, site: u64) -> Instance {
 // its focus targets and its accessibility nodes. It is false only
 // inside a popup that is not shown (begin_popup: no committed anchor);
 // its children may be skipped then, and produce no instances if
-// declared anyway. Long lists that should not be declared in full want
-// virtualization (TODO), not culling.
+// declared anyway. Lists too long to declare in full want a virtual list
+// (begin_section, niello/virtual).
 //
 // out, when given, receives the container's instance — written on
 // every call, culled or not, so a handle kept for later queries
@@ -1126,7 +1154,9 @@ current :: proc() -> Instance {
 }
 
 // ============ deferred sections ============
-// A section is a container whose flow children are declared after the
+
+// Section describes a section host to its build. A section is a container
+// whose flow children are declared after the
 // main layout, once its own bounds are known: content that depends on
 // its real size (a virtual list declaring only the rows in view, a grid
 // choosing its column count). begin_section declares the host now and
@@ -1263,9 +1293,9 @@ scroll_shift :: proc(i: Instance, delta: Vec2) {
 	}
 }
 
-// Placement picks where a popup root sits relative to its anchor
-// (§3.19). At ignores the anchor and uses Popup_Opts.at; Center
-// ignores it too and centers on the viewport (dialogs).
+// Placement is where a popup sits relative to its anchor. At ignores the
+// anchor and uses Popup_Opts.at; Center ignores it too and centers on the
+// window (dialogs).
 Placement :: enum {
 	Below,
 	Above,
@@ -1275,8 +1305,8 @@ Placement :: enum {
 	Center,
 }
 
-// Popup_Opts tunes a popup root (§3.19). The zero value is a plain
-// menu: non-modal, light-dismiss on, flush against the anchor.
+// Popup_Opts tunes a popup. The zero value is a plain menu: not modal,
+// dismissed by a press outside or Esc, flush against its anchor.
 Popup_Opts :: struct {
 	modal: bool, // absorb outside presses; scope Tab traversal;
 	             // focus moves in on open, restores on close
@@ -1287,20 +1317,19 @@ Popup_Opts :: struct {
 	at:    Vec2, // the placement point for Placement.At
 }
 
-// begin_popup declares an overlay root (§3.19): a container whose
-// node is parented to the layer, not to the declaring code's
-// container — a dropdown declared inside a scrolled column escapes
-// its ancestors' layout and clips, and its identity (hashed against
-// the layer seed) is stable wherever it is declared from. Children
-// declared inside lay out normally within the popup root.
+// begin_popup declares a popup: a container that floats over the rest of
+// the window (a dropdown, a context menu, a tooltip, a dialog). It is not
+// part of the declaring container's layout or clipping (a dropdown declared
+// inside a scrolled list escapes it), and its identity does not depend on
+// where it is declared from. Its children lay out inside it as usual, and
+// popups declared later sit above earlier ones.
 //
-// The root is sized by its own style with one exception: Fit (and
-// Grow, which has no parent to grow into) resolves to the content
-// size. Placement is resolved in pass F against the anchor's last
-// committed rect: Below/Above/Left/Right sit against the anchor's
-// edge (plus opts.gap), flipping to the opposite side when the
-// content would leave the viewport there and fits on the other
-// side, and clamped into the viewport on the cross axis.
+// A popup sizes by its own style, except that Fit and Grow take the
+// content's size. It is placed against the anchor's rect from the previous
+// frame: Below / Above / Left / Right sit against that edge (plus
+// opts.gap), flip to the other side when they would leave the window there
+// and fit on the other side, and are kept inside the window on the cross
+// axis.
 //
 // The result and out work exactly as for begin. The result is false
 // when the anchor instance has no committed rect (it was never shown,
@@ -1358,31 +1387,27 @@ begin_popup_at :: proc(
 	return anchor_ok && !decl_culled
 }
 
-// dismiss_requested reports that this frame's dispatch asked for
-// the popup root's dismissal (§3.19): a left press outside it (or
-// outside every popup above the pressed one), or Esc. The engine
-// owns no open state — the query is the whole mechanism: stop
-// declaring the popup and it is closed. Valid for the one declare
-// following the dispatch, like clicked.
+// dismiss_requested reports that the user asked to close popup i this
+// frame: a press outside it (and outside every popup above it), or Esc.
+// The engine keeps no open state: stop declaring the popup and it is
+// closed. Like clicked, it answers for one frame.
 dismiss_requested :: proc(i: Instance) -> bool {
 	_, ok := g.dismiss_flags[i]
 	return ok
 }
 
 // ============ contexts ============
-// A Context is one window's frame state (multi-window plan, M1).
-// The cold store — units, groups — is global and context-free:
-// mint and set anywhere, any time. A context owns only what a
-// single tree's frames produce: nodes, instances, interaction,
-// damage. Apps create one context per window and hand it to the
-// glue (sdl.run(ctx, …)); there is no default context.
+// A Context is one window's UI: its tree, instances, interaction state
+// and damage. Units and groups are global, shared by every context: mint
+// and set anywhere, any time. An app creates one context per window and
+// hands it to the host (niello_sdl.run(ctx, …)).
 
 // context_create makes a context with no tree yet.
 context_create :: proc() -> ^Context {
 	ctx := new(Context)
 	ctx.ring_idx = -1
 	ctx.section_host = -1
-	// Every map the engine owns is created here, once (audit X-4):
+	// Every map the engine owns is created here, once:
 	// no lazy makes scattered through hot paths — four of them sat
 	// inside pass F — and no read site needs a nil-map guard for
 	// a live context ever again.
@@ -1427,9 +1452,9 @@ context_destroy :: proc(ctx: ^Context) {
 	free(ctx)
 }
 
-// set_current binds the context that declare-time procs operate
-// on. frame_begin binds its context itself; hosts and embedders
-// use this for work outside frames.
+// set_current makes ctx the context that declaring and queries act on.
+// frame_begin does this itself; use it for work on a context outside its
+// frames.
 set_current :: proc(ctx: ^Context) {
 	g = ctx
 }
@@ -1439,13 +1464,19 @@ current_context :: proc() -> ^Context {
 	return g
 }
 
+// frame_begin starts a frame of ctx: it binds the context, applies input
+// (hit testing against the previous frame's layout, presses, clicks,
+// wheel, keys, focus), and clears the tree for this frame's declaration.
+// dt is the seconds since the last frame (animations advance by it). Then
+// declare the UI and call frame_end. A host (niello/sdl) does this for
+// you; tests call it directly.
 frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	assert(ctx != nil, "frame_begin needs a context (context_create)")
 	g = ctx // bind: this frame's declare operates on ctx
 	input := input // params are immutable; the sanitized copies are the frame's
 	dt := dt
 	// Host-supplied numbers are sanitized at this boundary, not
-	// trusted (audit core-H8 class): dt and the viewport are
+	// trusted: dt and the viewport are
 	// runtime data from the host's clock and window system, and
 	// a NaN in either poisons silently — the u64 conversion
 	// below turns NaN dt into arbitrary garbage time, and a
@@ -1501,8 +1532,11 @@ frame_begin :: proc(ctx: ^Context, input: Input, dt: f32) {
 	// Cold units, the instance map, and the text cache persist across frames.
 }
 
-// frame_end runs the resolve pass: state overlays, layout, damage.
-// After it returns, queries (rect) read THIS frame's resolved data.
+// frame_end finishes the frame: it resolves state styles, lays the tree
+// out (building deferred sections), advances animations, and works out
+// what changed. Queries such as rect then read this frame; during the
+// next declaration they read this frame too, until its frame_end. The
+// host then draws draw_list() and sleeps for Frame_Result.next_wake_ms.
 frame_end :: proc() -> Frame_Result {
 	// The mutation layer lands first (§3.16): glides step, edit diffs
 	// apply (winning over glides on the fields they changed), expired
@@ -1560,8 +1594,8 @@ frame_end :: proc() -> Frame_Result {
 					}
 				}
 				if !found {
-					// No candidate inside the modal (audit
-					// int-1): focus must not stay parked on
+					// No candidate inside the modal: focus
+					// must not stay parked on
 					// whatever sits behind it.
 					set_focus_id(0, g.focus_visible)
 				}
@@ -1583,7 +1617,7 @@ frame_end :: proc() -> Frame_Result {
 			}
 			g.modal_prev_id = top_modal
 		}
-		// Steady-state containment (audit int-1): while a modal is
+		// Steady-state containment: while a modal is
 		// up, focus may not sit outside its subtree — a declare-time
 		// focus() behind the modal, or the focused node leaving the
 		// subtree, is corrected here, beside the grab that handles
@@ -1611,7 +1645,7 @@ frame_end :: proc() -> Frame_Result {
 	// own: dispatch runs at frame_begin, so an overlay-driven
 	// restyle resolves in the same frame's declare and pass F's
 	// stamp comparison damages it (verified across the interaction
-	// suite, audit int-15 — the old affected/input_dirty route
+	// suite — the old affected/input_dirty route
 	// only ever duplicated that damage or added spurious rects).
 	// The focus ring and reveal (render.odin, layout.odin): after
 	// every focus move of the frame, the modal ones above included.
@@ -1668,12 +1702,8 @@ rect :: proc(i: Instance) -> (r: Rect, ok: bool) {
 }
 
 // ============ cross-context reads ============
-// A context's committed state is readable WITHOUT binding it (M4):
-// while one window declares, every other window sits at a frame
-// boundary, so its instances map is stable to read. This is the
-// inspector-window story — a debug window renders a peer window's
-// committed tree (rects today; names and the overflow report join
-// when TODO #18 builds them).
+// Another window's last frame can be read without binding its context:
+// while one window declares, every other window is between frames.
 
 // rect_in reads instance i's committed rect in ctx (the peer form
 // of rect()). False when ctx has no such instance.
@@ -1704,19 +1734,18 @@ instance_count :: proc(ctx: ^Context) -> int {
 	return len(ctx.instances)
 }
 
-// mouse_position reads the cursor position as of this frame's
-// dispatch (one frame of latency, like every query). ok = false
-// when the cursor is outside the window. Its popup-layer use:
-// anchoring an .At popup where the user just clicked (§3.19).
+// mouse_position is the pointer's position as of this frame's input; ok is
+// false when the pointer is outside the window. Use it, for example, to
+// open an .At popup where the user clicked.
 mouse_position :: proc() -> (p: Vec2, ok: bool) {
 	return g.pointer_pos, g.pointer_valid
 }
 
 // ============ interaction queries ============
-// Answered from this frame's dispatch (the hit test of last frame's tree,
-// run at frame_begin). All three bubble: an instance counts when it is the
-// target or an ancestor of the target, so a button answers for clicks on
-// its label. Semantics detail lives in input.odin.
+// Interaction is asked where a control is declared, and answered from this
+// frame's input against the previous frame's layout. The queries bubble: an
+// instance counts when it or a descendant is the target, so a button
+// answers for clicks on its label.
 
 // hovered reports the cursor is over the instance (or a descendant).
 hovered :: proc(i: Instance) -> bool {
@@ -1750,16 +1779,16 @@ pointer_pressed :: proc(i: Instance) -> bool {
 	return false
 }
 
-// clicked reports a left-button press on the instance (or a descendant)
-// completed with a release over it, as of this frame's dispatch. True for
-// exactly one declare: the one after the release.
+// clicked reports that i (or a descendant) was clicked: pressed and
+// released over it with the left button, or activated with Space / Enter
+// while focused. It is true for one frame, the one after the release.
 clicked :: proc(i: Instance) -> bool {
 	return chain_contains(g.clicked_chain[:], i)
 }
 
-// ============ drag queries (§3.28) ============
+// ============ drag queries ============
 // A left press whose displacement from the grab point crosses
-// DRAG_THRESHOLD (4 DIP) becomes a drag on the same press capture.
+// 4 DIP becomes a drag on the same press.
 // The drag belongs to the press target and bubbles like the other
 // queries; an ancestor claims or disclaims a descendant's drag by
 // subtraction (dragging(header) && !dragging(close_btn)). Drag and
@@ -1773,19 +1802,19 @@ dragging :: proc(i: Instance) -> bool {
 	return g.drag_active && chain_contains(g.press_chains[.Left][:], i)
 }
 
-// drag_started reports the drag crossed the threshold in this frame's
-// dispatch. True for exactly one declare.
+// drag_started reports that a drag on i began this frame (the press moved
+// past the 4 DIP threshold). True for one frame.
 drag_started :: proc(i: Instance) -> bool {
 	// The snapshot half covers a drag that started AND ended in
-	// the last dispatch (audit int-14): drag_active is already
+	// the last dispatch: drag_active is already
 	// false by declare time, but the start still reports, beside
 	// the end, for exactly one declare.
 	return (g.drag_started_flag && dragging(i)) ||
 		chain_contains(g.drag_started_chain[:], i)
 }
 
-// drag_ended reports the drag on the instance (or a descendant) ended
-// in this frame's dispatch. True for exactly one declare.
+// drag_ended reports that a drag on i (or a descendant) ended this frame.
+// True for one frame.
 drag_ended :: proc(i: Instance) -> bool {
 	return chain_contains(g.drag_ended_chain[:], i)
 }
@@ -1797,8 +1826,8 @@ drag_completed :: proc(i: Instance) -> bool {
 	return g.drag_ended_completed && drag_ended(i)
 }
 
-// drag_delta is the pointer's movement in the last dispatch, window
-// DIP — zero unless a drag is active or just ended.
+// drag_delta is how far the pointer moved since the last frame, in DIP;
+// zero unless a drag is active or just ended.
 drag_delta :: proc() -> Vec2 {
 	if g.drag_active || g.drag_ended_id != 0 {
 		return g.drag_delta_v
@@ -1828,17 +1857,16 @@ drag_pos :: proc(i: Instance) -> Vec2 {
 	return Vec2{}
 }
 
-// hover_duration is how long the cursor has been inside i's subtree, in
-// seconds: i's own entry time into the hover chain, so a button reports
-// one continuous duration whether the cursor is over its body or its
-// label. 0 whenever i is not in the current chain. Tooltip delays read
-// this.
 // HOVER_REFRESH_MS: while an app displays a live hover duration, the
 // engine refreshes it at ~20 Hz. Coarse on purpose — a duration readout
 // is glanceable text, not an animation.
 @(private)
 HOVER_REFRESH_MS :: 50
 
+// hover_duration is how long, in seconds, the pointer has been over i or
+// its descendants (one continuous span across a button's body and label),
+// or 0 when it is not. A tooltip waits on it; while it is read, the engine
+// keeps frames coming so the duration advances.
 hover_duration :: proc(i: Instance) -> f32 {
 	if since, ok := g.hover_since[i]; ok {
 		// Displaying a duration is a standing request for refresh frames
@@ -1852,24 +1880,23 @@ hover_duration :: proc(i: Instance) -> f32 {
 	return 0
 }
 
-// press_clicks is the click count of the left press that began this
-// frame's dispatch — 1 for a single click, 2 for a double click, 3 for a
-// triple — or 0 when no left press began. Read with pressed/clicked
-// during declare: a text box selects a word on press_clicks() == 2.
+// press_clicks is the click count of the left press that began this frame:
+// 1 for a single click, 2 for a double click, 3 for a triple, or 0 when no
+// left press began. A text box selects a word on press_clicks() == 2.
 press_clicks :: proc() -> int {
 	return g.press_clicks
 }
 
-// focused reports i holds programmatic keyboard focus (see focus).
+// focused reports that i holds keyboard focus.
 focused :: proc(i: Instance) -> bool {
 	return i != 0 && i == g.focus_id
 }
 
-// focus sets keyboard focus programmatically; pass Instance(0) to
-// clear. Focus also moves by traversal (Tab) and by pointer press on
-// a focusable instance (§3.17). Moving focus cancels any pending
-// key-press (Space/Enter) capture. Programmatic focus is keyboard
-// focus: it shows the focus ring and scrolls the instance into view.
+// focus gives instance i keyboard focus (Instance(0) clears it). Focus
+// also moves with Tab / Shift+Tab, through the focusable instances in
+// declaration order, and to a focusable instance the user presses. Any
+// instance can be focused this way, focusable or not. focus counts as
+// keyboard focus: it shows the focus ring and scrolls i into view.
 focus :: proc(i: Instance) {
 	set_focus_id(i, true)
 }
@@ -1892,6 +1919,8 @@ Focus_Ring :: struct {
 	             // negative draws it inset
 }
 
+// DEFAULT_FOCUS_RING is the ring before any set_focus_ring: blue, 2 DIP
+// wide, 2 DIP out.
 DEFAULT_FOCUS_RING :: Focus_Ring{color = Color{0x4c, 0x8d, 0xff, 255}, width = 2, offset = 2}
 
 // Focus_Ring_Mode is when the ring shows on a unit (Style_Decl.focus_ring,
@@ -1927,24 +1956,22 @@ focus_visible :: proc(i: Instance) -> bool {
 	return false
 }
 
-// focus_next / focus_prev move keyboard focus one step along the tab
-// order — declaration order over the focusable instances of the last
-// completed tree — wrapping at the ends. The same walk Tab runs at
-// dispatch; calling it during declare moves focus immediately (this
-// frame's already-dispatched keys/text keep the routing they were
-// given at dispatch).
+// focus_next moves keyboard focus to the next focusable instance in
+// declaration order (wrapping), as Tab does. Called during declare it
+// moves focus at once; this frame's keys and text still go where they
+// were routed.
 focus_next :: proc() {
 	traverse_focus(1)
 }
 
+// focus_prev moves keyboard focus back one step, as Shift+Tab does.
 focus_prev :: proc() {
 	traverse_focus(-1)
 }
 
-// input_text returns the text committed to i this frame (host text
-// input: typed characters, dead-key results, IME commits), or "".
-// Text routes to the instance that held focus at dispatch, and only
-// to it. Declare-scoped: read it during declare, like clicked.
+// input_text is the text typed into i this frame (characters, dead-key
+// results, IME commits), or "". Typed text goes only to the instance that
+// held focus when the frame's input arrived. Read it during declare.
 input_text :: proc(i: Instance) -> string {
 	if i == 0 || i != g.input_target || len(g.frame_text) == 0 {
 		return ""
@@ -1952,11 +1979,11 @@ input_text :: proc(i: Instance) -> string {
 	return string(g.frame_text[:])
 }
 
-// input_keys returns i's key events for this frame — downs (repeats
-// included) and ups, oldest first — or an empty slice. Routing as
-// input_text. The core's own keys never arrive: traversal's Tab is
-// consumed at dispatch. The slice is rebuilt on each call; consume
-// it before calling again.
+// input_keys is i's key events this frame, presses (repeats included) and
+// releases, oldest first; routed like input_text. Keys the engine uses
+// never arrive: Tab, Esc when it closes a popup, and Space / Enter when
+// they activate i (a unit with text_input gets those as keys). The slice
+// is rebuilt on each call.
 input_keys :: proc(i: Instance) -> []Key_Event {
 	clear(&g.keys_scratch)
 	if i == 0 || i != g.input_target {
@@ -1972,14 +1999,13 @@ input_keys :: proc(i: Instance) -> []Key_Event {
 
 // ============ scrolling ============
 
-// WHEEL_UNIT_PX: one wheel unit (one notch; trackpads report fractions)
-// scrolls this many DIP — roughly three lines of default text.
+// WHEEL_UNIT_PX is how far one wheel notch scrolls, in DIP: about three
+// lines of default text.
 WHEEL_UNIT_PX :: 48
 
-// scroll_offset reports i's scroll offset in DIP: the offset the last
-// frame rendered with. {0, 0} when i is not a scrollable container or
-// has never scrolled. Pass F re-clamps the stored offset to the live
-// scroll range every frame, so a shrinking content pulls it back in.
+// scroll_offset is scroller i's scroll offset in DIP, as last drawn; {0, 0}
+// when i does not scroll or never has. It stays within the scroll range:
+// shrinking content pulls it back.
 scroll_offset :: proc(i: Instance) -> Vec2 {
 	if i == 0 {
 		return {0, 0}
@@ -1987,19 +2013,17 @@ scroll_offset :: proc(i: Instance) -> Vec2 {
 	return g.scroll_off[i]
 }
 
-// scroll_range reports i's scrollable range in DIP per axis — how
-// far the content extends beyond the viewport (0 on an axis that
-// does not scroll or does not overflow). It is the range half of
-// scroll_offset, read from the same committed state; scrollbar
-// chrome (§3.20) sizes and positions its thumb from the pair.
+// scroll_range is how far scroller i's content extends beyond its view, in
+// DIP per axis (0 on an axis that does not scroll or fits). With
+// scroll_offset it sizes and places a scrollbar's thumb.
 scroll_range :: proc(i: Instance) -> Vec2 {
 	return g.scroll_max[i] or_else Vec2{0, 0}
 }
 
-// scroll_to sets i's scroll offset in DIP (back-to-top is
-// scroll_to(i, {0, 0})). The stored value is clamped to the scrollable
-// range when the next frame renders — the same range the wheel clamps
-// against — so an out-of-range request lands on the nearest end.
+// scroll_to sets scroller i's offset in DIP: scroll_to(list_i, {0, 0}) is
+// back to the top. It jumps (a glide in flight stops), and an offset past
+// the range lands on its end. Called during declare it applies to this
+// frame.
 scroll_to :: proc(i: Instance, offset: Vec2) {
 	if i == 0 {
 		return
@@ -2021,15 +2045,15 @@ scroll_to :: proc(i: Instance, offset: Vec2) {
 }
 
 // ============ text measurement backend ============
-// Hooks the app sets to replace the mock metrics with real shaping.
-// niello/sdl provides adapters over the nui_* FFI; the app wires them:
-//
-//   niello.measure_word_hook  = sdl.hook_measure_word
-//   niello.line_height_hook = sdl.hook_line_height
-//
-// nil = mock metrics (proportional to size, see text.odin). Hooks fire only
-// on word-cache miss.
+// A host measures text for the core through two hooks (niello/sdl sets
+// them when it is imported). Without them, text is measured with mock
+// metrics proportional to the font size: fine for headless tests. The
+// engine caches measurements; the hooks run on a cache miss.
+
+// measure_word_hook returns the width in DIP of text set in the given font.
 measure_word_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32, text: string) -> f32
+
+// line_height_hook returns the height in DIP of one line of the given font.
 line_height_hook: proc(font: Font_Handle, weight: Font_Weight, slant: Font_Slant, size: f32) -> f32
 
 // text_width is the width of text set in u's font, size, weight and
@@ -2061,8 +2085,8 @@ style_of :: proc(u: Unit) -> Style {
 	return unit_style(u)^
 }
 
-// unit_live reports that u names a minted unit that has not been
-// unmint-ed: its slot exists, is live, and still has u's generation.
+// unit_live reports that u is a minted unit that has not been freed
+// (unmint). A freed unit's handle never becomes live again.
 unit_live :: proc "contextless" (u: Unit) -> bool {
 	i := unit_index(u)
 	if i < 1 || i >= len(store.units) {
@@ -2073,14 +2097,15 @@ unit_live :: proc "contextless" (u: Unit) -> bool {
 }
 
 // ============ clipboard ============
-// The system clipboard, text only. The core has no OS code: the glue
-// sets the hooks (niello/sdl does at startup). Without them — headless,
-// in tests — an in-memory clipboard stands in, owned by the store.
+// The system clipboard, text only. A host connects it through two hooks
+// (niello/sdl sets them when it is imported); without them, headless and
+// in tests, an in-memory clipboard stands in.
 
 // clipboard_get_hook returns the clipboard's text, allocated with the
-// given allocator ("" when empty or not text). clipboard_set_hook
-// replaces it.
+// given allocator ("" when it holds no text).
 clipboard_get_hook: proc(allocator: runtime.Allocator) -> string
+
+// clipboard_set_hook replaces the clipboard's content with text.
 clipboard_set_hook: proc(text: string)
 
 // clipboard_text returns the clipboard's text ("" when it holds none),
@@ -2114,24 +2139,20 @@ fonts_changed :: proc() {
 }
 
 // ============ scheduling ============
-// The idle-CPU contract (§3.3): changes are found by the next SCHEDULED
-// frame. frame_end reports the nearest engine deadline as next_wake_ms
-// and the host blocks on OS events until then. context_wake() is the
-// escape hatch for work that happens off the frame thread.
+// An idle UI uses no CPU: the host sleeps until input arrives or the
+// engine's next deadline (Frame_Result.next_wake_ms: an animation, a
+// timer). wake_in asks for a frame later; context_wake asks for one from
+// another thread.
 
-// wake_hook, when set, runs at the end of context_wake(). Host glue
-// uses it to interrupt its event wait (niello/sdl pushes an SDL user
-// event). Set once at startup, like the measure hooks. nil =
-// context_wake() only flags the context, and discovery waits for the
-// next natural wake.
+// wake_hook, set by the host (niello/sdl does), runs at the end of
+// context_wake to interrupt the host's wait for events. Without it,
+// context_wake only flags the context for the next frame that happens.
 wake_hook: proc()
 
-// context_wake schedules a frame of ctx from outside the loop — the
-// one core entry point that is safe to call from any thread. It flags
-// the request atomically and pokes the host through wake_hook; the
-// frame it asked for discovers pending changes through the ordinary
-// diff machinery. There is deliberately no context-free wake(): a
-// wake always names the window whose work is ready.
+// context_wake asks for a frame of ctx from anywhere: it is the one core
+// procedure safe to call from any thread (a worker that finished a job).
+// The frame finds what changed as every frame does. niello/inbox wraps it
+// with a message queue.
 context_wake :: proc(ctx: ^Context) {
 	if ctx == nil {
 		return
@@ -2142,9 +2163,8 @@ context_wake :: proc(ctx: ^Context) {
 	}
 }
 
-// wake_pending reports whether a context_wake is still unconsumed.
-// Hosts use it to decide which window is due a frame; frame_begin
-// does the consuming.
+// wake_pending reports that ctx has a context_wake its host has not
+// served yet (the next frame_begin clears it).
 wake_pending :: proc(ctx: ^Context) -> bool {
 	if ctx == nil {
 		return false
@@ -2152,28 +2172,17 @@ wake_pending :: proc(ctx: ^Context) -> bool {
 	return sync.atomic_load(&ctx.wake_requested)
 }
 
-// wake_in is the app-facing timer: it asks for another frame of the
-// bound context roughly ms from now, in engine time, by registering
-// a deadline frame_end folds into next_wake_ms (the earliest pending
-// deadline wins). Call it during declare; re-arm it every frame
-// while the condition holds — a seek refresh while playing, a
-// debounce quiet window — and stop calling it when the condition
-// ends: a due deadline fires with the frame that runs and is gone,
-// so an idle app registers nothing and the host blocks on OS
-// events. Relative-only by design: there is no public clock, and a
-// timer that needs to know WHICH expiry fired carries that as an
-// app-level message (the one-inbox pattern, Async_Inbox_Design.md).
+// wake_in asks for another frame about ms from now: a timer. Call it
+// during declare, again every frame while you need it (a playback
+// position that must keep moving, a debounce) and stop when you don't: a
+// deadline fires once, with the frame it causes. The earliest pending
+// deadline wins.
 wake_in :: proc(ms: u32) {
 	schedule_wake_in(ms)
 }
 
-// schedule_wake_in registers an engine deadline ms from now, in engine
-// time; frame_end reports the nearest pending deadline as
-// next_wake_ms. Engine subsystems register here — tweens, transients,
-// hover-delay thresholds (§8). wake_in above is the same registry,
-// app-facing.
-// Until those subsystems land, the registry stays empty in a static
-// UI and next_wake_ms is max(u32).
+// schedule_wake_in is wake_in for the bound context, as the engine's own
+// animations use it; the two share one set of deadlines.
 schedule_wake_in :: proc(ms: u32) {
 	at := g.time_ms + u64(ms)
 	// The earliest pending deadline wins — except a deadline that is
@@ -2203,15 +2212,11 @@ compute_next_wake :: proc() -> u32 {
 }
 
 // ============ groups ============
-// A group is an address book: a list of (unit, field-mask) members used
-// to LOCATE units for a later broadcast (§3.7). Membership itself
-// writes nothing — a unit's birth values come from its base at mint,
-// never from joining a group — and there is no retained patch: a
-// broadcast reaches only the members present when it is issued.
-// group_set is the only group write; it copies the value into each
-// member's owned style through the same path as set, skipping fields
-// outside the member's mask or pinned on that unit. Among explicit
-// writes the last one wins, determined entirely by call order.
+// A group is an address book of units, each with the fields it joined for:
+// it locates units for a broadcast. Joining writes nothing (a unit's values
+// come from its base at mint), and a broadcast reaches the members present
+// when it is made, writing each one as set would. Among writes to a field,
+// the last one wins.
 
 // group_new creates an empty group. The name is debug metadata.
 group_new :: proc(name: string = "") -> Group {
@@ -2222,26 +2227,28 @@ group_new :: proc(name: string = "") -> Group {
 	return Group(len(store.groups) - 1)
 }
 
-// group_add registers units as members. The plain form masks in every
-// field; the masked form scopes the membership to the given fields.
-// Adding a unit that is already a member widens its mask.
+// group_add makes units members of grp, for every field
+// (group_add(grp, a, b)) or for some (group_add(grp, {.Color}, a, b)).
+// Adding a member again widens its fields.
 group_add :: proc{group_add_all, group_add_masked}
 
+// group_add_all makes units members of grp for every field.
 group_add_all :: proc(grp: Group, units: ..Unit) {
 	for u in units {
 		group_add_member(grp, u, ALL_FIELDS)
 	}
 }
 
+// group_add_masked makes units members of grp for the given fields only.
 group_add_masked :: proc(grp: Group, fields: Fields, units: ..Unit) {
 	for u in units {
 		group_add_member(grp, u, fields)
 	}
 }
 
-// group_merge copies sub's members into g (flattened: g gains the
-// members themselves, not a reference to sub). A unit already in g
-// unions the masks. sub is unchanged and stays independent.
+// group_merge copies sub's members into grp (the members themselves, not
+// a link to sub: later changes to sub do not reach grp). A unit in both
+// keeps the union of its fields.
 group_merge :: proc(grp, sub: Group) {
 	if grp == sub {
 		return
@@ -2255,10 +2262,9 @@ group_merge :: proc(grp, sub: Group) {
 	}
 }
 
-// group_set broadcasts one field value to every member whose mask
-// includes it and whose unit has not pinned it. ms == 0 lands the
-// value immediately; ms > 0 glides each member to it over ms through
-// the tween engine (§3.16), starting from wherever the member is.
+// group_set writes one field to every member of grp that joined for it
+// and has not pinned it: group_set(theme.accent, .Color, c). ms 0 lands it
+// at once; ms > 0 glides each member there from wherever it is.
 group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 	rec := group_rec(grp)
 	for m in rec.members {
@@ -2316,9 +2322,8 @@ group_apply :: proc(grp: Group, decl: Style_Decl, ms: u32 = 0) {
 	}
 }
 
-// pin exempts the given fields of a unit from group broadcasts; unpin
-// re-admits them. Pinning changes no style value — it only gates future
-// group_set calls, so it bumps no generation and damages nothing.
+// pin keeps group broadcasts from writing the given fields of u (unpin
+// lets them through again). Pinning changes no value.
 //
 // Reach for pin only when the reason a value must not change on
 // broadcast is directly obvious — the danger-red action that shares a
@@ -2329,6 +2334,7 @@ pin :: proc(u: Unit, fields: Fields) {
 	store.units[unit_index(u)].pinned += fields
 }
 
+// unpin lets group broadcasts reach the given fields of u again.
 unpin :: proc(u: Unit, fields: Fields) {
 	assert(unit_live(u), "niello.unpin: unit is not minted")
 	store.units[unit_index(u)].pinned -= fields
@@ -2353,8 +2359,8 @@ group_delete :: proc(grp: Group) {
 
 // ============ freeing units ============
 
-// unmint frees a unit: its owned text and spans, its slot (which a later
-// mint reuses under a new generation), and every reference the engine
+// unmint frees a unit: its text and spans, its slot (a later mint reuses it
+// under a new handle), and every reference the engine
 // holds to it — group memberships, other units' state overlays and
 // prototype links, in-flight tweens and pending edits. Afterwards the
 // handle is dead: declaring it, or passing it anywhere a Unit is
@@ -2428,10 +2434,9 @@ group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
 	append(&rec.members, Group_Member{unit = u, fields = fields})
 }
 
-// ============ mutation layer: animation, bulk writes, pulses (§3.16) ============
-// The engine lives in animate.odin. Three targets, three verbs:
-// set/tween/edit/propagate write UNITS (every occurrence), transient
-// pulses ONE INSTANCE, and the group forms broadcast either way.
+// ============ animation, bulk writes, pulses ============
+// set, tween, edit and propagate change units (every instance of them),
+// transient pulses one instance, and the group forms broadcast.
 
 // tween glides u toward the unit `to`'s style over ms, for the masked
 // fields: animatable fields interpolate (one house curve, cubic
@@ -2485,16 +2490,11 @@ edit :: proc(u: Unit) -> ^Style {
 	return &es.shadow
 }
 
-// propagate pushes proto's current values to the units minted from
-// it, for the masked fields each derived unit has never explicitly
-// set: birth values come from the base snapshot at mint, and this is
-// the opt-in push that refreshes them (§3.3). Propagated writes do not
-// mark fields explicit, so values keep flowing on later calls. One
-// pass in mint order makes the push transitive — a derived unit's
-// refreshed values flow to its own derived units in the same call.
-// Pins do not gate propagate (they gate group writes), and a field
-// with a glide in flight on the target unit is skipped — the glide is
-// the more specific intent; call propagate again after it lands.
+// propagate pushes proto's current values (for the given fields) to the
+// units minted from it, and theirs, except where a unit set a field itself.
+// Units minted from a base start as a copy and do not follow it; propagate
+// is how a change reaches them on request. Pins do not stop it; a field
+// that is gliding is skipped (propagate again once it lands).
 propagate :: proc(proto: Unit, fields: Fields) {
 	assert(unit_live(proto), "niello.propagate: unit is not minted")
 	if fields == {} {
@@ -2546,7 +2546,7 @@ propagate :: proc(proto: Unit, fields: Fields) {
 // transient fires a one-shot pulse on ONE instance: the style unit's
 // explicitly-set paint fields blend over the instance's resolved style
 // — in over in_ms, back out over out_ms, then gone. Only paint fields
-// participate (TRANSIENT_FIELDS): a pulse never relayouts the tree.
+// participate: a pulse never relayouts the tree.
 // Re-firing the IDENTICAL pulse (same style unit and durations) while
 // it is still in flight is a no-op, so the natural pattern
 // `if hovered(i) { transient(i, ...) }` — which calls this every frame

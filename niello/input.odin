@@ -92,7 +92,7 @@ end_drag :: proc(completed: bool) {
 	g.drag_ended_id = g.press_ids[.Left]
 	clear(&g.drag_ended_chain)
 	append(&g.drag_ended_chain, ..g.press_chains[.Left][:])
-	// The started chain rides along (audit int-14): a drag that
+	// The started chain rides along: a drag that
 	// starts and ends within one dispatch has drag_active already
 	// false at declare time, so drag_started needs this snapshot —
 	// the same one-declare lifetime as the ended chain.
@@ -107,7 +107,7 @@ end_drag :: proc(completed: bool) {
 // capture-loss bookkeeping: an in-flight drag on it ends as a
 // cancellation (never a completion), then the press state clears.
 // cancel_captures does it for every button. These two are the ONLY
-// capture-loss path (audit int-12): focus loss, cursor departure,
+// capture-loss path: focus loss, cursor departure,
 // target death / culling / disablement, a modal opening over the
 // capture, and a duplicate press edge all funnel here, so the
 // taxonomy cannot drift between hand-copied variants again.
@@ -128,7 +128,7 @@ cancel_captures :: proc() {
 }
 
 // validate_captures cancels any capture that can no longer
-// complete (audit int-12), checked once per dispatch against last
+// complete, checked once per dispatch against last
 // frame's tree and popup stack:
 //   - the target left the tree, or was culled (a culled node is in
 //     the tree but has no committed instance: it cannot be clicked);
@@ -455,7 +455,7 @@ dispatch_keys :: proc(input: Input) {
 		return
 	}
 
-	// Modal containment (audit int-1): while a modal is topmost,
+	// Modal containment: while a modal is topmost,
 	// keyboard and text belong to its subtree (or a popup above it).
 	// Focus sitting outside it — a field behind the modal, when the
 	// modal offered no focus candidate of its own — receives
@@ -508,7 +508,7 @@ dispatch_keys :: proc(input: Input) {
 		}
 		if ev.key == .Tab {
 			// Traversal consumes Tab outright — the key-up too
-			// (audit int-11: the up used to leak to the newly
+			// (the up used to leak to the newly
 			// focused instance). Repeats included: holding Tab
 			// keeps cycling, as everywhere else.
 			g.key_consumed[k] = true
@@ -518,12 +518,12 @@ dispatch_keys :: proc(input: Input) {
 			continue
 		}
 		if ev.key == .Space || ev.key == .Enter || ev.key == .Kp_Enter {
-			// The core's own activation keys (audit int-11): when
+			// The core's own activation keys: when
 			// they drive a capture they are consumed, so an app
 			// never sees Space twice — once via input_keys and
 			// once as clicked(). The up is consumed when it ends
 			// the capture its down began. Behind a modal that
-			// blocks keys (audit int-1) no capture begins or ends.
+			// blocks keys no capture begins or ends.
 			// A text-input focus holder reads them as keys.
 			if !modal_blocks_keys && !typing {
 				if ev.down {
@@ -596,7 +596,7 @@ dispatch_input :: proc(input: Input, dt: f32) {
 		return
 	}
 
-	// Captures that can no longer complete die here (audit int-12).
+	// Captures that can no longer complete die here.
 	validate_captures()
 
 	pick := pick_at(input.mouse)
@@ -749,8 +749,8 @@ dispatch_input :: proc(input: Input, dt: f32) {
 	for b in Mouse_Button {
 		if b in input.buttons_pressed && pick >= 0 && !blocked &&
 		   !(press_consumed && b == .Left) {
-			// A duplicate press edge on an already-captured button
-			// (audit int-13): end the old capture first, as a
+			// A duplicate press edge on an already-captured button:
+			// end the old capture first, as a
 			// cancellation, instead of overwriting it — overwriting
 			// resurrected drag_active on the new target with no
 			// threshold crossing of its own.
@@ -899,7 +899,7 @@ consume_wheel :: proc(wheel: Vec2, chain: []int, blocked: bool) {
 				if used != 0 {
 					if s.smooth_scroll && s.smooth_ms > 0 {
 						// Only this axis is (re)based and
-						// re-timed (audit int-8): the other
+						// re-timed: the other
 						// axis's glide, if any, flies on.
 						gl := g.scroll_glides[id]
 						gl.axis[axis] = Axis_Glide{
@@ -1253,8 +1253,8 @@ overscroll_raw :: proc(disp, allow: f32) -> f32 {
 // OVERSCROLL_QUIET_MS: the spring holds the banded position until
 // the wheel has been quiet this long. Without the hold, slow ticking
 // at the end restarted the spring on every tick and the offset
-// sawtoothed — out on the tick, partway back, out again (his bug
-// report, 2026-10-21). A gesture is a stream; the spring belongs to
+// sawtoothed — out on the tick, partway back, out again (reported
+// 2026-10-21). A gesture is a stream; the spring belongs to
 // its end, not to each tick. 250ms bridges slow notch gaps.
 OVERSCROLL_QUIET_MS :: f32(250)
 
@@ -1265,7 +1265,7 @@ OVERSCROLL_QUIET_MS :: f32(250)
 // re-arms it). The other axis keeps any wheel-glide target it had.
 @(private)
 apply_overscroll :: proc(id: Instance, off: Vec2, axis: int, disp: f32, s: ^Style) {
-	// The spring owns its axis only (audit int-8): any glide in
+	// The spring owns its axis only: any glide in
 	// flight on the other axis keeps its own from/to and clock.
 	gl := g.scroll_glides[id]
 	gl.axis[axis] = Axis_Glide{

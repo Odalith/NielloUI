@@ -308,8 +308,8 @@ declare_as :: proc(
 			text_hash, ascii = text_scan(text)
 			valid = ascii || utf8.valid_string(text)
 		}
-		// Invalid UTF-8 is sanitized at this one boundary (audit
-		// txt-6): nothing downstream validates display text, and the
+		// Invalid UTF-8 is sanitized at this one boundary: nothing
+		// downstream validates display text, and the
 		// native replay validator rejects the ENTIRE command stream
 		// over one bad byte — one corrupt label (a file tag, a paste)
 		// blanked the window with no Odin-side diagnostic. Valid

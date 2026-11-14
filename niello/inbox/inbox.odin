@@ -1,37 +1,29 @@
-// inbox — the one-inbox pattern (Async_Inbox_Design.md) as a Niello
-// satellite package, the debugui precedent: opt-in, beside the core,
-// useless without it and invisible to apps that don't import it.
+// Package inbox carries work done off the UI thread back to it: one queue
+// of the app's own messages per context. Workers (threads, file watchers,
+// audio callbacks) send messages; each send wakes the context, and once per
+// frame, before declaring, the app drains the queue and applies them to its
+// state. Declare then sees one settled state; nothing arrives mid-frame and
+// nothing is lost.
 //
-// The pattern, in one paragraph: every stimulus that didn't come
-// from the OS arrives as a message in ONE app-owned queue. Worker
-// threads, file watchers, audio callbacks, OS media hooks — they all
-// do exactly two things: push a message, and the push wakes the
-// bound context (send IS push + context_wake; the pairing cannot be
-// forgotten because it cannot be separated). Once per frame, before
-// declare, the app drains the queue and applies the messages to its
-// model; declare then projects one settled snapshot. Messages are a
-// closed union in the app's own type, handled by one exhaustive
-// switch at the drain — no subscribers, no weak references, no
-// reentrant handlers, nothing delivered late or lost silently.
+//	Msg :: union { Progress, Done }
+//	box := inbox.create(Msg, ctx)            // once, with the window's context
+//	inbox.send(&box, Done{})                  // from any thread
+//	inbox.send_latest(&box, 1, Progress{50})  // only the newest per tag is kept
+//	for m in inbox.drain(&box) { … }          // each frame, before declaring
 //
-// Two message classes:
-//   - events (send): lossless, FIFO, every one delivered.
-//   - state updates (send_latest): latest-wins per tag. A pending
-//     update whose tag matches is replaced IN PLACE (its queue
-//     position is kept) — a producer may flood progress reports and
-//     the drain still sees only the newest, behind everything that
-//     arrived before the first one. Backpressure by construction.
-//
-// Threading contract: send/send_latest/pending are safe from any
-// thread. drain is frame-thread work (it is locked anyway). The
-// Inbox owns a mutex: create it once, never copy it after first use,
-// destroy it before its context dies.
+// send delivers every message, in order. send_latest keeps only the newest
+// pending message of a tag (in the first one's place), so a producer can
+// report progress as fast as it likes. send, send_latest and pending are
+// safe from any thread; drain belongs to the UI thread. Create an inbox
+// once, do not copy it, and destroy it before its context.
 package inbox
 
 import "core:sync"
 
 import niello ".."
 
+// Inbox is one context's message queue of the app's message type M (see the
+// package doc). Create it with create; it holds a mutex, so never copy it.
 Inbox :: struct($M: typeid) {
 	ctx:  ^niello.Context,
 	mu:   sync.Mutex,

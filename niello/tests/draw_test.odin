@@ -560,8 +560,8 @@ test_emit_skips_offscreen_leaves :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 
 	// A 100px scroller over ten 30px text rows: rows 0..3 intersect
-	// the clip, rows 4..9 sit fully below it. Before audit ren-1 the
-	// emit walk built every row's text runs; now the off-screen
+	// the clip, rows 4..9 sit fully below it. Before emit-time culling
+	// the emit walk built every row's text runs; now the off-screen
 	// rows emit nothing.
 	scroller: niello.Unit
 	niello.mint(&scroller, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(100)}, layout = .Top_To_Bottom, scroll = .Vertical})

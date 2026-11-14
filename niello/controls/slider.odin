@@ -19,6 +19,7 @@ Slider :: struct {
 	inst:           niello.Instance,
 }
 
+// SLIDER_H is a slider's and a progress bar's height in DIP.
 SLIDER_H :: 22
 
 @(private)

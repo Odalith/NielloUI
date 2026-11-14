@@ -100,7 +100,7 @@ Store :: struct {
 	// digest decide all damage in pass F. There is no write
 	// journal — an earlier design kept one alongside the stamps;
 	// nothing read it outside tests, and a context that never
-	// framed pinned it forever (audit X-1).
+	// framed pinned it forever.
 
 	// Live contexts, in creation order: tween() cancels a unit's
 	// tweens across all of them (animate.odin).
@@ -126,7 +126,7 @@ Store :: struct {
 	text_epoch:       u64, // frames completed, any window: the text cache's clock
 	font_epoch:       u64, // bumped by fonts_changed(); mixed into both
 	                       // text cache keys so a (re)registered font
-	                       // invalidates everything it measured (txt-5)
+	                       // invalidates everything it measured
 
 	// The headless clipboard (set_clipboard_text with no glue hook).
 	clipboard: string,
@@ -137,12 +137,14 @@ Store :: struct {
 	focus_ring: Maybe(Focus_Ring),
 }
 
-// Context is one window's frame state (multi-window plan, M1):
-// everything a single tree's frames own — nodes, instances,
-// interaction, scheduling, mutation — and nothing they share. The
-// package handle `g` (below) points at the currently bound
-// context; frame_begin binds, declare-time procs read the binding.
+// Context is one window's UI: its tree, instances, interaction and
+// scheduling state. Create one per window (context_create) and use it only
+// through the procedures that take it; its fields are internal.
 Context :: struct {
+	// Internals: everything a single tree's frames own and nothing they
+	// share. The package handle `g` points at the bound context;
+	// frame_begin binds, declaring reads the binding.
+
 	// Frame text arena: With.text copies land here at declare time.
 	// Chunked so a slice, once taken, never moves; rewound at
 	// frame_begin and reused across frames (freed only at teardown).
@@ -165,7 +167,7 @@ Context :: struct {
 	emit_breaks: [dynamic][2]int,
 	emit_runs:   [dynamic]Text_Run,
 	emit_scopes: [dynamic]int,
-	emit_clips:  [dynamic]Rect, // accumulated clip per open emit scope (ren-1)
+	emit_clips:  [dynamic]Rect, // accumulated clip per open emit scope
 
 	// Frame store: flat parent-before-child node array, rebuilt every frame.
 	nodes:        [dynamic]Frame_Node,
@@ -243,7 +245,7 @@ Context :: struct {
 	// frame_begin and by scroll_to, read and re-clamped by pass F every
 	// frame (the stored value is the offset the last frame rendered
 	// with). Only scrollable containers ever get an entry; absence = 0.
-	// Lifetime (audit int-2, ruled 2026-11-04): scroll state shares
+	// Lifetime (ruled 2026-11-04): scroll state shares
 	// the instance lifetime — when an instance record is recycled
 	// (undeclared, or a popup not shown), its scroll_off/scroll_max/scroll_glides
 	// entries are purged with it. There is deliberately no separate
@@ -290,7 +292,7 @@ Context :: struct {
 	                                  // drag_started reads it so a flick
 	                                  // that starts and ends in one
 	                                  // dispatch still reports its start
-	                                  // (audit int-14)
+	                                  //
 	drag_ended_id:        Instance,
 	drag_ended_chain:     [dynamic]Instance,
 	drag_ended_completed: bool, // release (true) vs capture loss (false)
@@ -744,8 +746,8 @@ Axis_Glide :: struct {
 	              // this target.
 }
 
-// Scroll_Glide holds a scroller's in-flight glides, one per axis
-// (audit int-8): active[axis] says that axis is gliding, and the
+// Scroll_Glide holds a scroller's in-flight glides, one per axis:
+// active[axis] says that axis is gliding, and the
 // axes share nothing — a Y tick never re-bases or re-times an
 // in-flight X glide. (The old single record coupled them: one
 // from/to pair, one clock, one spring flag.)
@@ -771,12 +773,12 @@ Inst_Rec :: struct {
 	digest: u64,
 	stamp: u64,
 	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
-	// The overflow committed with the rect (audit core-H7): damage
+	// The overflow committed with the rect: damage
 	// for a change or death must cover the OLD spill as well as the
 	// new — a shrinking spill otherwise leaves its outermost pixels
 	// undamaged forever.
 	overfl: Vec2,
-	// frame_index of the last pass-F commit (audit core-H4): the
+	// frame_index of the last pass-F commit: the
 	// recycle sweep deletes records whose last_seen is stale,
 	// which catches deaths the old map-outgrew-the-tree signal
 	// missed (a death balanced by a birth in the same frame).

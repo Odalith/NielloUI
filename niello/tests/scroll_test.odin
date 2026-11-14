@@ -556,7 +556,7 @@ test_scroll_to_clamps_to_range :: proc(t: ^testing.T) {
 
 @(test)
 test_overscroll_holds_while_ticks_continue :: proc(t: ^testing.T) {
-	// The jitter regression (his report, 2026-10-21): slow ticking at
+	// The jitter regression (reported 2026-10-21): slow ticking at
 	// the end must not sawtooth. While ticks keep arriving inside the
 	// quiet window the band HOLDS — no spring-back between ticks at
 	// all — and one clean spring runs when they stop.
@@ -613,7 +613,7 @@ test_scroll_state_dies_with_instance :: proc(t: ^testing.T) {
 	testing.expect(t, off.y == 50, "scrolled to 50 while alive")
 
 	// The scroller leaves the tree: its instance is recycled, and
-	// (audit int-2, ruled: scroll state shares the instance
+	// (ruled: scroll state shares the instance
 	// lifetime) the offset record is purged with it.
 	declare(scroller, content, &inst, false)
 
@@ -628,7 +628,7 @@ test_smooth_glides_are_per_axis :: proc(t: ^testing.T) {
 	defer niello.test_teardown()
 
 	// A both-axes smoothing scroller: 600x600 content in a 200x200
-	// viewport, range 400 per axis (audit int-8's both-axes case).
+	// viewport, range 400 per axis ( both-axes case).
 	bi: niello.Unit
 	niello.mint(&bi, niello.NO_UNIT, {size = niello.Size{niello.fixed(200), niello.fixed(200)}, scroll = .Both, smooth_scroll = true, smooth_ms = u16(160)})
 	big: niello.Unit

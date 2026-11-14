@@ -1,3 +1,5 @@
+package sdl
+
 // niello/sdl — SDL3 app glue + FFI bindings to the native render backend.
 //
 // The native side (see ../../native/nui.h) is a static library exposing a small C
@@ -10,7 +12,6 @@
 //
 // This package type-checks standalone; linking needs the prebuilt native
 // backend for your platform (see ../../third_party/native/README.md).
-package sdl
 
 import "core:c"
 import "core:strings"
@@ -97,6 +98,7 @@ Window :: distinct rawptr
 // Native window handles for nui_create_window. Mirrors UiNativeHandles in
 // ../../native/nui.h (field order is the ABI). The Odin side queries these
 // via SDL_GetWindowProperties; the C++ side never touches SDL.
+@(private)
 Native_Handles :: struct {
 	driver:         cstring, // "wayland", "x11", "windows", "cocoa"
 	wl_display:    rawptr,
@@ -182,7 +184,7 @@ foreign native {
 // sync runs inside the same frame pass, so borrowing is sound on
 // LIFETIME only — the strings are not NUL-terminated, so each
 // pointer's length rides beside it (name_len and friends,
-// appended 2026-11-04, audit BL-1) and the native side reads
+// appended 2026-11-04) and the native side reads
 // pointer + length, never pointer alone.
 // Flags/state are built explicitly by the helpers below — a
 // bit_set's backing layout is not ABI, so it is never transmuted.
@@ -208,7 +210,7 @@ A11y_FFI_Node :: struct {
 
 // a11y_ffi_str_ptr returns the string's data pointer typed as a
 // cstring for the ABI struct. It is NOT a C string: no terminator
-// is added or promised (audit BL-1). The matching *_len field
+// is added or promised. The matching *_len field
 // carries the byte count; the native side must use both.
 @(private)
 a11y_ffi_str_ptr :: proc(s: string) -> cstring {

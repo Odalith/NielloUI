@@ -597,7 +597,7 @@ test_measure_failures_not_cached :: proc(t: ^testing.T) {
 
 	// Phase 1: the hook returns NaN (a backend measuring with an
 	// unresolved font). The frame completes, the text takes no
-	// width — and the failure must not enter the cache (txt-5).
+	// width — and the failure must not enter the cache.
 	niello.measure_word_hook = proc(font: niello.Font_Handle, weight: niello.Font_Weight, slant: niello.Font_Slant, size: f32, text: string) -> f32 {
 		z: f32 = 0
 		return z / z
@@ -641,7 +641,7 @@ test_invalid_utf8_sanitized :: proc(t: ^testing.T) {
 
 	// "a\xffb\xc3" — a stray byte and a truncated sequence. Left
 	// alone, native replay validation would reject the frame's
-	// whole command stream over these two bytes (audit txt-6).
+	// whole command stream over these two bytes.
 	bad_bytes := [4]byte{'a', 0xFF, 'b', 0xC3}
 	bad := transmute(string)bad_bytes[:]
 	niello.frame_begin(niello.test_context(), niello.Input{viewport = {400, 300}}, 0)

@@ -33,12 +33,8 @@ package niello
 
 import "core:strings"
 
-// A11y_Role is the control-type vocabulary, Avalonia's
-// AutomationControlType verbatim (F1b) — 43 values, Avalonia's
-// order. .None is the zero value and means "no role declared";
-// a node with no semantics at all does not enter the mirror.
-// Each value's counterpart on AT-SPI/UIA/NSAccessibility is
-// confirmed by the exporter milestones (M2/M4), not here.
+// A11y_Role is what kind of control an instance is, for assistive
+// technology (With.role). .None, the zero value, declares no role.
 A11y_Role :: enum {
 	None,
 	Button,
@@ -85,9 +81,8 @@ A11y_Role :: enum {
 	ScrollViewer,
 }
 
-// A11y_Flag is component-known boolean state, one bitset (F3a):
-// the engine cannot know whether a toggle is checked or a row is
-// selected; the component declares it.
+// A11y_Flag is state only the control knows, declared in With.a11y_flags:
+// a toggle that is on (Checked), a selected row, a read-only field.
 A11y_Flag :: enum {
 	Checked,
 	Selected,
@@ -97,37 +92,39 @@ A11y_Flag :: enum {
 	Multiline,
 }
 
+// A11y_Flags is a set of A11y_Flag.
 A11y_Flags :: bit_set[A11y_Flag]
 
-// A11y_Value is the value of a value-bearing role (F3a): text
-// for Edit, a number with bounds for Slider/ProgressBar/Spinner.
-// Unset is the zero value: empty text, has_num false.
+// A11y_Value is the value of a control that has one: the text of an Edit,
+// the number and range of a Slider, ProgressBar or Spinner. The zero value
+// is unset.
 A11y_Value :: struct {
-	text:    string, // "" = unset; copied at declare like With.text
+	text:    string, // "" = unset; copied, like With.text
 	num:     f32,
 	has_num: bool,
 	min:     f32,
 	max:     f32,
 }
 
-// A11y_State_Flag is engine-known state, derived at mirror time
-// from what the engine already knows — never app-declared.
-// ORDER IS ABI: the AT-SPI exporter (native/atspi.cpp) reads these
-// bit positions. Append new flags at the end, never reorder.
+// A11y_State_Flag is state the engine knows and reports by itself in the
+// accessibility tree.
+//
+// The order is read by the native AT-SPI exporter: new flags go at the end.
 A11y_State_Flag :: enum {
-	Disabled, // With.disabled, inherited down the tree (resolve_styles)
+	Disabled, // disabled, itself or through an ancestor
 	Focused, // this instance holds input focus
 	Offscreen, // zero-area rect, or fully outside the viewport
 	Scroll_X, // scrollable on the X axis
 	Scroll_Y, // scrollable on the Y axis
-	Focusable, // resolved focusable (With override or unit's); added for M2
+	Focusable, // a Tab stop
 }
 
+// A11y_State is a set of A11y_State_Flag.
 A11y_State :: bit_set[A11y_State_Flag]
 
-// A11y_Node is the reader shape of one mirror node. Strings
-// borrow the entry's owned storage and are valid until the next
-// frame_end. Parent is an index into the same a11y_tree slice.
+// A11y_Node is one node of the accessibility tree (a11y_tree): an instance
+// with semantics. Its strings are valid until the context's next frame_end;
+// parent indexes the same slice.
 A11y_Node :: struct {
 	instance:    Instance,
 	parent:      int, // -1 for roots
@@ -157,10 +154,10 @@ A11y_Entry :: struct {
 	unit:        Unit,
 }
 
-// a11y_tree returns the context's mirror: the last completed
-// frame's semantics tree, in declaration order, parents before
-// children. Nil for a nil context. The slice and its strings
-// are valid until the next frame_end on that context.
+// a11y_tree returns ctx's accessibility tree as of its last frame: the
+// instances that declared semantics (With.role, label, value…), in
+// declaration order, parents before children. The platform exporters (AT-SPI
+// on Linux) read it; so can tests. Valid until ctx's next frame_end.
 a11y_tree :: proc(ctx: ^Context) -> []A11y_Node {
 	if ctx == nil {
 		return nil

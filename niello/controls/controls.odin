@@ -1,5 +1,5 @@
-// Package controls is NielloUI's shipped control collection (TODO #12):
-// buttons, a text box, a slider, a progress bar and a scrollbar, built on
+// Package controls is NielloUI's shipped control collection: buttons, a
+// switch, a text box, a slider, a progress bar and a scrollbar, built on
 // niello's public API only.
 //
 //	controls.init()                       // once, after niello is up: mints every part
@@ -7,7 +7,7 @@
 //	controls.text_box(&app.name, "Your name")
 //	controls.apply_theme(controls.LIGHT, 250) // re-theme everything, gliding
 //
-// The convention (UI_API_Design.md §4): a control's units are its parts,
+// The convention: a control's units are its parts,
 // minted once by init and shared by every instance. They are public: restyle
 // one part with niello.set (niello.set(controls.parts.button.label,
 // .Font_Size, 15)), a role across every control with the theme's groups, one
@@ -20,13 +20,15 @@
 // it plays at mint, and apply_theme broadcasts a theme through them. An app
 // adds its own units to the same roles (niello.group_add(controls.groups.ink,
 // my_label)) and one apply_theme re-themes both. LIGHT and DARK are a basic
-// look; the shipped default look is TODO #29.
+// look; a fuller default theme will follow.
 package controls
 
 import niello ".."
 
+// Color is niello.Color.
 Color :: niello.Color
 
+// Theme is a set of role colors (see Roles): what apply_theme broadcasts.
 Theme :: struct {
 	bg, panel, raised:      Color, // page, panel and control surfaces
 	hover, press:           Color, // state overlays on raised surfaces
@@ -38,6 +40,7 @@ Theme :: struct {
 	selection:              Color, // selected text
 }
 
+// DARK is the basic dark theme.
 DARK :: Theme{
 	bg = {22, 24, 30, 255}, panel = {33, 36, 45, 255}, raised = {46, 50, 62, 255},
 	hover = {60, 66, 82, 255}, press = {78, 86, 108, 255},
@@ -49,6 +52,7 @@ DARK :: Theme{
 	selection = {92, 140, 230, 110},
 }
 
+// LIGHT is the basic light theme.
 LIGHT :: Theme{
 	bg = {236, 238, 243, 255}, panel = {250, 251, 253, 255}, raised = {222, 226, 234, 255},
 	hover = {208, 214, 226, 255}, press = {190, 198, 214, 255},
@@ -72,6 +76,7 @@ Type_Sizes :: struct {
 	title:    f32, // page titles
 }
 
+// DEFAULT_TYPE is the type ramp the controls start with.
 DEFAULT_TYPE :: Type_Sizes{caption = 12, body = 14, subtitle = 16, title = 22}
 
 // Spacing is the space between and inside things. Controls size from
@@ -85,6 +90,7 @@ Spacing :: struct {
 	panel_pad:   u16,    // layout: inside an app's panels and cards
 }
 
+// DEFAULT_SPACING is the spacing the controls start with.
 DEFAULT_SPACING :: Spacing{control_pad = {14, 8}, control_gap = 8, gap = 10, panel_pad = 16}
 
 // scale_type is ty with every size times f.
@@ -122,12 +128,17 @@ Roles :: struct {
 	gap, panel_pad:                  niello.Group,
 }
 
+// groups holds the role groups (created by init).
 groups: Roles
 
-// theme, type_sizes and spacing are the tokens last applied.
-theme:      Theme
+// theme is the theme last applied (init or apply_theme).
+theme: Theme
+
+// type_sizes is the type ramp last applied (init or apply_type).
 type_sizes: Type_Sizes
-spacing:    Spacing
+
+// spacing is the spacing last applied (init or apply_spacing).
+spacing: Spacing
 
 // Parts are every control's units, minted once by init.
 Parts :: struct {
@@ -142,6 +153,8 @@ Parts :: struct {
 	scrollbar: Scrollbar_Parts,
 }
 
+// parts holds every control's parts (minted by init): restyle one with
+// niello.set(controls.parts.button.label, .Font_Size, f32(15)).
 parts: Parts
 
 // Label_Parts: the text controls set beside themselves (a switch's label),

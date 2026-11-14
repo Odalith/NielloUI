@@ -195,8 +195,8 @@ test_drag_second_press_starts_clean :: proc(t: ^testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Capture loss (audit int-12), duplicate press edges (int-13), and
-// the same-frame flick (int-14).
+// Capture loss, duplicate press edges, and
+// the same-frame flick.
 
 // frame_with runs one frame with a caller-chosen declare proc.
 
@@ -309,7 +309,7 @@ test_drag_started_reports_same_frame_flick :: proc(t: ^testing.T) {
 	testing.expect(t, niello.drag_ended(input_btn_i), "the flick's drag ended")
 	testing.expect(t, niello.drag_completed(input_btn_i), "by release")
 	testing.expect(t, niello.drag_started(input_btn_i),
-		"and its start still reports in the same declare (audit int-14)")
+		"and its start still reports in the same declare ")
 }
 
 @(test)

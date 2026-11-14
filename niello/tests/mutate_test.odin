@@ -452,7 +452,7 @@ test_transient_refire_does_not_restart :: proc(t: ^testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// set_many discipline (audit core-H5)
+// set_many discipline
 
 @(test)
 test_set_many_noop_and_focusable_and_clear_overlay :: proc(t: ^testing.T) {

@@ -12,9 +12,8 @@ package niello
 // state fields are plain inert declarations in every build (a
 // dynamic-array header per context); work and API are what the
 // gate removes. In a debug build the snapshot costs one flat
-// copy per frame per context — accepted on purpose (Malkj's
-// rule: useful tooling beats perf in development; prod pays
-// zero).
+// copy per frame per context — accepted on purpose (useful
+// tooling beats perf in development; prod pays zero).
 //
 // The snapshot is a context's last completed frame, in
 // declaration order (parents before children; Debug_Node.parent
@@ -23,9 +22,8 @@ package niello
 // context is bound, because on the one UI thread a peer sits at
 // a frame boundary.
 
-// The tint for the overflow overlay: translucent red fill, solid
-// red border. Its job is to tell the dev what is overflowing
-// (§3.13) — not to mimic any other toolkit's rendering of it.
+// DEBUG_OVERFLOW_COLOR tints instances in the overflow report (debug builds):
+// a translucent red fill with a solid red border.
 DEBUG_OVERFLOW_COLOR :: Color{255, 60, 60, 56}
 
 // Default highlight fill (translucent amber); the border drawn
@@ -33,8 +31,9 @@ DEBUG_OVERFLOW_COLOR :: Color{255, 60, 60, 56}
 // a color for callers that want their own.
 DEBUG_HIGHLIGHT_COLOR :: Color{255, 170, 40, 64}
 
+// Debug_Flag is a fact about a node in the debug snapshot.
 Debug_Flag :: enum {
-	Popup,   // an overlay root (§3.19)
+	Popup,   // a popup root (begin_popup)
 	Culled,  // declared but not presented (a popup not shown): no instance, zero rect
 	Scroll_X, // scrollable on X: overfl.x is a range, not a defect
 	Scroll_Y,
@@ -42,38 +41,34 @@ Debug_Flag :: enum {
 	Focused, // holds keyboard focus
 	Hovered, // in the current hover chain
 }
+// Debug_Flags is a set of Debug_Flag.
 Debug_Flags :: bit_set[Debug_Flag]
 
+// Debug_Node is one node of a context's debug snapshot (debug_tree, debug
+// builds): what the debugger window shows.
 Debug_Node :: struct {
 	instance: Instance,
 	parent:   int, // index into the same snapshot; -1 for roots
 	unit:     Unit,
 	rect:     Rect, // committed rect; zero when culled
-	overfl:   Vec2, // pass-F overflow: children extend past bounds, px per axis
-	spill:    Vec2, // intrinsic content exceeds the box, px per axis
-	                 // (text truncation, crushed containers — cases
-	                 // child-extent overflow cannot see). Lay.content
-	                 // is padding-INCLUSIVE — the size the node wants
-	                 // to be, which is what FIT resolves from — so
-	                 // spill is content - size, never content - inner:
-	                 // the first version subtracted padding twice
-	                 // and flagged every padded box by exactly its
-	                 // padding (found via the layouts gallery).
+	overfl:   Vec2, // how far children extend past its bounds, per axis
+	spill:    Vec2, // how far its own content exceeds its box, per axis
+	                // (truncated text, a container squeezed below its
+	                // content)
 	flags:    Debug_Flags,
 	with:     Debug_With, // the With overrides this instance was
 	                      // declared with
 }
 
+// Overflow_Axis is the axis of an overflow report entry.
 Overflow_Axis :: enum u8 {
 	X,
 	Y,
 }
 
-// One §3.13 report entry: this instance's content does not fit
-// it, by px on axis — the larger of child-extent overflow
-// (pass F) and intrinsic spill (content vs box). Scrollable
-// axes never appear (there, overfl is the scroll range, not a
-// defect).
+// Overflow_Rec is one entry of the overflow report (debug_overflows, debug
+// builds): an instance whose content does not fit it, by px DIP on axis.
+// A scrolling axis never appears: there the excess is the scroll range.
 Overflow_Rec :: struct {
 	instance: Instance,
 	name:     string, // the unit's mint debug name
@@ -81,13 +76,12 @@ Overflow_Rec :: struct {
 	px:       f32,
 }
 
-// Which per-instance With overrides a node was declared with —
-// the Details panel's WITH section. Values are captured at
-// snapshot time (frame_end), from the frame node's stored With.
+// Debug_With_Flag is one With value an instance was declared with, as the
+// debug snapshot records it (the debugger's WITH section).
 Debug_With_Flag :: enum {
-	Text,         // With.text (arena copy: the value is safe to keep)
-	Text_Borrowed, // With.text_no_copy (flag only; the bytes are
-	               // borrowed past their contract, so no value)
+	Text,          // With.text (its value is recorded)
+	Text_Borrowed, // With.text_no_copy (recorded as set; its bytes are
+	               // the app's, so no value)
 	Spans,
 	Disabled,
 	Anchored,
@@ -95,8 +89,11 @@ Debug_With_Flag :: enum {
 	Variant,
 	Label,
 }
+// Debug_With_Flags is a set of Debug_With_Flag.
 Debug_With_Flags :: bit_set[Debug_With_Flag]
 
+// Debug_With is the With values an instance was declared with, as the
+// debug snapshot records them (present says which were set).
 Debug_With :: struct {
 	present:   Debug_With_Flags,
 	text:      string, // when .Text
