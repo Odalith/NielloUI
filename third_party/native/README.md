@@ -22,6 +22,15 @@ third_party/native/
 One Linux binary covers both X11 and Wayland — the backend reads the native
 handle from the SDL window at runtime and picks the right surface path.
 
+## Which version
+
+The code needs a backend that defines every function `native/nui.h`
+declares: **native-v0.3.0 or later** since niello/sdl renders headless
+pictures through `nui_render_png` (an older archive fails to link with an
+undefined `nui_render_png`). Re-fetch after updating NielloUI;
+`tools/check-native-exports.sh <archive>` says whether an archive has
+them all.
+
 ## Fetching
 
 ```sh

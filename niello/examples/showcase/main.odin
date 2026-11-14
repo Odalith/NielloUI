@@ -129,9 +129,11 @@ mint_shell :: proc(t: Theme) {
 	})
 	// The Display panel: fixed geometry (see declare_display).
 	niello.mint(&shell.display, niello.NO_UNIT, {
+		// An inset (bg) box: on a raised one, the sliders' raised tracks
+		// vanished (found in an agent-harness picture).
 		layout = .Top_To_Bottom, size = size(grow(), fit()), padding = pad(10), gap = 6,
-		color = t.raised, corner_radius = 8,
-		group_masks = []niello.Group_Mask{controls.as(G.raised, .Color)},
+		color = t.bg, corner_radius = 8,
+		group_masks = []niello.Group_Mask{controls.as(G.bg, .Color)},
 	})
 	niello.mint(&shell.display_title, niello.NO_UNIT, {
 		font_size = 11, font_weight = .SemiBold, font_color = t.dim,
