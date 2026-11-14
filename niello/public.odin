@@ -1837,6 +1837,30 @@ hover_duration :: proc(i: Instance) -> f32 {
 	return 0
 }
 
+// hovered_for reports whether the pointer has rested on i, or its
+// descendants, for at least seconds. Until then it arms one wake for the
+// moment the time is up, so a sleeping host loop wakes to show what waits
+// on it (a tooltip); once it is true it arms nothing. Prefer it to
+// comparing hover_duration, which keeps frames coming for as long as the
+// hover lasts.
+hovered_for :: proc(i: Instance, seconds: f32) -> bool {
+	since, ok := g.hover_since[i]
+	if !ok {
+		return false
+	}
+	left := seconds - (g.hover_clock - since)
+	if left <= 0 {
+		return true
+	}
+	// Rounded up, so the woken frame finds the time reached.
+	ms := u32(left * 1000)
+	if f32(ms) < left * 1000 {
+		ms += 1
+	}
+	schedule_wake_in(ms)
+	return false
+}
+
 // press_clicks is the click count of the left press that began this frame:
 // 1 for a single click, 2 for a double click, 3 for a triple, or 0 when no
 // left press began. A text box selects a word on press_clicks() == 2.

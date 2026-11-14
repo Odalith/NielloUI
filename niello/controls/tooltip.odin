@@ -38,8 +38,8 @@ mint_tooltip :: proc(t: Theme) {
 // DIP away from it, once the pointer has rested on anchor for delay
 // seconds, and at once while anchor holds keyboard focus that shows (Tab
 // onto it). Declare it after anchor, every frame; it shows itself only
-// when due. While the pointer rests on anchor the engine keeps frames
-// coming, so the delay runs out even when nothing else animates.
+// when due. The engine wakes when the delay runs out, so the tooltip
+// shows even when nothing else animates, and asks for no frames after.
 //
 //	save_i := controls.button("Save")
 //	controls.tooltip(save_i, "Save the document (Ctrl+S)")
@@ -58,7 +58,7 @@ tooltip :: proc(
 	if anchor == 0 || len(text) == 0 {
 		return
 	}
-	if niello.hover_duration(anchor) < delay && !niello.focus_visible(anchor) {
+	if !niello.hovered_for(anchor, delay) && !niello.focus_visible(anchor) {
 		return
 	}
 	P := &parts.tooltip
