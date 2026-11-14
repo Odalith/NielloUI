@@ -559,9 +559,10 @@ With :: struct {
 	// value or flags appears in the accessibility tree (a11y_tree); one with
 	// none of them does not.
 	label: Maybe(string),       // the accessible name; unset, the instance's
-	                            // text names it
+	                            // text names it. Copied, like text, so a
+	                            // temporary string is fine
 	role:        A11y_Role,     // .None = unset
-	description: Maybe(string), // the accessible description
+	description: Maybe(string), // the accessible description; copied too
 	value:       A11y_Value,    // the value of a slider, progress bar or edit field
 	a11y_flags: A11y_Flags,     // Checked, Selected, Expanded, ReadOnly…
 }
