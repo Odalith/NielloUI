@@ -344,4 +344,40 @@ when niello.NIELLO_DEBUG {
 			testing.expectf(t, found, "node %d is in the snapshot", k)
 		}
 	}
+
+	@(private)
+	dbg_para, dbg_para_box: niello.Unit
+	@(private)
+	dbg_para_i: niello.Instance
+
+	// Wrapped text overflows across only when a word is wider than its
+	// box: a paragraph that wraps is not reported for its one-line width.
+	@(test)
+	test_debug_wrapped_text_spills_only_long_words :: proc(t: ^testing.T) {
+		niello.test_reset()
+		defer niello.test_teardown()
+		niello.mint(&dbg_para_box, niello.NO_UNIT, {layout = .Top_To_Bottom, size = niello.size(niello.fixed(120), niello.fit())})
+		niello.mint(&dbg_para, niello.NO_UNIT, {size = niello.size(niello.grow(), niello.fit()), wrap = .Word})
+		ctx := niello.test_context()
+		run :: proc(ctx: ^niello.Context, text: string) -> f32 {
+			for _ in 0 ..< 2 {
+				niello.frame_begin(ctx, niello.Input{viewport = {400, 300}}, 0.016)
+				if niello.begin(dbg_para_box) {
+					dbg_para_i = niello.show(dbg_para, {text = text})
+				}
+				niello.frame_end()
+			}
+			for n in niello.debug_tree(ctx) {
+				if n.instance == dbg_para_i {
+					return n.spill.x
+				}
+			}
+			return -1
+		}
+		testing.expect_value(t, run(ctx, "many short words that wrap onto several lines here"), 0)
+		for r in niello.debug_overflows(ctx) {
+			testing.expectf(t, r.axis != .X, "no X overflow for a wrapping paragraph (%s %v)", r.name, r.px)
+		}
+		testing.expectf(t, run(ctx, "a supercalifragilisticexpialidocious word") > 0, "a word wider than the box spills")
+	}
 }

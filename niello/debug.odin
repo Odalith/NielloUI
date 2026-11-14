@@ -53,9 +53,10 @@ Debug_Node :: struct {
 	unit:     Unit,
 	rect:     Rect, // committed rect; zero when culled
 	overfl:   Vec2, // how far children extend past its bounds, per axis
-	spill:    Vec2, // how far its own content exceeds its box, per axis
-	                // (truncated text, a container squeezed below its
-	                // content)
+	spill:    Vec2, // how far its own content exceeds its box, per axis:
+	                // text cut short (unwrapped) or a word wider than the
+	                // box (wrapped), a container squeezed below what its
+	                // children can shrink to, content taller than the box
 	flags:    Debug_Flags,
 	with:     Debug_With, // the With overrides this instance was
 	                      // declared with
@@ -185,6 +186,15 @@ debug_snapshot_build :: proc() {
 				spill = Vec2{
 					max(0, g.lay[i].content.x - g.lay[i].size.x),
 					max(0, g.lay[i].content.y - g.lay[i].size.y),
+				}
+				// Across, content is the one-line width, which wrapped
+				// text (and every container holding it) only needs before
+				// it wraps. What really spills is the box squeezed below its
+				// floor: for wrapped text a word wider than the box, for a
+				// container what its children cannot shrink below. Unwrapped
+				// text keeps content: its spill is what the ellipsis trims.
+				if !nd.has_text || s.wrap == .Word {
+					spill.x = max(0, g.lay[i].min_c.x - g.lay[i].size.x)
 				}
 			}
 			append(
