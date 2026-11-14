@@ -27,6 +27,12 @@ macOS has release builds of the backend but is untested. Implemented:
   bar and scrollbar, with theme, type and spacing roles;
 - a debugger window in debug builds only (`-define:NIELLO_DEBUG=true`, F12
   in any window) at zero cost otherwise.
+- an agent harness in debug builds (`niello/agent`): a scenario runs the
+  app's own declare proc headless, finds controls by role and name, clicks
+  and types, and writes each screen as text with the line that declared
+  every control, plus what is wrong (overflow, truncated text, a screen
+  that never settles). Made so coding agents can see and check what they
+  build; `tools/agent.sh <app-package>` runs it.
 
 A headless suite (270+ tests) covers the core, and the SDL loop idles at
 ~0 CPU: it blocks on OS events and wakes on the nearest engine deadline
@@ -183,6 +189,7 @@ NielloUI/
     virtual/            package virtual: virtual lists
     inbox/              package inbox: results from worker threads
     debugui/            package debugui: the debugger window
+    agent/              package agent: the agent harness (debug builds)
   native/               the backend source (nui.h, nui.cpp): Skia Graphite
                         + Dawn behind a small C ABI, built as a static lib
   third_party/native/   prebuilt backends, one directory per platform
@@ -193,6 +200,7 @@ NielloUI/
     build-native.sh     builds the backend (maintainers; see build-native.md)
     docgen/             generates the API reference from the doc comments
     docs.sh             builds or serves the user guide
+    agent.sh            runs an app's agent scenarios (agent.ps1 on Windows)
 ```
 
 ## The native backend

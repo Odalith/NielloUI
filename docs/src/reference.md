@@ -14,6 +14,7 @@ line.
 | [niello/virtual](reference/virtual.md) | `import virtual "niello:virtual"` | Virtual lists: fixed and estimated row heights. |
 | [niello/inbox](reference/inbox.md) | `import inbox "niello:inbox"` | One queue for results from worker threads. |
 | [niello/debugui](reference/debugui.md) | `import debugui "niello:debugui"` | The debugger window (debug builds). |
+| [niello/agent](reference/agent.md) | `import agent "niello:agent"` | The agent harness: run an app headless, act on it, snapshot and lint it (debug builds). |
 
 The packages other than `niello` are optional, and each is built on the
 core's public API only.

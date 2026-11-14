@@ -39,6 +39,7 @@ PACKAGES := []Package{
 	{"niello/virtual", "virtual", "niello:virtual", "virtual"},
 	{"niello/inbox", "inbox", "niello:inbox", "inbox"},
 	{"niello/debugui", "debugui", "niello:debugui", "debugui"},
+	{"niello/agent", "agent", "niello:agent", "agent"},
 }
 
 Kind :: enum {
