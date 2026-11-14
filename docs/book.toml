@@ -7,6 +7,10 @@ src = "src"
 
 [build]
 build-dir = "book"
+# Every page in SUMMARY.md must exist: the API reference pages come from
+# tools/docgen, and a missing one fails the build instead of turning into an
+# empty page.
+create-missing = false
 
 [output.html]
 default-theme = "light"
@@ -15,6 +19,7 @@ git-repository-url = "https://github.com/Odalith/NielloUI"
 edit-url-template = "https://github.com/Odalith/NielloUI/edit/main/docs/{path}"
 site-url = "/NielloUI/"
 additional-js = ["theme/odin-highlight.js"]
+additional-css = ["theme/docgen.css"]
 
 [output.html.search]
 enable = true

@@ -48,8 +48,10 @@ third_party/native/**
 /build/
 /dist/
 
-# The built documentation site (docs/: mdbook build)
+# The built documentation site (docs/: mdbook build) and the generated
+# API reference (tools/docgen)
 /docs/book/
+/docs/src/reference/
 
 # Local logs and traces
 /debug-*.out

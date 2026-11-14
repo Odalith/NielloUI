@@ -4,7 +4,8 @@
 # Every code example in the book comes from docs/snippets: the window
 # programs (docs/snippets/apps/*) are compile-checked and the headless
 # snippets (docs/snippets/headless) run as tests, before the book builds.
-# No native backend is needed for either.
+# No native backend is needed for either. The API reference
+# (docs/src/reference) is generated from the doc comments by tools/docgen.
 #
 # One-time setup: repository Settings -> Pages -> Source: "GitHub Actions".
 name: docs
@@ -12,9 +13,9 @@ name: docs
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "niello/**", "tools/mdbook-version.txt", "tools/odin-version.txt", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "niello/**", "tools/docgen/**", "tools/mdbook-version.txt", "tools/odin-version.txt", ".github/workflows/docs.yml"]
   pull_request:
-    paths: ["docs/**", "niello/**", "tools/mdbook-version.txt", "tools/odin-version.txt", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "niello/**", "tools/docgen/**", "tools/mdbook-version.txt", "tools/odin-version.txt", ".github/workflows/docs.yml"]
   workflow_dispatch:
 
 permissions:
@@ -56,6 +57,9 @@ jobs:
 
       - name: Run the headless snippets
         run: odin test docs/snippets/headless -define:ODIN_TEST_THREADS=1 -collection:niello=niello
+
+      - name: Generate the API reference
+        run: odin run tools/docgen -out:"$RUNNER_TEMP/docgen" -- -out:docs/src/reference
 
       - name: Build the book
         run: mdbook build docs
