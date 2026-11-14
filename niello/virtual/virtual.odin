@@ -259,6 +259,7 @@ item_pos :: proc(l: ^List, i: int) -> f32 {
 @(private)
 setup :: proc(l: ^List, s: niello.Section, count: int) {
 	st := niello.style_of(s.unit)
+	assert(st.layout != .Wrap, "niello/virtual: the host must be a row or a column, not a Wrap")
 	l.axis = st.layout == .Left_To_Right ? 0 : 1
 	if l.gap != f32(st.gap) {
 		l.gap = f32(st.gap)

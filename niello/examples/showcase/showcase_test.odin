@@ -194,6 +194,18 @@ showcase_smoke :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.controls.clicks, before + 1)
 
 	// Keyboard: focus by click, type, edit, Tab onward.
+	// Layout's Wrap demo: the chips wrap onto several lines, and the
+	// align buttons cycle (each click relayouts; the repaint check in
+	// frame covers it).
+	click(&app, app.nav_i[.Layout])
+	idle(&app, 2)
+	first, _ := niello.rect(app.layout.wrap_x_i)
+	testing.expect(t, first.size.x > 0, "the Wrap demo is on the Layout page")
+	click(&app, app.layout.wrap_x_i)
+	click(&app, app.layout.wrap_x_i)
+	click(&app, app.layout.wrap_y_i)
+	testing.expect(t, app.layout.wrap_align == [2]niello.Align_Kind{.End, .Center}, "the align buttons cycle")
+
 	click(&app, app.nav_i[.Input])
 	click(&app, app.input.name.inst)
 	testing.expect(t, niello.focused(app.input.name.inst), "a click focuses the field")

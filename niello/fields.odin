@@ -72,6 +72,7 @@ FIELD_META := [Field]Field_Meta {
 	.Justify              = {offset_of(Style, justify), offset_of(Style_Decl, justify), size_of(bool), typeid_of(type_of(Style{}.justify)), typeid_of(type_of(Style_Decl{}.justify)), .Snap},
 	.Padding              = {offset_of(Style, padding), offset_of(Style_Decl, padding), size_of([4]u16), typeid_of(type_of(Style{}.padding)), typeid_of(type_of(Style_Decl{}.padding)), .Padding},
 	.Gap                  = {offset_of(Style, gap), offset_of(Style_Decl, gap), size_of(u16), typeid_of(type_of(Style{}.gap)), typeid_of(type_of(Style_Decl{}.gap)), .U16},
+	.Line_Gap             = {offset_of(Style, line_gap), offset_of(Style_Decl, line_gap), size_of(u16), typeid_of(type_of(Style{}.line_gap)), typeid_of(type_of(Style_Decl{}.line_gap)), .U16},
 	.Corner_Radius        = {offset_of(Style, corner_radius), offset_of(Style_Decl, corner_radius), size_of(u8), typeid_of(type_of(Style{}.corner_radius)), typeid_of(type_of(Style_Decl{}.corner_radius)), .U8},
 	.Opacity              = {offset_of(Style, opacity), offset_of(Style_Decl, opacity), size_of(u8), typeid_of(type_of(Style{}.opacity)), typeid_of(type_of(Style_Decl{}.opacity)), .U8},
 	.Layout               = {offset_of(Style, layout), offset_of(Style_Decl, layout), size_of(Layout), typeid_of(type_of(Style{}.layout)), typeid_of(type_of(Style_Decl{}.layout)), .Snap},

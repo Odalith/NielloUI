@@ -194,6 +194,7 @@ Context :: struct {
 	first_child:  [dynamic]int,
 	next_sibling: [dynamic]int,
 	wrap_list:    [dynamic]int,
+	wrap_lines:   [dynamic]Wrap_Line, // Wrap containers' lines (layout.odin)
 	subtree_end:  [dynamic]int,
 
 	// Reusable scratch buffers (Clay-style): per-frame temporaries that must
@@ -499,6 +500,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.wrap_list)
 	delete(ctx.subtree_end)
 	delete(ctx.scratch_a)
+	delete(ctx.wrap_lines)
 	delete(ctx.scratch_b)
 	delete(ctx.scratch_ints)
 	delete(ctx.draw_cmds)

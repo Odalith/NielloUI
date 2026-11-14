@@ -93,12 +93,21 @@ page_controls :: proc(app: ^App) {
 // =====================================================================
 
 Layout_State :: struct {
-	squeeze: controls.Slider,
+	squeeze:          controls.Slider,
+	wrap_align:       [2]niello.Align_Kind, // the Wrap demo's align, cycled by its buttons
+	wrap_x_i, wrap_y_i: niello.Instance,
+}
+
+WRAP_WORDS := [?]string{
+	"layout", "wrap", "rows", "tags", "chips", "a taller one", "alignment", "per line",
+	"line_gap", "gap", "Start", "Center", "End", "grow", "fit", "resize the window",
+	"Odin", "Skia",
 }
 
 layout_units: struct {
 	box_row, sized, demo_label, align_cell, align_dot, clip_box, spill_box, wide: niello.Unit,
 	squeeze_row, squeeze_label, squeeze_label_low: niello.Unit,
+	wrap_box, wrap_tag, wrap_tall: niello.Unit,
 	fixed_b, fit_b, grow_b, grow2_b, grow_max_b, percent_b: niello.Unit,
 	align_cells: [9]niello.Unit,
 }
@@ -136,6 +145,29 @@ page_layout :: proc(app: ^App) {
 				if niello.begin(L.align_cells[k]) {
 					niello.show(L.align_dot)
 				}
+			}
+		}
+	}
+
+	if niello.begin(ui.card) {
+		heading("Wrap")
+		note("Layout.Wrap: children run left to right and start a new line when the next one doesn't fit; resize the window to watch them rewrap. align[0] places each line, align[1] the block of lines and each chip within its line.")
+		names := [3]string{"Start", "Center", "End"}
+		if niello.begin(ui.row) {
+			s.wrap_x_i = controls.button(fmt.tprintf("align x: %s", names[s.wrap_align[0]]))
+			if niello.clicked(s.wrap_x_i) {
+				s.wrap_align[0] = niello.Align_Kind((int(s.wrap_align[0]) + 1) % 3)
+				niello.set(L.wrap_box, .Align, s.wrap_align)
+			}
+			s.wrap_y_i = controls.button(fmt.tprintf("align y: %s", names[s.wrap_align[1]]))
+			if niello.clicked(s.wrap_y_i) {
+				s.wrap_align[1] = niello.Align_Kind((int(s.wrap_align[1]) + 1) % 3)
+				niello.set(L.wrap_box, .Align, s.wrap_align)
+			}
+		}
+		if niello.begin(L.wrap_box) {
+			for word, k in WRAP_WORDS {
+				niello.show(k == 5 ? L.wrap_tall : L.wrap_tag, {text = word}, niello.key_int(k))
 			}
 		}
 	}
@@ -409,6 +441,20 @@ mint_pages_basic :: proc(t: Theme) {
 			groups = []niello.Group{controls.groups.raised},
 		})
 	}
+	niello.mint(&L.wrap_box, niello.NO_UNIT, {
+		layout = .Wrap, size = size(grow(), fixed(160)), gap = 6, line_gap = 6,
+		padding = pad(8), corner_radius = 6, color = t.bg,
+		groups = []niello.Group{controls.groups.bg},
+	})
+	niello.mint(&L.wrap_tag, niello.NO_UNIT, {
+		padding = pad_xy(10, 5), corner_radius = 12, color = t.raised,
+		font_size = 13, font_color = t.ink,
+		groups = []niello.Group{controls.groups.raised, controls.groups.ink},
+	})
+	niello.mint(&L.wrap_tall, L.wrap_tag, {
+		padding = pad_xy(10, 14),
+		groups = []niello.Group{controls.groups.raised, controls.groups.ink},
+	})
 	niello.mint(&L.squeeze_row, niello.NO_UNIT, {
 		layout = .Left_To_Right, size = size(fixed(400), fixed(34)), gap = 6,
 		padding = pad(4), corner_radius = 6, color = t.bg,

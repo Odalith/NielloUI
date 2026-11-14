@@ -515,6 +515,9 @@ when niello.NIELLO_DEBUG {
 			kv("overflow", fmt.bprintf(buf[:], "%v", s.overflow))
 			kv("opacity", fmt.bprintf(buf[:], "%d", s.opacity))
 			kv("gap", fmt.bprintf(buf[:], "%v", s.gap))
+			if s.layout == .Wrap {
+				kv("line gap", fmt.bprintf(buf[:], "%v", s.line_gap))
+			}
 			kv("padding", fmt.bprintf(buf[:], "%v", s.padding))
 		}
 

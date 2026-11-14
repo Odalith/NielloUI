@@ -95,8 +95,9 @@ line. The shipped [controls](../controls.md) all do this.
 
 ## Children and layout
 
-A container arranges its children by its unit's `layout` (left to right, top
-to bottom, or stacked), with its `padding` and `gap`, and each child sizes by
-its own `size`. Instances declared outside any container are roots: each one
+A container arranges its children by its unit's `layout`: left to right, top
+to bottom, stacked, or `Wrap` (left to right, starting a new line below when
+the next child doesn't fit, with `line_gap` between lines). It uses its
+`padding` and `gap`, and each child sizes by its own `size`. Instances declared outside any container are roots: each one
 fills the window. [Layout](../layout.md) covers sizing, alignment, scrolling
 and overflow.

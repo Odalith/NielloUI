@@ -79,7 +79,7 @@ Key :: distinct u64
 Field :: enum u8 {
 	Color, Font_Color, Border_Color,
 	Text, Font, Font_Size, Font_Weight, Font_Slant, Text_Wrap, Whitespace, Ellipsis, Justify,
-	Padding, Gap, Corner_Radius, Opacity,
+	Padding, Gap, Line_Gap, Corner_Radius, Opacity,
 	Layout, Align, Size, Scroll, Overflow,
 	Border_Width, Overlay_Color, Overlay_Border_Color, Overlay_Border_Width,
 	Text_Spans, Cursor, Scroll_Chain, Smooth_Scroll, Smooth_Ms,
@@ -95,7 +95,7 @@ Fields :: bit_set[Field]
 ALL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
 	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
-	.Padding, .Gap, .Corner_Radius, .Opacity,
+	.Padding, .Gap, .Line_Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
 	.Text_Spans, .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
@@ -110,7 +110,7 @@ ALL_FIELDS :: Fields{
 VISUAL_FIELDS :: Fields{
 	.Color, .Font_Color, .Border_Color,
 	.Text, .Font, .Font_Size, .Font_Weight, .Font_Slant, .Text_Wrap, .Whitespace, .Ellipsis, .Justify,
-	.Padding, .Gap, .Corner_Radius, .Opacity,
+	.Padding, .Gap, .Line_Gap, .Corner_Radius, .Opacity,
 	.Layout, .Align, .Size, .Scroll, .Overflow,
 	.Border_Width, .Overlay_Color, .Overlay_Border_Color, .Overlay_Border_Width,
 	.Text_Spans,
@@ -122,6 +122,14 @@ Layout :: enum u8 {
 	Left_To_Right, // a row
 	Top_To_Bottom, // a column
 	Stack,         // layered: each child sized and aligned on its own in the content box
+	// Wrap is a row that wraps: children run left to right, and one that
+	// doesn't fit starts a new line below. gap spaces the children in a
+	// line, line_gap the lines. align[0] places each line's children
+	// (Start, Center, End, line by line); align[1] places the block of
+	// lines in the container and each child within its line's height.
+	// A Wrap container can shrink to its widest child; one that scrolls
+	// horizontally does not wrap.
+	Wrap,
 }
 
 // Sizing_Kind is how a Sizing resolves (see fit, grow, fixed, percent).
@@ -360,6 +368,7 @@ Style :: struct {
 	text_spans:    []Text_Span, // rich-text overrides; nil = plain
 	padding:       [4]u16, // [left, top, right, bottom]; see pad / pad_xy
 	gap:           u16,
+	line_gap:      u16,           // space between the lines of a Wrap layout
 	border_width:  u16, // paint-only; drawn inset within the rect
 	corner_radius: u8,
 	opacity:       u8,
@@ -446,6 +455,7 @@ Style_Decl :: struct {
 	text_spans:    Maybe([]Text_Span),
 	padding:       Maybe([4]u16),
 	gap:           Maybe(u16),
+	line_gap:      Maybe(u16),
 	border_width:  Maybe(u16),
 	corner_radius: Maybe(u8),
 	opacity:       Maybe(u8),
