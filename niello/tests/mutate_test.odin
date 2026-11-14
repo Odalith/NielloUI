@@ -509,3 +509,24 @@ test_set_many_noop_and_focusable_and_clear_overlay :: proc(t: ^testing.T) {
 	res = hframe(btn, OVER)
 	testing.expect(t, !res.changed, "after clear_overlay, hovering changes nothing")
 }
+
+// A gliding broadcast with no context bound (before the first frame:
+// an app applying its theme at startup) has no frames to run on: the
+// value lands at once instead of reaching for a context that is not
+// there.
+@(test)
+test_glide_without_a_context_lands_at_once :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	u: niello.Unit
+	niello.mint(&u, niello.NO_UNIT, {color = niello.Color{0, 0, 0, 255}})
+	grp := niello.group_new()
+	niello.group_add(grp, u)
+	niello.set_current(nil)
+	niello.group_set(grp, .Color, niello.Color{200, 100, 50, 255}, 300)
+	testing.expect_value(t, niello.style_of(u).color, niello.Color{200, 100, 50, 255})
+	other: niello.Unit
+	niello.mint(&other, niello.NO_UNIT, {padding = niello.pad(9)})
+	niello.tween(u, other, 300, {.Padding})
+	testing.expect_value(t, niello.style_of(u).padding, niello.pad(9))
+}

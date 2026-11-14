@@ -128,7 +128,10 @@ start_glide :: proc(u: Unit, fields: Fields, to: ^Style, ms: u32) {
 	// engine's own writes were the exception.
 	cancel_glide_fields(u, fields)
 	rec := &store.units[unit_index(u)]
-	if ms == 0 {
+	// A glide is stepped by the bound context's frames. With none bound
+	// (before the first frame_begin), there is no clock to run it on:
+	// the values land at once.
+	if ms == 0 || g == nil {
 		for f in fields {
 			write_field(u, f, to)
 		}

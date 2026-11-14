@@ -2180,7 +2180,8 @@ group_merge :: proc(grp, sub: Group) {
 
 // group_set writes one field to every member of grp that joined for it
 // and has not pinned it: group_set(theme.accent, .Color, c). ms 0 lands it
-// at once; ms > 0 glides each member there from wherever it is.
+// at once; ms > 0 glides each member there from wherever it is (before
+// the first frame, with no current context, it lands at once).
 group_set :: proc(grp: Group, f: Field, v: $T, ms: u32 = 0) {
 	rec := group_rec(grp)
 	for m in rec.members {
@@ -2362,7 +2363,9 @@ group_add_member :: proc(grp: Group, u: Unit, fields: Fields) {
 // if the target unit changes later, the glide does not chase it. A
 // new tween steals its masked fields from any glide running on u, and
 // an explicit write (set/set_many/edit/group_set) to a gliding field
-// cancels that field's glide. ms == 0 is an immediate masked copy.
+// cancels that field's glide. ms == 0 is an immediate masked copy. A
+// glide runs on the frames of the context that is current when it
+// starts; called before any frame (no current context), it lands at once.
 tween :: proc(u: Unit, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) {
 	assert(unit_live(u), "niello.tween: unit is not minted")
 	assert(unit_live(to), "niello.tween: target unit is not minted")
