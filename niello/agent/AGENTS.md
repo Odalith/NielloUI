@@ -134,9 +134,10 @@ What the shipped controls are called:
 | `controls.checkbox`, `toggle_switch` | `.CheckBox` | its label |
 | `controls.radio_group` | `.Group`, with one `.RadioButton` per option | the group's label; each option's text |
 | `controls.combo_box` | `.ComboBox`; while open, `.ComboBoxItem` per option | its label; the option's text |
-| `controls.text_box` | `.Edit` | its placeholder |
+| `controls.text_box` | `.Edit` | its `label`, or its placeholder when it has none |
 | `controls.slider` / `progress_bar` | `.Slider` / `.ProgressBar` | its label |
 | `controls.tooltip` | `.ToolTip` | its text |
+| `controls.field` | no role: a caption (`text = …`) above its control | the control inside keeps its own name |
 
 For your own components, give the root a role and a label in its `With`
 (`role = .Button, label = "…"`): that is what both screen readers and the
@@ -213,9 +214,21 @@ fix the code instead.
 - **Read the snapshot, not just PASS:** the lints catch what can be
   measured exactly. A control in the wrong place, or one that is the right
   size but looks wrong, only shows when you read the snapshot.
-- **Labels of `combo_box` and `slider`:** these name the control for
-  screen readers and for `find`, and draw nothing. Show a visible label
-  yourself when the screen needs one. `checkbox` draws its label.
+- **Labels of `combo_box`, `slider` and `text_box`:** these name the
+  control for screen readers and for `find`, and draw nothing. For a
+  visible caption, put the control in a `controls.field("Caption")`
+  block, and still give the control its own label. `checkbox` and
+  `radio_group` draw their labels, and wrap long ones.
+- **One axis of a size:** a `With.size` sets both axes. To set only one,
+  `keep()` the other: `with = {size = niello.size(niello.fixed(240),
+  niello.keep())}`.
+- **Showing what was just added:** `niello.scroll_into_view(row_i)`
+  scrolls every scroller holding the row just far enough to show it. It
+  works on a row declared in the same frame. `scroll_to` can't do this:
+  it clamps against the previous frame's range.
+- **Esc versus a click outside:** `niello.dismiss_reason(popup_i)` says
+  which of the two asked to close a popup. A dialog usually closes on
+  `.Escape` but not on `.Press_Outside`.
 - **Where focus goes:** focus moves only when a click, Tab or the app
   moves it. `type_text` with nothing focused types into nothing, so check
   the snapshot's `focus:` header.
