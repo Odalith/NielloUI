@@ -201,9 +201,9 @@ rgb :: proc "contextless" (hex: u32, alpha: u8 = 255) -> Color {
 	return Color{u8(hex >> 16), u8(hex >> 8), u8(hex), alpha}
 }
 
-// Padding is [left, top, right, bottom]. pad gives all four sides the
-// same value, pad_xy one value horizontally and one vertically, and
-// pad_each names every side.
+// pad gives all four sides of a padding the same value; pad_xy gives one
+// value horizontally and one vertically, and pad_each names every side.
+// A padding is [left, top, right, bottom].
 pad :: proc "contextless" (all: u16) -> [4]u16 {
 	return [4]u16{all, all, all, all}
 }
@@ -618,20 +618,19 @@ Modifier :: enum u8 {
 // Modifiers is the set of modifiers held.
 Modifiers :: bit_set[Modifier; u8]
 
-// One keyboard event. A key has two names:
+// Key_Event is one keyboard event. A key has two names:
 //
-//   key       what the active keyboard layout produces: the key to
-//             match for shortcuts and editing (Ctrl+Z is .Z on QWERTY
-//             and AZERTY alike). Not affected by the modifiers —
-//             Shift+1 is .Digit_1, not '!' (read typed characters
-//             with input_text).
-//   physical  the key at that position on a US QWERTY board, whatever
-//             the layout: for position-based bindings (WASD).
+//   - key: what the active keyboard layout produces, the key to match
+//     for shortcuts and editing (Ctrl+Z is .Z on QWERTY and AZERTY
+//     alike). The modifiers do not affect it: Shift+1 is .Digit_1, not
+//     '!' (read typed characters with input_text).
+//   - physical: the key at that position on a US QWERTY board, whatever
+//     the layout, for position-based bindings (WASD).
 //
 // The core consumes only the keys its own semantics need — Tab
 // (traversal; Shift reverses), Escape (popup dismiss) and
-// Space/Enter/Kp_Enter (activation), all matched on `key` — and
-// passes the rest to the focused instance via input_keys.
+// Space/Enter/Kp_Enter (activation), all matched on key — and passes
+// the rest to the focused instance via input_keys.
 Key_Event :: struct {
 	key:      Key_Code,
 	physical: Key_Code,
@@ -1062,9 +1061,6 @@ clear_overlay :: proc(u: Unit, kind: Overlay_Kind) {
 //		if niello.begin(btn_u, out = &i, loc = loc) { ... }
 //		return
 //	}
-//
-// show, begin and begin_popup are inlined at the call site so the
-// location folds there and only its hash reaches the engine.
 show :: #force_inline proc(unit: Unit, with: With = {}, key: Key = 0, loc := #caller_location) -> Instance {
 	return show_at(unit, with, key, site_hash(loc))
 }
@@ -1170,7 +1166,7 @@ current :: proc() -> Instance {
 //		... declare the rows in view with show/begin as usual ...
 //	}
 //	if niello.begin_section(list_u, niello.builder(build_rows, &app), out = &app.list_i) {
-//		scrollbar(&app.bar, app.list_i) // chrome: anchored children only
+//		controls.scrollbar(&app.bar, app.list_i) // chrome: anchored children only
 //	}
 //
 // The contract:
@@ -1212,8 +1208,11 @@ builder :: proc(build: proc(data: ^$T, s: Section), data: ^T) -> Builder {
 	return Builder{build = transmute(Section_Build)build, data = rawptr(data)}
 }
 
-// begin_section declares a section host and queues its build (see
-// above). The result and out work as for begin.
+// begin_section declares a section host and queues its build: b, made with
+// builder, runs inside frame_end once the host's rect is known, and
+// declares the host's flow children (Section has the full contract). The
+// block declares anchored children only. The result and out work as for
+// begin.
 @(deferred_out = end)
 begin_section :: proc(
 	unit: Unit,

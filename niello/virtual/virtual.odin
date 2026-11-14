@@ -24,7 +24,7 @@
 //	}
 //
 //	if niello.begin_section(list_u, niello.builder(build_rows, &app), out = &app.list_i) {
-//		scrollbar(&app.bar, app.list_i)
+//		controls.scrollbar(&app.bar, app.list_i)
 //	}
 //
 // The contract:

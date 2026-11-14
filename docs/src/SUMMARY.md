@@ -26,3 +26,9 @@
 # Reference
 
 - [API reference](reference.md)
+    - [niello](reference/niello.md)
+    - [niello/sdl](reference/sdl.md)
+    - [niello/controls](reference/controls.md)
+    - [niello/virtual](reference/virtual.md)
+    - [niello/inbox](reference/inbox.md)
+    - [niello/debugui](reference/debugui.md)

@@ -26,9 +26,8 @@ package niello
 // a translucent red fill with a solid red border.
 DEBUG_OVERFLOW_COLOR :: Color{255, 60, 60, 56}
 
-// Default highlight fill (translucent amber); the border drawn
-// with it is the same hue at full alpha. debug_highlight takes
-// a color for callers that want their own.
+// DEBUG_HIGHLIGHT_COLOR is debug_highlight's default fill, a translucent
+// amber; the border drawn with it is the same hue at full alpha.
 DEBUG_HIGHLIGHT_COLOR :: Color{255, 170, 40, 64}
 
 // Debug_Flag is a fact about a node in the debug snapshot.
@@ -244,15 +243,16 @@ emit_debug_overlay :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 
 when NIELLO_DEBUG {
 
-	// debug_contexts lists the live contexts in creation order —
-	// the debugger's target switcher reads it. Borrowed; valid
+	// debug_contexts lists the live contexts in creation order (the
+	// debugger's window switcher reads it). The slice is borrowed: valid
 	// until a context is created or destroyed.
 	debug_contexts :: proc() -> []^Context {
 		return store.contexts[:]
 	}
 
-	// debug_unit_name returns a unit's mint debug name ("" for an
-	// unknown unit) — tree labels for the debugger window.
+	// debug_unit_name returns the name a unit was minted with (mint's name
+	// parameter; "" for an unknown unit). The debugger labels tree rows
+	// with it.
 	debug_unit_name :: proc(u: Unit) -> string {
 		if !unit_live(u) {
 			return ""
@@ -260,9 +260,8 @@ when NIELLO_DEBUG {
 		return store.units[unit_index(u)].name
 	}
 
-	// debug_unit_loc returns where a unit was minted (the
-	// #caller_location mint stores): file path + line. The
-	// Details panel shows it for the selected node's unit.
+	// debug_unit_loc returns where a unit was minted: the file and line of
+	// the mint call. The debugger shows it for the selected node's unit.
 	debug_unit_loc :: proc(u: Unit) -> (file: string, line: i32, ok: bool) {
 		if !unit_live(u) {
 			return "", 0, false
@@ -271,9 +270,9 @@ when NIELLO_DEBUG {
 		return loc.file_path, loc.line, true
 	}
 
-	// debug_tree returns ctx's last-frame snapshot. Borrowed;
-	// valid until ctx's next frame_end. Nil-safe: a nil context
-	// or a context that never framed yields an empty slice.
+	// debug_tree returns ctx's node tree as of its last frame. The slice is
+	// borrowed: valid until ctx's next frame_end. A nil context, or one
+	// that has not run a frame, gives an empty slice.
 	debug_tree :: proc(ctx: ^Context) -> []Debug_Node {
 		if ctx == nil {
 			return nil
@@ -281,10 +280,10 @@ when NIELLO_DEBUG {
 		return ctx.debug_nodes[:]
 	}
 
-	// debug_style_in reads the effective style instance i had in
-	// ctx's last frame (the node_style resolution: the resolved
-	// eff style when one was computed, the unit's base style
-	// otherwise). Cross-context like rect_in.
+	// debug_style_in returns the effective style instance i had in ctx's
+	// last frame: its unit's style with its variant, the active state
+	// overlays, a running transient and With.size applied. Like rect_in,
+	// it reads any context.
 	debug_style_in :: proc(ctx: ^Context, i: Instance) -> (Style, bool) {
 		if ctx == nil || i == 0 {
 			return {}, false
@@ -301,9 +300,9 @@ when NIELLO_DEBUG {
 		return {}, false
 	}
 
-	// debug_overflows derives the §3.13 report from ctx's
-	// snapshot. The result lives in a store scratch buffer —
-	// valid until the next debug_overflows call.
+	// debug_overflows returns ctx's overflow report as of its last frame:
+	// every instance whose content does not fit it (Overflow_Rec). The
+	// slice is valid until the next debug_overflows call.
 	debug_overflows :: proc(ctx: ^Context) -> []Overflow_Rec {
 		clear(&store.debug_ovf_scratch)
 		if ctx == nil {
@@ -334,27 +333,27 @@ when NIELLO_DEBUG {
 		return store.debug_ovf_scratch[:]
 	}
 
-	// debug_highlight aims the highlight channel at one instance
-	// in one context (Clay-style: the debugger sets it as tree
-	// rows are hovered). color is the fill; the border is the
-	// same hue at full alpha. debug_highlight(nil, 0) clears.
+	// debug_highlight highlights one instance in one context (the debugger
+	// does it as tree rows are hovered); one highlight exists at a time.
+	// color is the fill; the border is the same hue at full alpha.
+	// debug_highlight(nil, 0) clears it.
 	debug_highlight :: proc(ctx: ^Context, i: Instance, color: Color = DEBUG_HIGHLIGHT_COLOR) {
 		store.debug_hl_ctx = ctx
 		store.debug_hl_inst = i
 		store.debug_hl_color = color
 	}
 
-	// debug_show_overflows toggles the overflow tint overlay in
-	// ctx: every node in its report set paints the tint at emit.
+	// debug_show_overflows turns the overflow tint on or off in ctx: every
+	// instance in its overflow report is painted with
+	// DEBUG_OVERFLOW_COLOR.
 	debug_show_overflows :: proc(ctx: ^Context, on: bool) {
 		store.debug_ovf_ctx = ctx
 		store.debug_ovf_on = on
 	}
 
-	// debug_summon_hook is set by the debugger package
-	// (niello/debugui's install): the SDL glue, in debug builds,
-	// calls it with the context of the window that received the
-	// summon key combo (F12). Nil = no debugger installed; the
-	// combo then does nothing.
+	// debug_summon_hook is how a host opens the debugger: niello/debugui's
+	// install sets it, and niello/sdl calls it with the context of the
+	// window that received F12. Nil, no debugger is installed and F12
+	// does nothing.
 	debug_summon_hook: proc(ctx: ^Context)
 }

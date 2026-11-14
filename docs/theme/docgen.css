@@ -1,0 +1,19 @@
+/* The generated API reference (tools/docgen): declarations are <pre> blocks
+   highlighted by docgen itself, so their names can link. */
+pre.docgen > code {
+	tab-size: 4;
+	white-space: pre;
+}
+pre.docgen a {
+	color: inherit;
+	text-decoration: underline;
+	text-decoration-style: dotted;
+	text-underline-offset: 2px;
+}
+pre.docgen a:hover {
+	color: var(--links);
+	text-decoration-style: solid;
+}
+.content h3 + pre.docgen {
+	margin-top: 0.5em;
+}
