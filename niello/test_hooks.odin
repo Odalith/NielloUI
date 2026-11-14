@@ -131,4 +131,19 @@ when ODIN_TEST {
 	// The text cache's sweep tuning, for tests that wait it out.
 	TEST_TEXT_KEEP_FRAMES :: TEXT_KEEP_FRAMES
 	TEST_TEXT_SWEEP_EVERY :: TEXT_SWEEP_EVERY
+
+	// Test_Field_Row is one row of the style field table, for the test
+	// that checks the table against Style and Style_Decl.
+	Test_Field_Row :: struct {
+		style_off, decl_off: uintptr,
+		size:                int,
+		id, decl_id:         typeid,
+	}
+
+	test_field_rows :: proc() -> (rows: [Field]Test_Field_Row) {
+		for m, f in FIELD_META {
+			rows[f] = {m.style_off, m.decl_off, m.size, m.id, m.decl_id}
+		}
+		return
+	}
 }

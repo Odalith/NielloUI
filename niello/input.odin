@@ -1,6 +1,8 @@
 #+private
 package niello
 
+import "base:intrinsics"
+
 // input.odin — pointer dispatch, interaction state, and state-overlay
 // resolution.
 //
@@ -1072,54 +1074,18 @@ resolve_styles_range :: proc(lo, hi: int) {
 
 // apply_overlay merges one overlay unit's explicitly-set fields over dst.
 @(private)
-apply_overlay :: proc(dst: ^Style, overlay: Unit) {
+apply_overlay :: #force_no_inline proc(dst: ^Style, overlay: Unit) {
 	if overlay == NO_UNIT {
 		return
 	}
 	rec := &store.units[unit_index(overlay)]
-	for f in rec.explicit {
+	// Visit only the set bits: an overlay sets a few of the fields.
+	#assert(size_of(Fields) == size_of(u64))
+	bits := transmute(u64)rec.explicit
+	for bits != 0 {
+		f := Field(intrinsics.count_trailing_zeros(bits))
+		bits &= bits - 1
 		copy_field(dst, &rec.style, f)
-	}
-}
-
-@(private)
-copy_field :: proc(dst, src: ^Style, f: Field) {
-	switch f {
-	case .Color:         dst.color         = src.color
-	case .Font_Color:    dst.font_color    = src.font_color
-	case .Border_Color:  dst.border_color  = src.border_color
-	case .Text:          dst.text          = src.text
-	case .Font:          dst.font          = src.font
-	case .Font_Size:     dst.font_size     = src.font_size
-	case .Font_Weight:   dst.font_weight   = src.font_weight
-	case .Font_Slant:    dst.font_slant    = src.font_slant
-	case .Text_Spans:    dst.text_spans    = src.text_spans
-	case .Text_Wrap:     dst.wrap          = src.wrap
-	case .Whitespace:    dst.whitespace    = src.whitespace
-	case .Ellipsis:      dst.ellipsis      = src.ellipsis
-	case .Justify:       dst.justify       = src.justify
-	case .Padding:       dst.padding       = src.padding
-	case .Gap:           dst.gap           = src.gap
-	case .Corner_Radius: dst.corner_radius = src.corner_radius
-	case .Opacity:       dst.opacity       = src.opacity
-	case .Layout:        dst.layout        = src.layout
-	case .Align:         dst.align         = src.align
-	case .Size:          dst.size          = src.size
-	case .Scroll:        dst.scroll        = src.scroll
-	case .Overflow:      dst.overflow      = src.overflow
-	case .Border_Width:  dst.border_width  = src.border_width
-	case .Overlay_Color:        dst.overlay_color        = src.overlay_color
-	case .Overlay_Border_Color: dst.overlay_border_color = src.overlay_border_color
-	case .Overlay_Border_Width: dst.overlay_border_width = src.overlay_border_width
-	case .Cursor:       dst.cursor       = src.cursor
-	case .Scroll_Chain: dst.scroll_chain = src.scroll_chain
-	case .Smooth_Scroll: dst.smooth_scroll = src.smooth_scroll
-	case .Smooth_Ms: dst.smooth_ms = src.smooth_ms
-	case .Overscroll: dst.overscroll = src.overscroll
-	case .Overscroll_Px: dst.overscroll_px = src.overscroll_px
-	case .Image:       dst.image       = src.image
-	case .Image_Fit:   dst.image_fit   = src.image_fit
-	case .Image_Interp: dst.image_interp = src.image_interp
 	}
 }
 

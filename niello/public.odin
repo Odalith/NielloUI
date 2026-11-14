@@ -772,50 +772,6 @@ must :: proc(v: any, $T: typeid) -> T {
 	return x
 }
 
-// style_set_any writes one field of a bare style (no unit bookkeeping):
-// set_any's switch, reused where a style is assembled off-unit
-// (group_set's tween targets).
-@(private)
-style_set_any :: proc(s: ^Style, f: Field, v: any) {
-	switch f {
-	case .Color:         s.color         = must(v, Color)
-	case .Font_Color:    s.font_color    = must(v, Color)
-	case .Border_Color:  s.border_color  = must(v, Color)
-	case .Text:          s.text          = must(v, string)
-	case .Font:          s.font          = must(v, Font_Handle)
-	case .Font_Size:     s.font_size     = must(v, f32)
-	case .Font_Weight:   s.font_weight   = must(v, Font_Weight)
-	case .Font_Slant:    s.font_slant    = must(v, Font_Slant)
-	case .Text_Spans:    s.text_spans    = must(v, []Text_Span)
-	case .Text_Wrap:     s.wrap          = must(v, Text_Wrap)
-	case .Whitespace:    s.whitespace    = must(v, Whitespace)
-	case .Ellipsis:      s.ellipsis      = must(v, bool)
-	case .Justify:       s.justify       = must(v, bool)
-	case .Padding:       s.padding       = must(v, [4]u16)
-	case .Gap:           s.gap           = must(v, u16)
-	case .Corner_Radius: s.corner_radius = must(v, u8)
-	case .Opacity:       s.opacity       = must(v, u8)
-	case .Layout:        s.layout        = must(v, Layout)
-	case .Align:         s.align         = must(v, [2]Align_Kind)
-	case .Size:          s.size          = must(v, Size)
-	case .Scroll:        s.scroll        = must(v, Scroll)
-	case .Overflow:      s.overflow      = must(v, Overflow)
-	case .Border_Width:  s.border_width  = must(v, u16)
-	case .Overlay_Color:        s.overlay_color        = must(v, Color)
-	case .Overlay_Border_Color: s.overlay_border_color = must(v, Color)
-	case .Overlay_Border_Width: s.overlay_border_width = must(v, u16)
-	case .Cursor:       s.cursor       = must(v, Cursor_Kind)
-	case .Scroll_Chain: s.scroll_chain = must(v, bool)
-	case .Smooth_Scroll: s.smooth_scroll = must(v, bool)
-	case .Smooth_Ms: s.smooth_ms = must(v, u16)
-	case .Overscroll: s.overscroll = must(v, bool)
-	case .Overscroll_Px: s.overscroll_px = must(v, u16)
-	case .Image:       s.image       = must(v, Image)
-	case .Image_Fit:   s.image_fit   = must(v, Image_Fit)
-	case .Image_Interp: s.image_interp = must(v, Image_Interp)
-	}
-}
-
 // clone_spans copies a spans slice into engine-owned storage (nil
 // stays nil).
 @(private)
@@ -931,17 +887,6 @@ set :: proc(u: Unit, f: Field, v: $T) {
 	set_any(u, f, v)
 }
 
-// apply_decl_field routes one decl field through write_style_field,
-// folding a real change into the caller's changed set.
-@(private)
-apply_decl_field :: proc(u: Unit, f: Field, m: Maybe($T), changed: ^Fields) {
-	if v, ok := m.?; ok {
-		if write_style_field(u, f, v) {
-			changed^ += Fields{f}
-		}
-	}
-}
-
 // set_many merges decl into unit u: every field decl sets is written (as
 // set would), the rest stay as they are; its state overlays, focusable,
 // focus_ring and text_input are taken too. The fields it sets count as the
@@ -949,41 +894,12 @@ apply_decl_field :: proc(u: Unit, f: Field, m: Maybe($T), changed: ^Fields) {
 set_many :: proc(u: Unit, decl: Style_Decl) {
 	assert(unit_live(u), "niello.set_many: unit is not minted")
 	changed: Fields
-	apply_decl_field(u, .Color, decl.color, &changed)
-	apply_decl_field(u, .Font_Color, decl.font_color, &changed)
-	apply_decl_field(u, .Border_Color, decl.border_color, &changed)
-	apply_decl_field(u, .Text, decl.text, &changed)
-	apply_decl_field(u, .Font, decl.font, &changed)
-	apply_decl_field(u, .Font_Size, decl.font_size, &changed)
-	apply_decl_field(u, .Font_Weight, decl.font_weight, &changed)
-	apply_decl_field(u, .Font_Slant, decl.font_slant, &changed)
-	apply_decl_field(u, .Text_Spans, decl.text_spans, &changed)
-	apply_decl_field(u, .Padding, decl.padding, &changed)
-	apply_decl_field(u, .Gap, decl.gap, &changed)
-	apply_decl_field(u, .Border_Width, decl.border_width, &changed)
-	apply_decl_field(u, .Corner_Radius, decl.corner_radius, &changed)
-	apply_decl_field(u, .Opacity, decl.opacity, &changed)
-	apply_decl_field(u, .Layout, decl.layout, &changed)
-	apply_decl_field(u, .Size, decl.size, &changed)
-	apply_decl_field(u, .Scroll, decl.scroll, &changed)
-	apply_decl_field(u, .Align, decl.align, &changed)
-	apply_decl_field(u, .Text_Wrap, decl.wrap, &changed)
-	apply_decl_field(u, .Whitespace, decl.whitespace, &changed)
-	apply_decl_field(u, .Ellipsis, decl.ellipsis, &changed)
-	apply_decl_field(u, .Justify, decl.justify, &changed)
-	apply_decl_field(u, .Overflow, decl.overflow, &changed)
-	apply_decl_field(u, .Overlay_Color, decl.overlay_color, &changed)
-	apply_decl_field(u, .Overlay_Border_Color, decl.overlay_border_color, &changed)
-	apply_decl_field(u, .Overlay_Border_Width, decl.overlay_border_width, &changed)
-	apply_decl_field(u, .Cursor, decl.cursor, &changed)
-	apply_decl_field(u, .Scroll_Chain, decl.scroll_chain, &changed)
-	apply_decl_field(u, .Smooth_Scroll, decl.smooth_scroll, &changed)
-	apply_decl_field(u, .Smooth_Ms, decl.smooth_ms, &changed)
-	apply_decl_field(u, .Overscroll, decl.overscroll, &changed)
-	apply_decl_field(u, .Overscroll_Px, decl.overscroll_px, &changed)
-	apply_decl_field(u, .Image, decl.image, &changed)
-	apply_decl_field(u, .Image_Fit, decl.image_fit, &changed)
-	apply_decl_field(u, .Image_Interp, decl.image_interp, &changed)
+	d := decl
+	for f in Field {
+		if v, ok := decl_value(&d, f); ok && write_style_field(u, f, v) {
+			changed += {f}
+		}
+	}
 
 	rec := &store.units[unit_index(u)]
 	// Overlay handles: NO_UNIT (the zero value) means "unset", so a decl that

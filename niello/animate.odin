@@ -67,24 +67,6 @@ Edit_State :: struct {
 // ---------------------------------------------------------------------------
 // Field classification and interpolation
 
-// field_animatable reports whether a field's values interpolate.
-// Everything else (text, enums, bools, handles) snaps at t=0 per §8's
-// field metadata rule. Size is conditionally animatable — see
-// start_glide, which demotes it to a snap when the kinds differ.
-@(private)
-field_animatable :: proc(f: Field) -> bool {
-	#partial switch f {
-	case .Color, .Font_Color, .Border_Color, .Overlay_Color,
-	     .Overlay_Border_Color,
-	     .Font_Size,
-	     .Padding, .Gap, .Border_Width, .Overlay_Border_Width,
-	     .Corner_Radius, .Opacity,
-	     .Size:
-		return true
-	}
-	return false
-}
-
 @(private)
 ease_out_cubic :: proc(t: f32) -> f32 {
 	u := 1 - t
@@ -114,102 +96,6 @@ lerp_color :: proc(a, b: Color, t: f32) -> Color {
 		lerp_u8(a[2], b[2], t),
 		lerp_u8(a[3], b[3], t),
 	}
-}
-
-// lerp_field writes the interpolation of a's and b's f into dst at t.
-// Only called for animatable fields (and, via transients, the paint
-// subset of them); anything else copies b defensively.
-@(private)
-lerp_field :: proc(dst, a, b: ^Style, f: Field, t: f32) {
-	switch f {
-	case .Color:         dst.color         = lerp_color(a.color, b.color, t)
-	case .Font_Color:    dst.font_color    = lerp_color(a.font_color, b.font_color, t)
-	case .Border_Color:  dst.border_color  = lerp_color(a.border_color, b.border_color, t)
-	case .Overlay_Color:        dst.overlay_color        = lerp_color(a.overlay_color, b.overlay_color, t)
-	case .Overlay_Border_Color: dst.overlay_border_color = lerp_color(a.overlay_border_color, b.overlay_border_color, t)
-	case .Font_Size:     dst.font_size     = lerp_f32(a.font_size, b.font_size, t)
-	case .Padding:
-		for i in 0 ..< 4 {
-			dst.padding[i] = lerp_u16(a.padding[i], b.padding[i], t)
-		}
-	case .Gap:           dst.gap           = lerp_u16(a.gap, b.gap, t)
-	case .Border_Width:  dst.border_width  = lerp_u16(a.border_width, b.border_width, t)
-	case .Overlay_Border_Width: dst.overlay_border_width = lerp_u16(a.overlay_border_width, b.overlay_border_width, t)
-	case .Corner_Radius: dst.corner_radius = lerp_u8(a.corner_radius, b.corner_radius, t)
-	case .Opacity:       dst.opacity       = lerp_u8(a.opacity, b.opacity, t)
-	case .Size:
-		for ax in 0 ..< 2 {
-			sa, sb := a.size[ax], b.size[ax]
-			dst.size[ax] = Sizing{
-				kind  = sa.kind,
-				value = lerp_f32(sa.value, sb.value, t),
-				min   = lerp_f32(sa.min, sb.min, t),
-				weight = lerp_f32(sa.weight, sb.weight, t),
-				priority = sa.priority if t < 1 else sb.priority, // an order: snaps
-				// max is INF in most styles; only lerp two finite,
-				// differing ceilings, never arithmetic on INF.
-				max   = sa.max if sa.max == sb.max else sb.max,
-			}
-		}
-	case .Text, .Font, .Font_Weight, .Font_Slant, .Text_Spans,
-	     .Text_Wrap, .Whitespace, .Ellipsis, .Justify, .Layout, .Align, .Scroll, .Overflow,
-	     .Cursor, .Scroll_Chain, .Smooth_Scroll, .Smooth_Ms,
-	     .Overscroll, .Overscroll_Px, .Image, .Image_Fit, .Image_Interp:
-		copy_field(dst, b, f)
-	}
-}
-
-// field_equal compares one field across two styles (edit diffs,
-// propagate's change check). Text_Spans compares elementwise.
-@(private)
-field_equal :: proc(a, b: ^Style, f: Field) -> bool {
-	switch f {
-	case .Color:         return a.color == b.color
-	case .Font_Color:    return a.font_color == b.font_color
-	case .Border_Color:  return a.border_color == b.border_color
-	case .Text:          return a.text == b.text
-	case .Font:          return a.font == b.font
-	case .Font_Size:     return a.font_size == b.font_size
-	case .Font_Weight:   return a.font_weight == b.font_weight
-	case .Font_Slant:    return a.font_slant == b.font_slant
-	case .Text_Spans:
-		if len(a.text_spans) != len(b.text_spans) {
-			return false
-		}
-		for i in 0 ..< len(a.text_spans) {
-			if a.text_spans[i] != b.text_spans[i] {
-				return false
-			}
-		}
-		return true
-	case .Text_Wrap:     return a.wrap == b.wrap
-	case .Whitespace:    return a.whitespace == b.whitespace
-	case .Ellipsis:      return a.ellipsis == b.ellipsis
-	case .Justify:       return a.justify == b.justify
-	case .Padding:       return a.padding == b.padding
-	case .Gap:           return a.gap == b.gap
-	case .Corner_Radius: return a.corner_radius == b.corner_radius
-	case .Opacity:       return a.opacity == b.opacity
-	case .Layout:        return a.layout == b.layout
-	case .Align:         return a.align == b.align
-	case .Size:          return a.size == b.size
-	case .Scroll:        return a.scroll == b.scroll
-	case .Overflow:      return a.overflow == b.overflow
-	case .Border_Width:  return a.border_width == b.border_width
-	case .Overlay_Color:        return a.overlay_color == b.overlay_color
-	case .Overlay_Border_Color: return a.overlay_border_color == b.overlay_border_color
-	case .Overlay_Border_Width: return a.overlay_border_width == b.overlay_border_width
-	case .Cursor:       return a.cursor == b.cursor
-	case .Scroll_Chain: return a.scroll_chain == b.scroll_chain
-	case .Smooth_Scroll: return a.smooth_scroll == b.smooth_scroll
-	case .Smooth_Ms: return a.smooth_ms == b.smooth_ms
-	case .Overscroll: return a.overscroll == b.overscroll
-	case .Overscroll_Px: return a.overscroll_px == b.overscroll_px
-	case .Image:       return a.image == b.image
-	case .Image_Fit:   return a.image_fit == b.image_fit
-	case .Image_Interp: return a.image_interp == b.image_interp
-	}
-	return true
 }
 
 // ---------------------------------------------------------------------------
