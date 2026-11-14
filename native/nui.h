@@ -123,9 +123,25 @@ void nui_resize(nui_window* win, uint32_t width_px, uint32_t height_px);
 void nui_set_refresh_rate(nui_window* win, float hz);
 int32_t nui_is_resizing(nui_window* win); // retained ABI; always zero
 
-// Fully repaint the window's GPU texture, then copy/present it. No pointers
-// are retained. Damage is currently ignored because repaint clears the whole
-// image. content_scale is device pixels per DIP. Returns 1 on presentation.
+// Repaint the window's GPU texture, then copy/present it. No pointers are
+// retained. content_scale is device pixels per DIP.
+//
+// Without damage (n_damage == 0) the whole texture is cleared and cmds
+// replayed. With damage (rects in DIP), cmds are the commands touching
+// those rects (Odin: draw_list(Frame_Result.repaint)), and only those
+// regions repaint: each is rounded out to whole pixels, cleared and
+// replayed into, over what the texture already holds.
+//
+// Returns NUI_RENDER_PRESENTED_DAMAGE on presentation (this backend
+// honours damage; backends before it returned 1, NUI_RENDER_PRESENTED,
+// and repainted fully whatever the damage), NUI_RENDER_NEED_FULL when a
+// partial repaint was refused because the texture holds no valid frame
+// (after a resize, a suspend or a failed render: nothing was drawn, send
+// the frame in full), and NUI_RENDER_FAILED otherwise.
+#define NUI_RENDER_FAILED 0
+#define NUI_RENDER_PRESENTED 1
+#define NUI_RENDER_NEED_FULL 2
+#define NUI_RENDER_PRESENTED_DAMAGE 3
 int32_t nui_render(nui_window* win, const UiDrawCmd* cmds, int32_t n_cmds,
                 const UiRect* damage, int32_t n_damage, float content_scale);
 // Paced copy/present only; returns 0 if unavailable or unsuccessful. No replay.
