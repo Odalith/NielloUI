@@ -1,5 +1,7 @@
 package niello
 
+import "core:slice"
+
 // Render command stream (Phase 1: Odin-only).
 //
 // draw_list() walks the committed frame and emits a flat, FFI-clean command
@@ -63,14 +65,19 @@ Draw_Cmd :: struct {
 
 // draw_list returns the current frame's draw commands, for a host to
 // render. Call it after frame_end; the slice is valid until the next
-// frame_begin, and calling again rebuilds the same list.
+// frame_begin, and calling again rebuilds the list.
 //
 // Commands come in paint order: declaration order, later siblings on top.
 // A node pushes its opacity and clip, draws its fill and border, image,
 // text and overlay, then its children, then pops; content outside the
 // window or a clip is skipped. Text commands borrow the text's bytes:
 // With.text_no_copy text must stay unchanged while the list is in use.
-draw_list :: proc() -> []Draw_Cmd {
+//
+// With rects (Frame_Result.repaint), the list holds only what touches
+// them: for a backend that keeps the previous frame's pixels and repaints
+// just those regions, clearing each and replaying the list clipped to it.
+// Nil or empty rects give the whole frame.
+draw_list :: proc(rects: []Rect = nil) -> []Draw_Cmd {
 	clear(&g.draw_cmds)
 	// Iterative pre-order walk over the flat node array, which is already in
 	// depth-first declaration order: node i's subtree is the contiguous range
@@ -109,11 +116,13 @@ draw_list :: proc() -> []Draw_Cmd {
 		// empty intersection, and the scopes stay balanced by never
 		// opening); a non-clipping node's children may still spill
 		// into view, so only its own commands are skipped.
-		paint := Rect{r.pos, r.size + g.lay[i].overfl}
+		paint := node_paint(i)
 		if i == g.ring_idx {
 			paint = rect_union(paint, g.ring_painted.rect)
 		}
-		if rect_outside(paint, cur) {
+		// Outside the clip, or (repainting regions) outside every one of
+		// them: the same two outcomes either way.
+		if rect_outside(paint, cur) || (len(rects) > 0 && !touches_any(paint, rects)) {
 			if clips_node {
 				i = g.subtree_end[i] + 1
 				continue
@@ -139,6 +148,138 @@ draw_list :: proc() -> []Draw_Cmd {
 		pop(clips)
 	}
 	return g.draw_cmds[:]
+}
+
+// touches_any reports whether paint overlaps one of the repaint rects,
+// each grown by REPAINT_SLACK: a backend rounds a rect out to whole
+// pixels, which at a fractional scale reaches up to a pixel past it, and
+// commands there must replay too. Extra commands cost nothing visible:
+// the backend clips them.
+@(private)
+touches_any :: proc(paint: Rect, rects: []Rect) -> bool {
+	for r in rects {
+		grown := Rect{r.pos - {REPAINT_SLACK, REPAINT_SLACK}, r.size + {2 * REPAINT_SLACK, 2 * REPAINT_SLACK}}
+		if !rect_outside(paint, grown) {
+			return true
+		}
+	}
+	return false
+}
+
+@(private)
+REPAINT_SLACK :: 2
+
+// node_paint is the area node i can paint, for damage and culling alike:
+// its rect, grown by its overflow (children spilling past it), and for a
+// text node by an ink pad on every side. Glyphs reach past the line box
+// (italic overhang, accents, tall marks), and a full repaint draws that
+// ink, so a partial repaint must reach it too. The pad is a quarter of the
+// largest font size in the text, plus one DIP.
+@(private)
+node_paint :: proc(i: int) -> Rect {
+	r := Rect{g.lay[i].pos, g.lay[i].size + g.lay[i].overfl}
+	nd := &g.nodes[i]
+	if !nd.has_text {
+		return r
+	}
+	size := node_style(i).font_size
+	for sp in nd.spans {
+		if v, ok := sp.font_size.?; ok {
+			size = max(size, v)
+		}
+	}
+	pad := f32(int(size * 0.25 + 0.999)) + 1
+	return Rect{r.pos - {pad, pad}, r.size + {2 * pad, 2 * pad}}
+}
+
+// MAX_REPAINT_RECTS bounds Frame_Result.repaint: a backend replays the
+// (culled) command list once per rect.
+@(private)
+MAX_REPAINT_RECTS :: 8
+
+// repaint_rects turns this frame's damage into the regions a host
+// repaints (Frame_Result.repaint): each rect clipped to the window and
+// rounded out to whole DIP, then merged — rects that overlap or touch, or
+// whose union wastes little area, become one — and capped at
+// MAX_REPAINT_RECTS by joining the cheapest pairs.
+@(private)
+repaint_rects :: proc() -> []Rect {
+	out := &g.repaint
+	clear(out)
+	view := Rect{{0, 0}, g.viewport}
+	for d in g.damage {
+		r := rect_intersect(d, view)
+		if r.size.x <= 0 || r.size.y <= 0 {
+			continue
+		}
+		x0, y0 := floor_f32(r.pos.x), floor_f32(r.pos.y)
+		x1, y1 := ceil_f32(r.pos.x + r.size.x), ceil_f32(r.pos.y + r.size.y)
+		append(out, Rect{{x0, y0}, {x1 - x0, y1 - y0}})
+	}
+	area :: proc(r: Rect) -> f32 {
+		return r.size.x * r.size.y
+	}
+	// Many rects (a page swap, a list scrolling): coarsen to 64 first,
+	// by joining runs of neighbours in reading order.
+	if len(out) > 64 {
+		slice.sort_by(out[:], proc(a, b: Rect) -> bool {
+			return a.pos.y < b.pos.y || (a.pos.y == b.pos.y && a.pos.x < b.pos.x)
+		})
+		per := (len(out) + 63) / 64
+		n := 0
+		for start := 0; start < len(out); start += per {
+			u := out[start]
+			for r in out[start + 1:min(start + per, len(out))] {
+				u = rect_union(u, r)
+			}
+			out[n] = u
+			n += 1
+		}
+		resize(out, n)
+	}
+	for merged := true; merged; {
+		merged = false
+		outer: for a := 0; a < len(out); a += 1 {
+			for b := a + 1; b < len(out); b += 1 {
+				u := rect_union(out[a], out[b])
+				touching := !(out[a].pos.x > out[b].pos.x + out[b].size.x || out[b].pos.x > out[a].pos.x + out[a].size.x ||
+					out[a].pos.y > out[b].pos.y + out[b].size.y || out[b].pos.y > out[a].pos.y + out[a].size.y)
+				if touching || area(u) <= area(out[a]) + area(out[b]) + 1024 {
+					out[a] = u
+					unordered_remove(out, b)
+					merged = true
+					break outer
+				}
+			}
+		}
+	}
+	// Still too many: join the pair that adds the least area, again and
+	// again. Neighbours join long before a far-off rect does, so a small
+	// change elsewhere (the nav item a page switch highlights) keeps its
+	// own small rect instead of stretching one box across the window.
+	for len(out) > MAX_REPAINT_RECTS {
+		best_a, best_b := 0, 1
+		best := max(f32)
+		for a := 0; a < len(out); a += 1 {
+			for b := a + 1; b < len(out); b += 1 {
+				cost := area(rect_union(out[a], out[b])) - area(out[a]) - area(out[b])
+				if cost < best {
+					best, best_a, best_b = cost, a, b
+				}
+			}
+		}
+		out[best_a] = rect_union(out[best_a], out[best_b])
+		unordered_remove(out, best_b)
+	}
+	return out[:]
+	floor_f32 :: proc(v: f32) -> f32 {
+		t := f32(int(v))
+		return t > v ? t - 1 : t
+	}
+	ceil_f32 :: proc(v: f32) -> f32 {
+		t := f32(int(v))
+		return t < v ? t + 1 : t
+	}
 }
 
 // rect_outside reports whether two rects share no area (touching
@@ -380,10 +521,11 @@ emit_text :: proc(i: int, nd: ^Frame_Node, s: ^Style, r: Rect) {
 						break // past the edge; drop the rest
 					}
 					if x + rn.width > max_w {
-						// Straddling run: the backend trims + draws the ellipsis.
+						// Straddling run: the backend trims + draws the
+						// ellipsis, so it touches max_width at most.
 						append(&g.draw_cmds, Draw_Cmd{
 							tag = .Text,
-							bounds = Rect{{r.pos.x + x, y}, {rn.width, e.line_h}},
+							bounds = Rect{{r.pos.x + x, y}, {max_w - x, e.line_h}},
 							color = rn.font_color,
 							text_ptr = raw_data(nd.text[rn.start:rn.end]),
 							text_len = i64(rn.end - rn.start),

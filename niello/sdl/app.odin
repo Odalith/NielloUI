@@ -154,6 +154,7 @@ Glue_Window :: struct {
 	was_minimized: bool, // the minimized early-return ran; the first
 	                     // live frame after restore re-arms force_render
 	render_fails:     int,  // consecutive render failures
+	partial_ok:       bool, // the backend honours damage (it said so last render)
 	render_retry_ns:  u64,  // backoff: no render attempt before this tick
 	// loop bookkeeping
 	last_changed:   bool, // last frame_end's changed; idle windows are not framed
@@ -739,18 +740,31 @@ frame_window :: proc(win: ^Glue_Window, now_ns: u64) {
 		win.cursor_applied = result.cursor
 	}
 
-	if result.changed || win.force_render {
+	// Changed, but nothing visible to repaint (everything that changed is
+	// clipped away or off the window): a backend that keeps its pixels
+	// needs no frame at all.
+	nothing_visible := result.changed && !win.force_render && win.partial_ok && len(result.repaint) == 0
+	if (result.changed || win.force_render) && !nothing_visible {
 		// During a render-failure backoff the frame still runs;
 		// only the backend call waits for its deadline.
 		if now_ns >= win.render_retry_ns {
-			cmds := niello.draw_list()
-			// nui_render returns 1 on success, 0 on failure
-			// (main's original line: force_render armed by
-			// `render(...) == 0`). The first backoff build had
-			// this test backwards — successes climbed the
-			// failure ladder (gate runs 2026-11-04: healthy
-			// renders "failed" 1/5..5/5 while drawing fine).
-			if render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.content_scale) != 0 {
+			// Partial repaint: only what changed, over the backend's
+			// cache, once the backend has said it honours damage, and
+			// never when a full frame is owed (first frame, resize,
+			// expose, a failed render).
+			rects: []niello.Rect
+			if win.partial_ok && !win.force_render && len(result.repaint) > 0 {
+				rects = result.repaint
+			}
+			cmds := niello.draw_list(rects)
+			rc := render(win.nui, raw_data(cmds), i32(len(cmds)), raw_data(rects), i32(len(rects)), win.content_scale)
+			if rc == RENDER_NEED_FULL {
+				// The backend lost its cache: send everything now.
+				cmds = niello.draw_list()
+				rc = render(win.nui, raw_data(cmds), i32(len(cmds)), nil, 0, win.content_scale)
+			}
+			win.partial_ok = rc == RENDER_PRESENTED_DAMAGE
+			if rc == RENDER_PRESENTED || rc == RENDER_PRESENTED_DAMAGE {
 				win.force_render = false
 				win.render_fails = 0
 				win.render_retry_ns = 0

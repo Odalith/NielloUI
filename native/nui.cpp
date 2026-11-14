@@ -94,7 +94,8 @@ struct nui_window {
     uint64_t targetFrameTimeNs = 1'000'000'000 / 60;
     uint64_t nextFrameTimeNs = 0;
 
-    uint64_t replays = 0;
+    uint64_t replays = 0;         // full repaints
+    uint64_t partialReplays = 0;  // damage-only repaints
     uint64_t copies = 0;
     uint64_t configurations = 0;
     uint64_t acquireFailures = 0;
@@ -192,6 +193,9 @@ struct Shared {
     bool failed = false;
     bool recorderPoisoned = false;
     bool trace = std::getenv("NUI_TRACE") != nullptr;
+    // NUI_PAINT_FLASH: tint every region a partial repaint redraws, so
+    // what repaints is visible (each repaint picks the next hue).
+    bool paintFlash = std::getenv("NUI_PAINT_FLASH") != nullptr;
 };
 
 Shared g;
@@ -287,9 +291,10 @@ void Trace(const nui_window& window) noexcept {
     if (!g.trace) return;
     std::fprintf(
         stderr,
-        "nui: replays=%llu copies=%llu configurations=%llu "
+        "nui: replays=%llu partial_replays=%llu copies=%llu configurations=%llu "
         "acquire_failures=%llu size=%ux%u valid=%d\n",
         static_cast<unsigned long long>(window.replays),
+        static_cast<unsigned long long>(window.partialReplays),
         static_cast<unsigned long long>(window.copies),
         static_cast<unsigned long long>(window.configurations),
         static_cast<unsigned long long>(window.acquireFailures),
@@ -1341,6 +1346,45 @@ int32_t nui_is_resizing(nui_window* window) {
     return 0;
 }
 
+// DamagePixels is a damage rect (DIP) in whole device pixels: rounded
+// out, so every pixel the rect touches repaints, and clamped to the
+// surface. Empty when it misses the surface.
+SkIRect DamagePixels(const UiRect& rect, float scale, uint32_t width, uint32_t height) {
+    const float x0 = std::floor(rect.x * scale);
+    const float y0 = std::floor(rect.y * scale);
+    const float x1 = std::ceil((rect.x + rect.w) * scale);
+    const float y1 = std::ceil((rect.y + rect.h) * scale);
+    SkIRect px = SkIRect::MakeLTRB(
+        static_cast<int32_t>(std::max(x0, -1.0f)), static_cast<int32_t>(std::max(y0, -1.0f)),
+        static_cast<int32_t>(std::min(x1, static_cast<float>(width) + 1.0f)),
+        static_cast<int32_t>(std::min(y1, static_cast<float>(height) + 1.0f)));
+    if (!px.intersect(SkIRect::MakeWH(static_cast<int32_t>(width), static_cast<int32_t>(height)))) {
+        return SkIRect::MakeEmpty();
+    }
+    return px;
+}
+
+// DamageValid: finite, non-negative extents.
+bool DamageValid(const UiRect* damage, int32_t count) {
+    for (int32_t k = 0; k < count; ++k) {
+        const UiRect& r = damage[k];
+        if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.w) ||
+            !std::isfinite(r.h) || r.w < 0 || r.h < 0) return false;
+    }
+    return true;
+}
+
+// FlashColor is NUI_PAINT_FLASH's tint for the n-th partial repaint: a
+// translucent hue that changes every repaint.
+SkColor FlashColor(uint64_t n) {
+    static const SkColor kHues[] = {
+        SkColorSetARGB(48, 255, 64, 64), SkColorSetARGB(48, 64, 200, 64),
+        SkColorSetARGB(48, 64, 96, 255), SkColorSetARGB(48, 255, 200, 0),
+        SkColorSetARGB(48, 200, 64, 255), SkColorSetARGB(48, 0, 200, 220),
+    };
+    return kHues[n % (sizeof(kHues) / sizeof(kHues[0]))];
+}
+
 int32_t nui_present_cached(nui_window* window) {
     return Api<int32_t>("nui_present_cached", 0, [&] {
         if (!Live(window) || !Ready() ||
@@ -1376,7 +1420,6 @@ int32_t nui_render(nui_window* window,
             return 0;
         }
 
-        // Damage is intentionally ignored: the entire cache is cleared.
         if (!ValidateCommands(commands, count)) {
             Log("invalid render command stream");
             return 0;
@@ -1388,13 +1431,44 @@ int32_t nui_render(nui_window* window,
         if (g.pendingPresentations >= kPresentationBatchSize &&
             !DrainQueue()) return 0;
 
+        // With damage, the commands are those touching the rects and
+        // only those regions repaint, over what the cache holds. That
+        // needs a valid cache: without one (resized, suspended, a failed
+        // render) nothing is drawn and the caller sends a full frame.
+        const bool partial = damageCount > 0;
+        if (partial && !DamageValid(damage, damageCount)) {
+            Log("invalid damage rects");
+            return 0;
+        }
+        if (partial && (!window->cacheValid || !window->cacheSurface)) {
+            return NUI_RENDER_NEED_FULL;
+        }
+
+        // Mutating the cache: it is valid again only after a submit.
         window->cacheValid = false;
         if (!EnsureCache(*window)) return 0;
 
         auto* canvas = window->cacheSurface->getCanvas();
-        canvas->clear(SkColors::kBlack);
-        Replay(canvas, commands, count, scale);
-        ++window->replays;
+        if (!partial) {
+            canvas->clear(SkColors::kBlack);
+            Replay(canvas, commands, count, scale);
+            ++window->replays;
+        } else {
+            for (int32_t k = 0; k < damageCount; ++k) {
+                const SkIRect px =
+                    DamagePixels(damage[k], scale, window->width, window->height);
+                if (px.isEmpty()) continue;
+                // Pixel-aligned and hard-edged: no antialiased seam
+                // between repainted and kept pixels. clear() honours the
+                // clip.
+                SkAutoCanvasRestore keep(canvas, true);
+                canvas->clipIRect(px);
+                canvas->clear(SkColors::kBlack);
+                Replay(canvas, commands, count, scale);
+                if (g.paintFlash) canvas->drawColor(FlashColor(window->partialReplays));
+            }
+            ++window->partialReplays;
+        }
 
         auto recording = g.recorder->snap();
         if (!recording) {
@@ -1420,7 +1494,7 @@ int32_t nui_render(nui_window* window,
         if (!presented && !g.failed) {
             if (!DrainQueue()) return 0;
         }
-        return presented ? 1 : 0;
+        return presented ? NUI_RENDER_PRESENTED_DAMAGE : 0;
     });
 }
 

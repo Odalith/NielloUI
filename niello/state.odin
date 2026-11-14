@@ -205,6 +205,7 @@ Context :: struct {
 	// Render command stream (render.odin): emitted by draw_list() after
 	// frame_end, valid until the next frame_begin.
 	draw_cmds: [dynamic]Draw_Cmd,
+	repaint:   [dynamic]Rect, // Frame_Result.repaint (repaint_rects)
 
 	// Persistent instance store: identity -> last committed record.
 	// The content hash rides in the same map value: pass F used to do
@@ -501,6 +502,7 @@ free_context :: proc(ctx: ^Context) {
 	delete(ctx.scratch_b)
 	delete(ctx.scratch_ints)
 	delete(ctx.draw_cmds)
+	delete(ctx.repaint)
 	when NIELLO_DEBUG {
 		delete(ctx.debug_nodes)
 	}
@@ -731,11 +733,11 @@ Inst_Rec :: struct {
 	digest: u64,
 	stamp: u64,
 	unit:  Unit, // the unit this instance instantiates (cross-context reads, M4)
-	// The overflow committed with the rect: damage
-	// for a change or death must cover the OLD spill as well as the
-	// new — a shrinking spill otherwise leaves its outermost pixels
-	// undamaged forever.
-	overfl: Vec2,
+	// The paint rect committed with the rect (node_paint: the rect with
+	// its spill and its text's ink pad): damage for a change or death
+	// must cover the OLD paint as well as the new — a shrinking spill
+	// otherwise leaves its outermost pixels undamaged forever.
+	paint: Rect,
 	// frame_index of the last pass-F commit: the
 	// recycle sweep deletes records whose last_seen is stale,
 	// which catches deaths the old map-outgrew-the-tree signal

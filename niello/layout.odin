@@ -729,6 +729,23 @@ purge_scroll_state :: proc(id: Instance) {
 // ---------------------------------------------------------------------------
 // Pass F: positioning, instance rects, damage, overflow
 
+// damage_add adds the union of a and b to this frame's damage, ignoring
+// either if it is empty (a paint rect wholly clipped away), and nothing
+// when both are.
+@(private)
+damage_add :: proc(a: Rect, b := Rect{}) {
+	a_ok := a.size.x > 0 && a.size.y > 0
+	b_ok := b.size.x > 0 && b.size.y > 0
+	switch {
+	case a_ok && b_ok:
+		append(&g.damage, rect_union(a, b))
+	case a_ok:
+		append(&g.damage, a)
+	case b_ok:
+		append(&g.damage, b)
+	}
+}
+
 rect_union :: proc(a, b: Rect) -> Rect {
 	min_p := Vec2{min(a.pos.x, b.pos.x), min(a.pos.y, b.pos.y)}
 	max_a := Vec2{a.pos.x + a.size.x, a.pos.y + a.size.y}
@@ -961,8 +978,10 @@ pick_clips_and_commit :: proc() {
 		}
 		g.pick_clip[i] = clip
 	}
-	// Commit rects + damage: old ∪ new, expanded by overflow (children painting
-	// outside their bounds must be covered). §5's rule is "changed → new
+	// Commit rects + damage: old ∪ new visible paint rects (node_paint: the
+	// rect expanded by overflow, since children painting outside their
+	// bounds must be covered, and by a text node's ink pad; then clipped by
+	// the ancestors' clips, since only what is visible needs repainting). §5's rule is "changed → new
 	// rect": changed means the committed CONTENT changed, not just the
 	// rect — a same-size text edit or a set() restyle damages too. The
 	// change model is the stamps (§5): the unit's visual generation
@@ -983,7 +1002,7 @@ pick_clips_and_commit :: proc() {
 			// its instance, with its scroll state, goes away
 			// (rect() reports ok=false, as begin_popup documents).
 			if old, ok := g.instances[id]; ok {
-				append(&g.damage, Rect{old.rect.pos, old.rect.size + old.overfl})
+				damage_add(old.paint)
 				delete_key(&g.instances, id)
 				purge_scroll_state(id)
 			}
@@ -993,14 +1012,15 @@ pick_clips_and_commit :: proc() {
 		ugen := store.units[unit_index(nd.unit)].gen
 		stamp := i < len(g.state_stamp) ? g.state_stamp[i] : 0
 		tr_now := len(g.transients) > 0 && id in g.transients
-		rec := Inst_Rec{rect = new, gen = ugen, digest = nd.digest, stamp = stamp, unit = nd.unit, overfl = g.lay[i].overfl, last_seen = g.frame_index}
+		// The visible paint: what the ancestors' clips leave of it. A row
+		// scrolled out of its list paints nothing, so it damages nothing.
+		paint := rect_intersect(node_paint(i), g.pick_clip[i])
+		rec := Inst_Rec{rect = new, gen = ugen, digest = nd.digest, stamp = stamp, unit = nd.unit, paint = paint, last_seen = g.frame_index}
 		// The one map op per node: an existing record is updated in
 		// place through its pointer; a new one is inserted.
 		old, ok := &g.instances[id]
 		if !ok {
-			r := new
-			r.size += g.lay[i].overfl
-			append(&g.damage, r)
+			damage_add(paint)
 			g.instances[id] = rec
 		} else {
 			when NIELLO_DEBUG {
@@ -1011,12 +1031,10 @@ pick_clips_and_commit :: proc() {
 			}
 			if old.rect != new || old.gen != ugen || old.stamp != stamp ||
 			   tr_now || (!nd.static_values && old.digest != nd.digest) {
-				// Union of BOTH spill-expanded rects:
-				// expanding only by the new overflow leaves a shrinking
-				// spill's old outermost pixels undamaged forever.
-				append(&g.damage, rect_union(
-					Rect{old.rect.pos, old.rect.size + old.overfl},
-					Rect{new.pos, new.size + g.lay[i].overfl}))
+				// Union of BOTH paint rects: covering only the new
+				// one leaves a shrinking spill's (or ink's) old
+				// outermost pixels undamaged forever.
+				damage_add(old.paint, paint)
 			}
 			// A static_values instance freezes its baseline digest:
 			// the promise is for the instance's lifetime, so if
@@ -1046,7 +1064,7 @@ pick_clips_and_commit :: proc() {
 		for id, rec in g.instances {
 			if rec.last_seen != g.frame_index {
 				append(&g.dead_ids, id)
-				append(&g.damage, Rect{rec.rect.pos, rec.rect.size + rec.overfl})
+				damage_add(rec.paint)
 			}
 		}
 		for id in g.dead_ids {

@@ -47,14 +47,20 @@ UI is this frame.
 It returns a [`Frame_Result`](../reference/niello.md#Frame_Result):
 
 - `changed`: whether anything needs drawing. If not, the host draws nothing.
-- `damage`: the regions that changed.
+- `damage`: the regions that changed, exactly.
+- `repaint`: the same regions as a few merged rects, for repainting.
 - `next_wake_ms`: when the engine next needs a frame by itself, for an
   animation or a timer; the maximum `u32` when it needs none.
 - `cursor`: the pointer cursor to show.
 
 The host then draws [`draw_list`](../reference/niello.md#draw_list), the
 frame's drawing commands in paint order, and sleeps until input arrives or
-`next_wake_ms` passes.
+`next_wake_ms` passes. A host that keeps the previous frame's pixels, as
+`niello/sdl` does, repaints only what changed: `draw_list(res.repaint)` holds
+just the commands touching those rects, and the backend clears each rect and
+replays them clipped to it. Everything that touches a repainted rect is drawn
+again, bottom to top, so translucent content composites correctly. The first
+frame, and any frame after a resize, is drawn in full.
 
 ## When nothing changes
 

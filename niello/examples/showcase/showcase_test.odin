@@ -38,8 +38,20 @@ frame :: proc(app: ^App, inp: niello.Input = {}) -> niello.Frame_Result {
 	inp.window_focused = true
 	niello.frame_begin(app.ctx, inp, 0.016)
 	declare(app)
-	return niello.frame_end()
+	res := niello.frame_end()
+	// Every frame of the walk: a host repainting only res.repaint must
+	// end up with the same pixels as one repainting everything.
+	when ODIN_TEST {
+		if bad := niello.test_repaint_check(res); bad > 0 {
+			repaint_mismatch_frames += 1
+			repaint_mismatch_cells += bad
+		}
+	}
+	return res
 }
+
+@(private = "file")
+repaint_mismatch_frames, repaint_mismatch_cells: int
 
 @(private = "file")
 idle :: proc(app: ^App, n: int) -> niello.Frame_Result {
@@ -300,4 +312,11 @@ showcase_smoke :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, app.async.pct == 100 && app.async.last == "finished", "the job completes through the inbox")
 	settles(t, &app, "async done")
+
+	testing.expectf(t, repaint_mismatch_frames == 0,
+		"partial repaint matches a full repaint on every frame (%d frames, %d cells differ)",
+		repaint_mismatch_frames, repaint_mismatch_cells)
+	when ODIN_TEST {
+		niello.test_repaint_forget()
+	}
 }
