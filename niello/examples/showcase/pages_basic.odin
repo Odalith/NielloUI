@@ -18,6 +18,8 @@ Controls_State :: struct {
 	density:       int, // the horizontal radio group's selection
 	order:         int, // the vertical one's
 	frozen:        int, // the disabled one's
+	fruit:         controls.Combo_Box,
+	city:          controls.Combo_Box,
 	count_i:       niello.Instance,
 	hover_i:       niello.Instance,
 	cursor_i:      [niello.Cursor_Kind]niello.Instance,
@@ -84,6 +86,17 @@ page_controls :: proc(app: ^App) {
 	}
 
 	if niello.begin(ui.card) {
+		heading("Combo box")
+		if niello.begin(ui.flow) {
+			if controls.combo_box(&s.fruit, FRUITS[:], label = "Fruit", placeholder = "Pick a fruit") {
+				status_set(&app.status, "Fruit: %s", FRUITS[s.fruit.selected])
+			}
+			controls.combo_box(&s.city, CITIES[:], label = "City", placeholder = "Pick a city")
+		}
+		note("Click to open, or focus it and use the keyboard: Up/Down change the choice, Space opens the list, Enter picks, Esc closes, a letter jumps. The city list is long: it scrolls.")
+	}
+
+	if niello.begin(ui.card) {
 		heading("Hover, tooltips and cursors")
 		s.hover_i = controls.button("Hover me")
 		controls.tooltip(s.hover_i, "Tooltips are popups shown once the pointer rests for 0.5 s, or at once when Tab brings focus here.")
@@ -106,6 +119,18 @@ Layout_State :: struct {
 	squeeze:          controls.Slider,
 	wrap_align:       [2]niello.Align_Kind, // the Wrap demo's align, cycled by its buttons
 	wrap_x_i, wrap_y_i: niello.Instance,
+}
+
+FRUITS := [?]string{"Apple", "Banana", "Cherry", "Grape", "Mango", "Orange", "Pear"}
+
+CITIES := [?]string{
+	"Amsterdam", "Athens", "Bangkok", "Barcelona", "Beijing", "Berlin", "Bogotá", "Boston",
+	"Brussels", "Buenos Aires", "Cairo", "Cape Town", "Chicago", "Copenhagen", "Delhi", "Dubai",
+	"Dublin", "Edinburgh", "Helsinki", "Hong Kong", "Istanbul", "Jakarta", "Kyiv", "Lagos",
+	"Lima", "Lisbon", "London", "Los Angeles", "Madrid", "Manila", "Melbourne", "Mexico City",
+	"Montréal", "Moscow", "Mumbai", "Nairobi", "New York", "Oslo", "Paris", "Prague",
+	"Rome", "Santiago", "Seoul", "Singapore", "Stockholm", "Sydney", "Tokyo", "Toronto",
+	"Vienna", "Warsaw",
 }
 
 WRAP_WORDS := [?]string{

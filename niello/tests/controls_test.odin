@@ -937,3 +937,169 @@ test_tooltip_gap :: proc(t: ^testing.T) {
 		testing.expect_value(t, n.rect.pos.y, b.pos.y + b.size.y + gap)
 	}
 }
+
+// ---- combo box ----
+
+cb_box:     controls.Combo_Box
+cb_changed: bool
+CB_FRUIT := [?]string{"Apple", "Banana", "Cherry", "Date"}
+cb_opts:    []string
+cb_dis:     bool
+
+cb_declare :: proc() {
+	if niello.begin(ct_root) {
+		controls.button("Before")
+		cb_changed = controls.combo_box(&cb_box, cb_opts, label = "Fruit", placeholder = "Pick one", disabled = cb_dis)
+		controls.button("After")
+	}
+}
+
+cb_setup :: proc(opts: []string = nil) {
+	niello.test_reset()
+	ct_setup()
+	cb_box = {selected = -1}
+	cb_changed, cb_dis = false, false
+	cb_opts = opts != nil ? opts : CB_FRUIT[:] // package-level: outlives this proc
+	ct_frame(cb_declare)
+	ct_frame(cb_declare)
+}
+
+cb_key :: proc(k: niello.Key_Code, mods: niello.Modifiers = {}) {
+	ct_frame(cb_declare, keys = {niello.Key_Event{key = k, physical = k, down = true, mods = mods}})
+	ct_frame(cb_declare, keys = {niello.Key_Event{key = k, physical = k, down = false, mods = mods}})
+}
+
+cb_item :: proc(name: string) -> niello.Instance {
+	n, _ := ck_node(.ComboBoxItem, name)
+	return n.instance
+}
+
+@(test)
+test_combo_box_mouse :: proc(t: ^testing.T) {
+	cb_setup()
+	defer niello.test_teardown()
+	box, ok := ck_node(.ComboBox, "Fruit")
+	testing.expect(t, ok && .Expanded not_in box.flags, "a closed ComboBox named Fruit")
+	ct_click(cb_declare, cb_box.box_i)
+	testing.expect(t, cb_box.open, "a click opens the list")
+	ct_frame(cb_declare)
+	box, _ = ck_node(.ComboBox, "Fruit")
+	testing.expect(t, .Expanded in box.flags, "Expanded while open")
+	cherry := cb_item("Cherry")
+	testing.expect(t, cherry != 0, "the options are ComboBoxItems")
+	ct_click(cb_declare, cherry)
+	testing.expect(t, cb_box.selected == 2 && !cb_box.open && cb_changed, "a click on an option selects it and closes")
+	ct_frame(cb_declare) // the box shows the new value from the next declaration
+	box, _ = ck_node(.ComboBox, "Fruit")
+	testing.expect_value(t, box.value.text, "Cherry")
+
+	// a press elsewhere closes without a change
+	ct_click(cb_declare, cb_box.box_i)
+	ct_frame(cb_declare, mouse = niello.Vec2{480, 380}, press = true)
+	ct_frame(cb_declare, mouse = niello.Vec2{480, 380}, release = true)
+	testing.expect(t, !cb_box.open && cb_box.selected == 2, "a press elsewhere closes it, unchanged")
+
+	// a second click on the box closes it (not close-then-reopen)
+	ct_click(cb_declare, cb_box.box_i)
+	testing.expect(t, cb_box.open, "open again")
+	ct_click(cb_declare, cb_box.box_i)
+	testing.expect(t, !cb_box.open, "a click on the box closes it")
+}
+
+@(test)
+test_combo_box_keyboard :: proc(t: ^testing.T) {
+	cb_setup()
+	defer niello.test_teardown()
+	niello.focus(cb_box.box_i)
+	ct_frame(cb_declare)
+	// closed: Down / Up / End / Home change the selection directly
+	cb_key(.Down)
+	testing.expect_value(t, cb_box.selected, 0)
+	cb_key(.Down)
+	testing.expect_value(t, cb_box.selected, 1)
+	cb_key(.End)
+	testing.expect_value(t, cb_box.selected, 3)
+	cb_key(.Up)
+	testing.expect_value(t, cb_box.selected, 2)
+	cb_key(.Home)
+	testing.expect_value(t, cb_box.selected, 0)
+	testing.expect(t, !cb_box.open, "still closed")
+
+	// open with Alt+Down, move the highlight, Enter picks
+	cb_key(.Down, {.Alt})
+	testing.expect(t, cb_box.open && cb_box.highlight == 0, "Alt+Down opens on the selection")
+	cb_key(.Down)
+	cb_key(.Down)
+	testing.expect(t, cb_box.selected == 0 && cb_box.highlight == 2, "open: the highlight moves, not the selection")
+	cb_key(.Enter)
+	testing.expect(t, !cb_box.open && cb_box.selected == 2, "Enter picks the highlight")
+
+	// Space opens, Esc closes without a change
+	cb_key(.Space)
+	testing.expect(t, cb_box.open, "Space opens")
+	cb_key(.Down)
+	cb_key(.Escape)
+	ct_frame(cb_declare)
+	testing.expect(t, !cb_box.open && cb_box.selected == 2, "Esc closes, unchanged")
+	testing.expect(t, niello.focused(cb_box.box_i), "focus stays on the box")
+}
+
+@(test)
+test_combo_box_type_to_jump :: proc(t: ^testing.T) {
+	cb_setup()
+	defer niello.test_teardown()
+	niello.focus(cb_box.box_i)
+	ct_frame(cb_declare)
+	ct_frame(cb_declare, text = "c")
+	testing.expect_value(t, cb_box.selected, 2) // Cherry
+	ct_frame(cb_declare, text = "B")
+	testing.expect_value(t, cb_box.selected, 1) // Banana, case-insensitive
+}
+
+@(test)
+test_combo_box_long_list_scrolls :: proc(t: ^testing.T) {
+	long: [40]string
+	for &s, k in long {
+		s = k < 10 ? "Option" : "Entry"
+	}
+	cb_setup(long[:])
+	defer niello.test_teardown()
+	niello.focus(cb_box.box_i)
+	ct_frame(cb_declare)
+	cb_key(.Space)
+	cb_key(.End)
+	for _ in 0 ..< 3 {
+		ct_frame(cb_declare)
+	}
+	list, _ := niello.rect(cb_box.list_i)
+	testing.expect(t, list.size.y <= controls.COMBO_LIST_MAX_H + 1, "the list stops at its maximum height")
+	testing.expect(t, niello.scroll_offset(cb_box.list_i).y > 0, "it scrolled to the highlight")
+}
+
+@(test)
+test_combo_box_width_and_disabled :: proc(t: ^testing.T) {
+	cb_setup()
+	defer niello.test_teardown()
+	r0, _ := niello.rect(cb_box.box_i)
+	cb_box.selected = 3
+	ct_frame(cb_declare)
+	ct_frame(cb_declare)
+	r1, _ := niello.rect(cb_box.box_i)
+	testing.expect_value(t, r1.size.x, r0.size.x) // as wide as the widest option, whatever is shown
+
+	cb_dis = true
+	ct_frame(cb_declare)
+	ct_click(cb_declare, cb_box.box_i)
+	testing.expect(t, !cb_box.open, "a disabled combo box does not open")
+}
+
+@(test)
+test_combo_box_follows_the_theme :: proc(t: ^testing.T) {
+	niello.test_reset()
+	defer niello.test_teardown()
+	ct_setup()
+	controls.apply_theme(controls.LIGHT)
+	testing.expect_value(t, niello.style_of(controls.parts.combo.list).color, controls.LIGHT.panel)
+	testing.expect_value(t, niello.style_of(controls.parts.combo.item_hot).color, controls.LIGHT.hover)
+	testing.expect_value(t, niello.style_of(controls.parts.combo.box).color, controls.LIGHT.raised)
+}
