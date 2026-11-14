@@ -141,6 +141,11 @@ when niello.NIELLO_DEBUG {
 		return s
 	}
 
+	// session_names counts the sessions opened under each name in this
+	// process (kept for the process: the heap, not the caller's allocator).
+	@(private)
+	session_names: map[string]int
+
 	@(private)
 	session_new :: proc(ctx: ^niello.Context, viewport: niello.Vec2, metrics: Metrics, name: string) -> ^Session {
 		s := new(Session)
@@ -148,9 +153,22 @@ when niello.NIELLO_DEBUG {
 		s.alloc = virtual.arena_allocator(&s.arena)
 		// The name is a folder the session clears: keep it to one plain
 		// path segment.
-		s.name = strings.clone(file_safe(name), s.alloc)
-		if s.name == "" {
-			s.name = "scenario"
+		base := file_safe(name)
+		if base == "" {
+			base = "scenario"
+		}
+		// A second session with the same name in one run (two in one
+		// test) gets its own folder, rather than clearing the first's.
+		if session_names == nil {
+			session_names = make(map[string]int, runtime.heap_allocator())
+		}
+		n := session_names[base]
+		if n == 0 {
+			session_names[strings.clone(base, runtime.heap_allocator())] = 1
+			s.name = strings.clone(base, s.alloc)
+		} else {
+			session_names[base] = n + 1
+			s.name = fmt_alloc(s, "%s-%d", base, n + 1)
 		}
 		s.ctx = ctx
 		if ctx == nil {

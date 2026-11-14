@@ -18,4 +18,7 @@ if [[ -n "${2:-}" ]]; then
 	name=$(grep -m1 -h '^package ' "$pkg"/*.odin | head -1 | awk '{print $2}')
 	args+=(-define:ODIN_TEST_NAMES="$name.$2")
 fi
-odin test "$pkg" "${args[@]}" -out:"${TMPDIR:-/tmp}/niello-agent-test"
+# A binary of its own, so runs side by side don't overwrite each other's.
+bin=$(mktemp "${TMPDIR:-/tmp}/niello-agent-XXXXXX")
+trap 'rm -f "$bin"' EXIT
+odin test "$pkg" "${args[@]}" -out:"$bin"

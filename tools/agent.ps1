@@ -21,6 +21,9 @@ if ($Scenario -ne "") {
 	$name = $line.Matches[0].Groups[1].Value
 	$odinArgs += "-define:ODIN_TEST_NAMES=$name.$Scenario"
 }
-$bin = Join-Path ([System.IO.Path]::GetTempPath()) "niello-agent-test.exe"
+# A binary of its own, so runs side by side don't overwrite each other's.
+$bin = Join-Path ([System.IO.Path]::GetTempPath()) ("niello-agent-" + [System.IO.Path]::GetRandomFileName() + ".exe")
 & odin test $Package @odinArgs "-out:$bin"
-exit $LASTEXITCODE
+$code = $LASTEXITCODE
+Remove-Item -ErrorAction SilentlyContinue $bin
+exit $code

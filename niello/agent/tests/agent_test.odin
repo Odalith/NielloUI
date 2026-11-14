@@ -206,6 +206,22 @@ when niello.NIELLO_DEBUG {
 		testing.expect_value(t, has(s2, .Truncated), 0)
 	}
 
+	// Two sessions under one name in a run get a folder each.
+	@(test)
+	test_session_names_stay_apart :: proc(t: ^testing.T) {
+		niello.test_reset()
+		defer niello.test_teardown()
+		a: Fx
+		fx_setup(&a)
+		defer fx_teardown(&a)
+		s1 := agent.session_open(fx_declare, &a, ctx = a.ctx, name = "agent-test-twice")
+		s2 := agent.session_open(fx_declare, &a, ctx = a.ctx, name = "agent-test-twice")
+		testing.expect(t, s1.dir != s2.dir, "each session has its own folder")
+		testing.expect_value(t, s2.name, "agent-test-twice-2")
+		agent.session_close(s2)
+		agent.session_close(s1)
+	}
+
 	// A control laid out with no area: here a slider whose With.size gives
 	// its track a fit() height, which measures 0.
 	@(test)

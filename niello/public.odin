@@ -2472,9 +2472,12 @@ group_tween :: proc(grp: Group, to: Unit, ms: u32, fields: Fields = ALL_FIELDS) 
 // intervening set on an untouched field is never clobbered. Repeated
 // edit calls in one frame return the same shadow. The pointer is
 // valid until frame_end; holding it across frames is a contract
-// violation.
+// violation. The shadow lives with the bound context (it applies at that
+// context's frame_end), so edit needs one: call it during a frame. Before
+// the first frame, set or set_many write a unit directly.
 edit :: proc(u: Unit) -> ^Style {
 	assert(unit_live(u), "niello.edit: unit is not minted")
+	assert(g != nil, "niello.edit: no context is bound (it applies at a context's frame_end): call it during a frame, or use set_many before the first one")
 	if es, ok := g.edits[u]; ok {
 		return &es.shadow
 	}
